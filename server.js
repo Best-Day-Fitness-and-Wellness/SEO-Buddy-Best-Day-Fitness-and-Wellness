@@ -124,6 +124,21 @@ function getGoogleAuth() {
   if (!credentialsPath) return null;
 
   try {
+    // Check if it's a raw JSON string (used for cloud deployments to avoid committing keyfiles)
+    if (credentialsPath.trim().startsWith('{')) {
+      const keys = JSON.parse(credentialsPath);
+      return new google.auth.JWT(
+        keys.client_email,
+        null,
+        keys.private_key,
+        [
+          'https://www.googleapis.com/auth/webmasters.readonly',
+          'https://www.googleapis.com/auth/indexing'
+        ],
+        null
+      );
+    }
+
     const absolutePath = path.isAbsolute(credentialsPath)
       ? credentialsPath
       : path.join(__dirname, credentialsPath);
