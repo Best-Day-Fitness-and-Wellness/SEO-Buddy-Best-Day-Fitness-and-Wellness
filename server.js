@@ -187,7 +187,7 @@ Return the HTML directly. Do not include markdown block markers like \`\`\`html.
   if (ai) {
     try {
       const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: 'gemini-3.5-flash',
         contents: prompt,
       });
 
@@ -287,13 +287,16 @@ async function publishGhlHelper(title, content, status, config = {}) {
     description,
     rawHTML: content,
     status: (status || 'draft').toUpperCase(),
-    author,
     categories: [],
     imageUrl: "",
     imageAltText: "",
     urlSlug: slug,
     publishedAt: new Date().toISOString()
   };
+
+  if (author && author !== 'default-author') {
+    payload.author = author;
+  }
 
   const response = await fetch('https://services.leadconnectorhq.com/blogs/posts', {
     method: 'POST',
