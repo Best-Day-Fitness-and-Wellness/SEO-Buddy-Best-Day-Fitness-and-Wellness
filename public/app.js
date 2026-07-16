@@ -596,4 +596,114 @@ document.addEventListener('DOMContentLoaded', () => {
     alert('Configuration saved locally in browser! Note: If you want these credentials to apply server-side automatically, write them directly into the .env file in your project folder.');
     switchTab('gsc-tab');
   });
+
+  // --- INTERACTIVE ONBOARDING WIZARD ---
+  const wizardSteps = [
+    {
+      tab: 'gsc-tab',
+      highlight: '#gsc-table',
+      title: 'Step 1: Spot the Content Gaps',
+      text: 'Google is testing your site on searches but you get 0 clicks because you lack a dedicated page. Find a keyword labeled <span class="status-badge leak" style="padding: 1px 4px; font-size: 10px;">Content Gap</span> and click <b>Generate Page</b>.'
+    },
+    {
+      tab: 'ai-tab',
+      highlight: '.creator-form-panel',
+      title: 'Step 2: Add Case Studies (E-E-A-T)',
+      text: 'Customize the <b>Information Gain / Case Study</b> box with a real client story. This tells Google’s algorithms your page is unique and highly authoritative, rather than generic AI fluff.'
+    },
+    {
+      tab: 'ai-tab',
+      highlight: '.preview-panel',
+      title: 'Step 3: Copy or Edit HTML',
+      text: 'Check the live generated draft. Toggle between <b>Visual Preview</b> and <b>Source HTML</b>. When satisfied, click <b>Copy HTML</b> and paste it directly into your GoHighLevel page builder.'
+    },
+    {
+      tab: 'publish-tab',
+      highlight: '.deploy-controls-card',
+      title: 'Step 4: Same-Day Google Indexing',
+      text: 'Once the page is live in GoHighLevel, paste its URL in the Indexing block and click <b>Submit URL for Indexing</b> to request a Google crawler scan within hours!'
+    }
+  ];
+
+  let currentWizardStep = 0;
+  const wizardWidget = document.getElementById('wizard-widget');
+  const btnStartWizard = document.getElementById('btn-start-wizard');
+  const btnCloseWizard = document.getElementById('btn-close-wizard');
+  const btnWizardBack = document.getElementById('btn-wizard-back');
+  const btnWizardNext = document.getElementById('btn-wizard-next');
+  const wizardStepText = document.getElementById('wizard-step-text');
+  const wizardProgressDots = document.getElementById('wizard-progress-dots');
+
+  btnStartWizard.addEventListener('click', startTour);
+  btnCloseWizard.addEventListener('click', endTour);
+  btnWizardBack.addEventListener('click', previousStep);
+  btnWizardNext.addEventListener('click', nextStep);
+
+  function startTour() {
+    currentWizardStep = 0;
+    wizardWidget.style.display = 'block';
+    btnStartWizard.style.display = 'none';
+    renderStep();
+  }
+
+  function endTour() {
+    wizardWidget.style.display = 'none';
+    btnStartWizard.style.display = 'flex';
+    clearHighlights();
+  }
+
+  function renderStep() {
+    clearHighlights();
+    const step = wizardSteps[currentWizardStep];
+    
+    // Switch to target tab
+    switchTab(step.tab);
+
+    // Build text
+    wizardStepText.innerHTML = `
+      <h4>${step.title}</h4>
+      <p style="font-size: 13px; color: var(--text-muted); margin-top: 5px;">${step.text}</p>
+    `;
+
+    // Render progress dots
+    wizardProgressDots.innerHTML = wizardSteps.map((_, idx) => 
+      `<span class="wizard-dot ${idx === currentWizardStep ? 'active' : ''}"></span>`
+    ).join('');
+
+    // Highlight target element if it exists
+    setTimeout(() => {
+      const el = document.querySelector(step.highlight);
+      if (el) {
+        el.classList.add('wizard-highlight');
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 150);
+
+    // Update buttons
+    btnWizardBack.disabled = (currentWizardStep === 0);
+    btnWizardNext.innerText = (currentWizardStep === wizardSteps.length - 1) ? 'Finish' : 'Next';
+  }
+
+  function nextStep() {
+    if (currentWizardStep < wizardSteps.length - 1) {
+      currentWizardStep++;
+      renderStep();
+    } else {
+      endTour();
+      alert('System tour complete! You are ready to rank your keywords!');
+    }
+  }
+
+  function previousStep() {
+    if (currentWizardStep > 0) {
+      currentWizardStep--;
+      renderStep();
+    }
+  }
+
+  function clearHighlights() {
+    document.querySelectorAll('.wizard-highlight').forEach(el => {
+      el.classList.remove('wizard-highlight');
+    });
+  }
 });

@@ -373,6 +373,41 @@
     </main>
   </div>
 
+  <!-- Onboarding Wizard Widget -->
+  <div class="wizard-container" id="wizard-widget" style="display: none;">
+    <div class="wizard-card">
+      <div class="wizard-header">
+        <div class="wizard-title-group">
+          <span class="wizard-badge">System Tour</span>
+          <h3>SEO Buddy Assistant</h3>
+        </div>
+        <button class="wizard-close-btn" id="btn-close-wizard" aria-label="Close tour">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+      <div class="wizard-body">
+        <div class="wizard-step-content" id="wizard-step-text">
+          <!-- Dynamically populated -->
+        </div>
+      </div>
+      <div class="wizard-footer">
+        <div class="wizard-progress" id="wizard-progress-dots">
+          <!-- Dynamically populated -->
+        </div>
+        <div class="wizard-nav-btns">
+          <button class="btn btn-secondary btn-xs" id="btn-wizard-back">Back</button>
+          <button class="btn btn-primary btn-xs" id="btn-wizard-next">Next</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Help Trigger Button -->
+  <button class="floating-help-trigger" id="btn-start-wizard" title="Start Onboarding Tour">
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+    <span>Quick Guide</span>
+  </button>
+
   <script src="mock-data.js"></script>
   <script src="app.js"></script>
 </body>
