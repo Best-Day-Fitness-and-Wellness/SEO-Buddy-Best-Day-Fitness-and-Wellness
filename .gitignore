@@ -1,0 +1,11 @@
+# Dependency directories
+node_modules/
+
+# Local credentials
+.env
+google-creations.json
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db

@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SEO Buddy - Total Rank System Dashboard</title>
+  <!-- Google Fonts Outfit & Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <!-- Stylesheet -->
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Background Glows -->
+  <div class="bg-glow bg-glow-1"></div>
+  <div class="bg-glow bg-glow-2"></div>
+  
+  <div class="app-container">
+    <!-- Sidebar Navigation -->
+    <aside class="sidebar">
+      <div class="logo-area">
+        <div class="logo-icon">
+          <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+          </svg>
+        </div>
+        <span class="logo-text">SEO Buddy</span>
+      </div>
+      
+      <nav class="nav-menu">
+        <button class="nav-item active" data-tab="gsc-tab" id="nav-gsc">
+          <svg viewBox="0 0 24 24" class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+            <line x1="9" y1="3" x2="9" y2="21"></line>
+            <line x1="15" y1="3" x2="15" y2="21"></line>
+            <line x1="3" y1="9" x2="21" y2="9"></line>
+            <line x1="3" y1="15" x2="21" y2="15"></line>
+          </svg>
+          GSC Content Gaps
+        </button>
+        <button class="nav-item" data-tab="ai-tab" id="nav-ai">
+          <svg viewBox="0 0 24 24" class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+          </svg>
+          AI Article Creator
+        </button>
+        <button class="nav-item" data-tab="publish-tab" id="nav-publish">
+          <svg viewBox="0 0 24 24" class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path>
+            <polyline points="16 6 12 2 8 6"></polyline>
+            <line x1="12" y1="2" x2="12" y2="15"></line>
+          </svg>
+          Publish & Index
+        </button>
+        <button class="nav-item" data-tab="settings-tab" id="nav-settings">
+          <svg viewBox="0 0 24 24" class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+          </svg>
+          API Settings
+        </button>
+      </nav>
+      
+      <div class="sidebar-footer">
+        <div class="company-badge">
+          <span class="badge-label">Active Property</span>
+          <span class="badge-name" id="display-site-url">bestdayfitness.com</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content Frame -->
+    <main class="main-content">
+      <header class="app-header">
+        <div class="header-title-section">
+          <h1 id="page-title">GSC Content Gaps</h1>
+          <p id="page-subtitle" class="text-muted">Analyze Search Console impressions and find low-click authority loops</p>
+        </div>
+        <div class="header-actions">
+          <div class="status-indicator mock" id="mode-status">
+            <span class="indicator-dot"></span>
+            <span id="mode-status-text">Mock Mode</span>
+          </div>
+        </div>
+      </header>
+
+      <!-- TAB 1: GSC CONTENT GAPS -->
+      <section class="tab-content active" id="gsc-tab">
+        <!-- Overview Stats Row -->
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-header">
+              <span class="stat-label">Identified SEO Gaps</span>
+              <div class="stat-icon-bg red">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+              </div>
+            </div>
+            <div class="stat-value" id="stat-gap-count">9</div>
+            <p class="stat-desc">High impressions, 0 clicks</p>
+          </div>
+          <div class="stat-card">
+            <div class="stat-header">
+              <span class="stat-label">Total Monthly Impressions</span>
+              <div class="stat-icon-bg blue">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+              </div>
+            </div>
+            <div class="stat-value" id="stat-total-impressions">6,310</div>
+            <p class="stat-desc">Across all tracked keywords</p>
+          </div>
+          <div class="stat-card">
+            <div class="stat-header">
+              <span class="stat-label">Organic Click-Through</span>
+              <div class="stat-icon-bg green">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+              </div>
+            </div>
+            <div class="stat-value" id="stat-avg-ctr">11.9%</div>
+            <p class="stat-desc">Concentrated on branded keywords</p>
+          </div>
+        </div>
+
+        <!-- Table Card -->
+        <div class="content-card">
+          <div class="card-header">
+            <div class="header-left">
+              <h2>Best Day Fitness SEO Leaks</h2>
+              <p class="text-muted">Keywords Google is testing your domain on, but you lack dedicated landing pages for.</p>
+            </div>
+            <div class="table-actions">
+              <button class="btn btn-secondary btn-sm filter-btn active" id="filter-leaks">Show Leaks Only</button>
+              <button class="btn btn-secondary btn-sm filter-btn" id="filter-all">Show All Keywords</button>
+              <button class="btn btn-primary btn-sm" id="btn-refresh-gsc">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"></path><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+                Sync GSC
+              </button>
+            </div>
+          </div>
+          <div class="table-container">
+            <table id="gsc-table">
+              <thead>
+                <tr>
+                  <th>Keyword / Search Query</th>
+                  <th>Impressions</th>
+                  <th>Clicks</th>
+                  <th>CTR</th>
+                  <th>Avg Position</th>
+                  <th>SEO Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="gsc-table-body">
+                <!-- Dynamically Populated -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 2: AI ARTICLE CREATOR -->
+      <section class="tab-content" id="ai-tab">
+        <div class="split-view">
+          <!-- Left: Control Panel -->
+          <div class="split-panel creator-form-panel">
+            <div class="content-card">
+              <h2>Article Configuration</h2>
+              <p class="text-muted mb-4">Feed the AI context to maximize uniqueness and information gain</p>
+              
+              <div class="form-group">
+                <label for="input-keyword">Target Keyword</label>
+                <input type="text" id="input-keyword" placeholder="e.g., senior fitness st petersburg fl" class="form-input">
+              </div>
+
+              <div class="form-group">
+                <label for="input-case-study">Information Gain / Case Study</label>
+                <textarea id="input-case-study" rows="5" class="form-input" placeholder="Example: At Best Day Fitness, we helped John (age 72) rebuild his knee stabilizer muscles barefoot, allowing him to play golf pain-free within 8 weeks. Add any real client success story here..."></textarea>
+                <small class="text-muted">Unique case studies tell Google your article isn't generic AI output.</small>
+              </div>
+
+              <div class="form-row">
+                <div class="form-group col">
+                  <label for="input-cta-text">CTA Button Text</label>
+                  <input type="text" id="input-cta-text" value="Schedule Longevity Assessment" class="form-input">
+                </div>
+                <div class="form-group col">
+                  <label for="input-cta-url">CTA Destination URL</label>
+                  <input type="text" id="input-cta-url" value="https://bestdayfitness.com/consultation" class="form-input">
+                </div>
+              </div>
+
+              <button class="btn btn-primary w-100 mt-3" id="btn-generate">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+                Generate SEO Article
+              </button>
+            </div>
+          </div>
+
+          <!-- Right: Interactive Editor & Preview -->
+          <div class="split-panel preview-panel">
+            <div class="content-card full-height-card">
+              <div class="card-header preview-header">
+                <div class="header-left">
+                  <h2>Generated Article</h2>
+                  <p class="text-muted">Review, customize, and copy the SEO page content</p>
+                </div>
+                <div class="preview-actions">
+                  <button class="btn btn-secondary btn-sm" id="btn-copy-html">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect></svg>
+                    Copy HTML
+                  </button>
+                  <button class="btn btn-secondary btn-sm" id="btn-copy-text">
+                    Copy Text
+                  </button>
+                  <button class="btn btn-primary btn-sm" id="btn-proceed-publish">
+                    Publish Page
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Tabs inside editor: Code view vs visual view -->
+              <div class="editor-tabs">
+                <button class="editor-tab active" data-editor-mode="visual">Visual Preview</button>
+                <button class="editor-tab" data-editor-mode="code">Source HTML</button>
+              </div>
+
+              <div class="editor-content-area">
+                <!-- Loader -->
+                <div class="editor-loader" id="editor-loader" style="display: none;">
+                  <div class="spinner"></div>
+                  <p>AI Coach is writing your highly-authoritative SEO article. This takes about 10-15 seconds...</p>
+                </div>
+
+                <!-- Empty State -->
+                <div class="editor-empty" id="editor-empty">
+                  <div class="empty-icon">
+                    <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                  </div>
+                  <h3>No Article Generated Yet</h3>
+                  <p class="text-muted">Select an SEO leak from the GSC Content Gaps tab, or configure details and click "Generate".</p>
+                </div>
+
+                <!-- Visual Editor Preview -->
+                <div class="visual-preview" id="visual-editor" style="display: none;" contenteditable="true">
+                  <!-- Generated content goes here -->
+                </div>
+
+                <!-- Code Editor View -->
+                <textarea class="code-editor" id="code-editor" style="display: none;" spellcheck="false"></textarea>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 3: PUBLISH AND INDEX -->
+      <section class="tab-content" id="publish-tab">
+        <div class="content-card">
+          <div class="card-header">
+            <div class="header-left">
+              <h2>Publish & Index Queue</h2>
+              <p class="text-muted">Deploy content to GoHighLevel and submit new URLs to the Google Indexing API</p>
+            </div>
+          </div>
+
+          <div class="deploy-controls-card">
+            <h3>Publish Current Article</h3>
+            <div class="deploy-grid">
+              <div class="deploy-group">
+                <label>Article Title</label>
+                <input type="text" id="deploy-title" readonly class="form-input disabled">
+              </div>
+              <div class="deploy-group">
+                <label>GHL Status</label>
+                <select id="deploy-status" class="form-input">
+                  <option value="draft">Save as Draft</option>
+                  <option value="published">Publish Immediately</option>
+                </select>
+              </div>
+              <div class="deploy-action-wrapper">
+                <button class="btn btn-primary" id="btn-publish-ghl-now">Publish to GoHighLevel</button>
+              </div>
+            </div>
+
+            <div class="indexer-box">
+              <h3>Submit to Google Indexing API</h3>
+              <p class="text-muted">Submit URL for same-day crawling to get featured in Google search results and AI Overviews instantly.</p>
+              <div class="indexer-input-row">
+                <input type="text" id="indexing-url" placeholder="e.g. https://bestdayfitness.com/blog/senior-fitness-st-petersburg" class="form-input">
+                <button class="btn btn-secondary" id="btn-index-now">Submit URL for Indexing</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- History Table -->
+          <div class="history-section mt-5">
+            <h3>Deployment History</h3>
+            <div class="table-container mt-3">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Article Title</th>
+                    <th>Keyword</th>
+                    <th>Published Platform</th>
+                    <th>Date Published</th>
+                    <th>Indexed Status</th>
+                    <th>Target Live URL</th>
+                  </tr>
+                </thead>
+                <tbody id="history-table-body">
+                  <!-- Dynamically populated from GSC / generation logs -->
+                  <tr>
+                    <td class="font-medium">The Ultimate Guide to Senior Mobility Training</td>
+                    <td><span class="keyword-tag">mobility training st pete</span></td>
+                    <td>GoHighLevel (Draft)</td>
+                    <td>2026-07-16</td>
+                    <td><span class="status-badge pending">Indexing Requested</span></td>
+                    <td><a href="https://bestdayfitness.com/blog/mobility-training-st-pete" target="_blank" class="live-link">bestdayfitness.com/...</a></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 4: API SETTINGS -->
+      <section class="tab-content" id="settings-tab">
+        <div class="content-card max-width-md">
+          <h2>Integration Settings</h2>
+          <p class="text-muted mb-4">Configure your API credentials to switch from Mock Mode to Live Operations</p>
+
+          <form id="settings-form">
+            <div class="settings-section-title">Generative AI API</div>
+            <div class="form-group">
+              <label for="settings-gemini-key">Google Gemini API Key</label>
+              <input type="password" id="settings-gemini-key" class="form-input" placeholder="AI Studio Key (leaves server env unchanged if empty)">
+              <small class="text-muted">Required for live article writing. Get one at <a href="https://aistudio.google.com/" target="_blank">Google AI Studio</a>.</small>
+            </div>
+
+            <div class="settings-section-title">GoHighLevel Integration</div>
+            <div class="form-group">
+              <label for="settings-ghl-token">GHL Access Token (Private Integration Token)</label>
+              <input type="password" id="settings-ghl-token" class="form-input" placeholder="GHL Access Token">
+            </div>
+            <div class="form-row">
+              <div class="form-group col">
+                <label for="settings-ghl-location">GHL Location ID</label>
+                <input type="text" id="settings-ghl-location" class="form-input" placeholder="Settings -> Business Profile ID">
+              </div>
+              <div class="form-group col">
+                <label for="settings-ghl-blog">GHL Blog ID</label>
+                <input type="text" id="settings-ghl-blog" class="form-input" placeholder="Target Blog Folder ID">
+              </div>
+            </div>
+
+            <div class="settings-section-title">Google APIs (Search Console & Indexing)</div>
+            <div class="form-group">
+              <label for="settings-site-url">Verified GSC Site URL</label>
+              <input type="text" id="settings-site-url" class="form-input" placeholder="e.g. https://bestdayfitness.com">
+            </div>
+            <div class="form-group">
+              <label>Service Account Credential JSON Key</label>
+              <p class="text-muted text-sm mb-2">Place your Google Cloud Service Account JSON file in the project folder named <code>google-creations.json</code>, or paste GSC credentials here.</p>
+              <textarea id="settings-gsc-json" rows="4" class="form-input" placeholder="Paste service_account JSON content here..."></textarea>
+            </div>
+
+            <button type="submit" class="btn btn-primary w-100 mt-4">Save Configuration</button>
+          </form>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="mock-data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
