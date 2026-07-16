@@ -265,7 +265,7 @@ async function publishGhlHelper(title, content, status, config = {}) {
   const locationId = config.locationId || process.env.GHL_LOCATION_ID;
   const accessToken = config.accessToken || process.env.GHL_ACCESS_TOKEN;
   const blogId = config.blogId || process.env.GHL_BLOG_ID;
-  const authorId = config.authorId || process.env.GHL_AUTHOR_ID || 'default-author';
+  const author = config.authorId || process.env.GHL_AUTHOR_ID || 'default-author';
 
   if (!accessToken || !locationId || !blogId) {
     return {
@@ -277,6 +277,24 @@ async function publishGhlHelper(title, content, status, config = {}) {
     };
   }
 
+  const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+  const description = content.replace(/<[^>]*>/g, '').substring(0, 150).trim() + '...';
+
+  const payload = {
+    locationId,
+    blogId,
+    title,
+    description,
+    rawHTML: content,
+    status: (status || 'draft').toUpperCase(),
+    author,
+    categories: [],
+    imageUrl: "",
+    imageAltText: "",
+    urlSlug: slug,
+    publishedAt: new Date().toISOString()
+  };
+
   const response = await fetch('https://services.leadconnectorhq.com/blogs/posts', {
     method: 'POST',
     headers: {
@@ -284,14 +302,7 @@ async function publishGhlHelper(title, content, status, config = {}) {
       'Version': '2021-04-15',
       'Content-Type': 'application/json'
     },
-    body: JSON.stringify({
-      title,
-      content,
-      blogId,
-      locationId,
-      authorId,
-      status: status || 'draft'
-    })
+    body: JSON.stringify(payload)
   });
 
   const data = await response.json();
