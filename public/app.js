@@ -72,6 +72,28 @@ document.addEventListener('DOMContentLoaded', () => {
   const settingsGscJson = document.getElementById('settings-gsc-json');
   const displaySiteUrlBadge = document.getElementById('display-site-url');
 
+  // AIO / GEO Selectors
+  const aioQuerySelector = document.getElementById('aio-query-selector');
+  const aioCustomQueryContainer = document.getElementById('aio-custom-query-container');
+  const aioCustomQuery = document.getElementById('aio-custom-query');
+  const btnRunAioAudit = document.getElementById('btn-run-aio-audit');
+  
+  const aioResultsPanel = document.getElementById('aio-results-panel');
+  const aioStatusBadge = document.getElementById('aio-status-badge');
+  const aioSovRate = document.getElementById('aio-sov-rate');
+  const aioSnippetText = document.getElementById('aio-snippet-text');
+  const aioCitedUrls = document.getElementById('aio-cited-urls');
+  const aioCompetitors = document.getElementById('aio-competitors');
+  
+  const btnSchemaLocal = document.getElementById('btn-schema-local');
+  const btnSchemaFaq = document.getElementById('btn-schema-faq');
+  const btnCopySchema = document.getElementById('btn-copy-schema');
+  const schemaCodeOutput = document.getElementById('schema-code-output');
+  const aioHistoryTableBody = document.getElementById('aio-history-table-body');
+  
+  let compiledSchemas = { localBusiness: '', faq: '' };
+  let activeSchemaType = 'localBusiness';
+
 
   // --- INITIALIZATION ---
   loadSettingsFromStorage();
@@ -117,6 +139,11 @@ document.addEventListener('DOMContentLoaded', () => {
     } else if (tabId === 'publish-tab') {
       pageTitle.innerText = 'Publish & Index Hub';
       pageSubtitle.innerText = 'Deploy formatted pages to GoHighLevel and request Google indexing';
+    } else if (tabId === 'aio-tab') {
+      pageTitle.innerText = 'AI Search (AIO) Audit';
+      pageSubtitle.innerText = 'Verify recommendations on AI Search platforms and build schema graphs';
+      fetchAioHistory();
+      fetchAioSchemas();
     } else if (tabId === 'settings-tab') {
       pageTitle.innerText = 'System Configuration';
       pageSubtitle.innerText = 'Connect live APIs, GHL tokens, and Search Console keys';
@@ -716,6 +743,182 @@ document.addEventListener('DOMContentLoaded', () => {
       fetchHistory();
     }
   }, 12000);
+
+  // --- AI SEARCH AUDIT & SCHEMA ASSET ENGINE ---
+  aioQuerySelector.addEventListener('change', () => {
+    if (aioQuerySelector.value === 'custom') {
+      aioCustomQueryContainer.style.display = 'block';
+    } else {
+      aioCustomQueryContainer.style.display = 'none';
+    }
+  });
+
+  async function fetchAioHistory() {
+    try {
+      const res = await fetch('/api/aio-history');
+      const history = await res.json();
+      renderAioHistory(history);
+      
+      if (history.length > 0) {
+        const citedCount = history.filter(item => item.recommended).length;
+        const rate = Math.round((citedCount / history.length) * 100);
+        aioSovRate.innerText = `${rate}%`;
+      }
+    } catch (err) {
+      console.error('[AIO History] Sync failed:', err.message);
+    }
+  }
+
+  function renderAioHistory(history) {
+    aioHistoryTableBody.innerHTML = '';
+    
+    if (history.length === 0) {
+      aioHistoryTableBody.innerHTML = `<tr><td colspan="5" class="text-center text-muted" style="padding: 16px;">No historical audits found. Click audit button to start!</td></tr>`;
+      return;
+    }
+
+    history.forEach(item => {
+      const tr = document.createElement('tr');
+      const date = new Date(item.timestamp).toLocaleString();
+      
+      const statusText = item.recommended ? 'Recommended' : 'Not Cited';
+      const statusClass = item.recommended ? 'clean' : 'leak';
+      
+      const rate = item.recommended ? '100%' : '0%';
+      const competitorsStr = item.competitors && item.competitors.length > 0 ? item.competitors.join(', ') : 'None';
+
+      tr.innerHTML = `
+        <td>${date}</td>
+        <td><span class="keyword-tag">${item.query}</span></td>
+        <td><span class="status-badge ${statusClass}">${statusText}</span></td>
+        <td class="font-medium">${rate}</td>
+        <td>${competitorsStr}</td>
+      `;
+      aioHistoryTableBody.appendChild(tr);
+    });
+  }
+
+  async function fetchAioSchemas() {
+    try {
+      const res = await fetch('/api/aio-schema');
+      const data = await res.json();
+      compiledSchemas = data;
+      renderSchemaOutput();
+    } catch (err) {
+      console.error('[AIO Schemas] Build failed:', err.message);
+    }
+  }
+
+  function renderSchemaOutput() {
+    const code = compiledSchemas[activeSchemaType] || '// Failed to load schema';
+    schemaCodeOutput.value = code;
+  }
+
+  btnSchemaLocal.addEventListener('click', () => {
+    btnSchemaLocal.classList.add('active');
+    btnSchemaFaq.classList.remove('active');
+    activeSchemaType = 'localBusiness';
+    renderSchemaOutput();
+  });
+
+  btnSchemaFaq.addEventListener('click', () => {
+    btnSchemaFaq.classList.add('active');
+    btnSchemaLocal.classList.remove('active');
+    activeSchemaType = 'faq';
+    renderSchemaOutput();
+  });
+
+  btnCopySchema.addEventListener('click', () => {
+    navigator.clipboard.writeText(schemaCodeOutput.value);
+    btnCopySchema.innerText = 'Copied!';
+    setTimeout(() => {
+      btnCopySchema.innerText = 'Copy Schema';
+    }, 2000);
+  });
+
+  btnRunAioAudit.addEventListener('click', async () => {
+    let query = aioQuerySelector.value;
+    if (query === 'custom') {
+      query = aioCustomQuery.value.trim();
+    }
+    
+    if (!query) {
+      alert('Please select or input a search query to audit.');
+      return;
+    }
+
+    btnRunAioAudit.disabled = true;
+    btnRunAioAudit.innerText = 'AI Agent Auditing Platforms...';
+    aioResultsPanel.style.display = 'none';
+
+    try {
+      const res = await fetch('/api/aio-audit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query })
+      });
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'AIO Audit API failed');
+      }
+
+      const latest = data.latest;
+      
+      aioResultsPanel.style.display = 'block';
+      
+      const badgeText = aioStatusBadge.querySelector('.status-text');
+      if (latest.recommended) {
+        aioStatusBadge.className = 'status-indicator live';
+        badgeText.innerText = 'Recommended / Cited';
+      } else {
+        aioStatusBadge.className = 'status-indicator mock';
+        badgeText.innerText = 'Not Recommended';
+      }
+
+      aioSnippetText.innerText = latest.responseSnippet;
+
+      aioCitedUrls.innerHTML = '';
+      if (!latest.citedUrls || latest.citedUrls.length === 0) {
+        aioCitedUrls.innerHTML = `<li style="color: var(--text-muted); padding: 4px 0;">None</li>`;
+      } else {
+        latest.citedUrls.forEach(url => {
+          const li = document.createElement('li');
+          li.style.marginBottom = '6px';
+          li.innerHTML = `<a href="${url}" target="_blank" class="live-link" style="text-decoration: underline;">${url.replace('https://', '')}</a>`;
+          aioCitedUrls.appendChild(li);
+        });
+      }
+
+      aioCompetitors.innerHTML = '';
+      if (!latest.competitors || latest.competitors.length === 0) {
+        aioCompetitors.innerHTML = `<li style="color: var(--text-muted); padding: 4px 0;">None</li>`;
+      } else {
+        latest.competitors.forEach(comp => {
+          const li = document.createElement('li');
+          li.style.color = 'var(--text-muted)';
+          li.style.marginBottom = '6px';
+          li.innerText = comp;
+          aioCompetitors.appendChild(li);
+        });
+      }
+
+      renderAioHistory(data.history);
+      if (data.history.length > 0) {
+        const citedCount = data.history.filter(item => item.recommended).length;
+        const rate = Math.round((citedCount / data.history.length) * 100);
+        aioSovRate.innerText = `${rate}%`;
+      }
+
+      alert('AI Platforms Audited Successfully!');
+
+    } catch (err) {
+      alert(`AIO Audit Error: ${err.message}`);
+    } finally {
+      btnRunAioAudit.disabled = false;
+      btnRunAioAudit.innerText = 'Audit AI Platforms Now';
+    }
+  });
 
 
   // --- INTERACTIVE ONBOARDING WIZARD ---

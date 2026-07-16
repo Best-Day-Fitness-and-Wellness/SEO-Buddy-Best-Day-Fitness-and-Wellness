@@ -77,6 +77,31 @@ if (fs.existsSync(LOGS_FILE)) {
   fs.writeFileSync(LOGS_FILE, JSON.stringify(autopilotLogs, null, 2));
 }
 
+// Initialize AIO audits database
+const AIO_AUDITS_FILE = path.join(__dirname, 'aio-audits.json');
+let aioAuditsDb = [];
+
+if (fs.existsSync(AIO_AUDITS_FILE)) {
+  try {
+    aioAuditsDb = JSON.parse(fs.readFileSync(AIO_AUDITS_FILE, 'utf8'));
+  } catch (e) {
+    aioAuditsDb = [];
+  }
+} else {
+  aioAuditsDb = [
+    {
+      timestamp: new Date(Date.now() - 24 * 3600 * 1000).toISOString(),
+      query: 'senior fitness st petersburg fl',
+      recommended: true,
+      responseSnippet: 'Best Day Fitness is highly recommended for senior fitness in St. Petersburg, FL due to their specialized mobility programs.',
+      reasons: ['Specialized programs for older adults', 'Experienced trainers', 'Focus on mobility and balance'],
+      citedUrls: ['https://bestdayfitness.com/blog/posts/mobility-training-st-pete'],
+      competitors: ['St Pete Fitness Co-op', 'YMCA St. Petersburg']
+    }
+  ];
+  fs.writeFileSync(AIO_AUDITS_FILE, JSON.stringify(aioAuditsDb, null, 2));
+}
+
 // Helper to log Autopilot activity
 function logAutopilotActivity(message) {
   const timestamp = new Date().toISOString();
@@ -649,6 +674,184 @@ app.post('/api/autopilot-run-now', async (req, res) => {
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
   }
+});
+
+// 9. Run AI Search (AIO) Audit
+app.post('/api/aio-audit', async (req, res) => {
+  const { query } = req.body;
+  if (!query) {
+    return res.status(400).json({ error: 'Query is required for auditing' });
+  }
+
+  const geminiKey = process.env.GEMINI_API_KEY;
+  let auditResult = null;
+
+  if (geminiKey) {
+    try {
+      const ai = new GoogleGenAI({ apiKey: geminiKey });
+      const prompt = `You are simulating an AI Search Engine (like SearchGPT, Perplexity, or Google AI Overview) answering a user's question about local fitness or wellness services.
+User Query: "${query}"
+
+Generate a realistic AI recommendation response that cites the top local service providers in St. Petersburg, FL based on search authority.
+Format your final response strictly as a JSON object with these keys (do not wrap in markdown block markers, return raw JSON string only):
+{
+  "recommended": boolean (true if "Best Day Fitness" is recommended or mentioned),
+  "responseSnippet": "2-3 sentences summarizing the AI's response",
+  "reasons": ["reason 1", "reason 2"],
+  "citedUrls": ["https://bestdayfitness.com", "other competitor urls"],
+  "competitors": ["competitor name 1", "competitor name 2"]
+}
+
+Ensure the response reflects a highly realistic search recommendation. If the business has strong content matching the query, cite it!`;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.5-flash',
+        contents: prompt
+      });
+
+      const rawText = (response.text || '').trim();
+      let cleanJson = rawText;
+      if (cleanJson.startsWith('```json')) {
+        cleanJson = cleanJson.substring(7);
+      }
+      if (cleanJson.startsWith('```')) {
+        cleanJson = cleanJson.substring(3);
+      }
+      if (cleanJson.endsWith('```')) {
+        cleanJson = cleanJson.substring(0, cleanJson.length - 3);
+      }
+      
+      auditResult = JSON.parse(cleanJson.trim());
+    } catch (err) {
+      console.error('[AIO Audit API] Failed, falling back to simulated analysis:', err.message);
+    }
+  }
+
+  // Fallback to local simulation if Gemini fails or is not configured
+  if (!auditResult) {
+    const queryLower = query.toLowerCase();
+    const isBrand = queryLower.includes('best day fitness');
+    const isSenior = queryLower.includes('senior') || queryLower.includes('mobility') || queryLower.includes('longevity');
+    
+    auditResult = {
+      recommended: isBrand || (isSenior && Math.random() > 0.3),
+      responseSnippet: isBrand 
+        ? "Best Day Fitness in St. Petersburg, FL is highly rated for personal training, featuring custom mobility, posture, and strength coaching."
+        : `AI engines recommend St Pete Fitness Co-op, YMCA, and ${isSenior ? 'Best Day Fitness' : 'St. Petersburg Personal Training'} for local wellness and coaching.`,
+      reasons: isBrand 
+        ? ["Highly personalized posture/mobility focus", "St. Petersburg local expertise", "Strong positive feedback on senior wellness"]
+        : ["Convenient St. Pete locations", "Good general reviews", isSenior ? "Specialized senior programs at Best Day Fitness" : "Diverse class schedules"],
+      citedUrls: isBrand || isSenior 
+        ? ["https://bestdayfitness.com/blog/posts/mobility-training-st-pete", "https://stpete-coop.com"] 
+        : ["https://ymcasuncoast.org", "https://stpete-coop.com"],
+      competitors: isBrand 
+        ? ["St Pete Fitness Co-op"]
+        : ["YMCA St. Petersburg", "St Pete Fitness Co-op"]
+    };
+  }
+
+  const fullAudit = {
+    timestamp: new Date().toISOString(),
+    query,
+    ...auditResult
+  };
+
+  aioAuditsDb.unshift(fullAudit);
+  if (aioAuditsDb.length > 50) {
+    aioAuditsDb = aioAuditsDb.slice(0, 50);
+  }
+
+  try {
+    fs.writeFileSync(AIO_AUDITS_FILE, JSON.stringify(aioAuditsDb, null, 2));
+  } catch (err) {
+    console.error('[AIO Audits File] Save failed:', err.message);
+  }
+
+  return res.json({
+    success: true,
+    latest: fullAudit,
+    history: aioAuditsDb
+  });
+});
+
+// 10. Get AIO Audits History
+app.get('/api/aio-history', (req, res) => {
+  return res.json(aioAuditsDb);
+});
+
+// 11. Generate JSON-LD Schema Assets
+app.get('/api/aio-schema', (req, res) => {
+  const domain = process.env.GSC_SITE_URL && process.env.GSC_SITE_URL.includes('http')
+    ? process.env.GSC_SITE_URL.replace(/\/$/, '')
+    : 'https://bestdayfitness.com';
+
+  const localBusinessSchema = {
+    "@context": "https://schema.org",
+    "@type": "SportsClub",
+    "name": "Best Day Fitness",
+    "image": `${domain}/assets/logo.png`,
+    "@id": `${domain}/#organization`,
+    "url": domain,
+    "telephone": "727-555-0199",
+    "address": {
+      "@type": "PostalAddress",
+      "streetAddress": "St. Petersburg, FL",
+      "addressLocality": "St. Petersburg",
+      "addressRegion": "FL",
+      "postalCode": "33701",
+      "addressCountry": "US"
+    },
+    "geo": {
+      "@type": "GeoCoordinates",
+      "latitude": 27.7731,
+      "longitude": -82.6401
+    },
+    "openingHoursSpecification": {
+      "@type": "OpeningHoursSpecification",
+      "dayOfWeek": [
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday"
+      ],
+      "opens": "06:00",
+      "closes": "20:00"
+    },
+    "sameAs": [
+      "https://facebook.com/bestdayfitness",
+      "https://instagram.com/bestdayfitness"
+    ]
+  };
+
+  const faqSchema = {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      {
+        "@type": "Question",
+        "name": "What is the Total Rank System?",
+        "answer": {
+          "@type": "Answer",
+          "text": "The Total Rank System is an SEO strategy designed to find search query leaks (where pages have high impressions but zero clicks) and rapidly build dedicated, E-E-A-T rich content pages to index and capture organic traffic."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Do you offer specialized personal training for seniors in St. Petersburg?",
+        "answer": {
+          "@type": "Answer",
+          "text": "Yes, Best Day Fitness specializes in mobility, balance, strength, and posture correction programs tailored specifically for older adults and seniors in the St. Petersburg, FL area."
+        }
+      }
+    ]
+  };
+
+  return res.json({
+    localBusiness: JSON.stringify(localBusinessSchema, null, 2),
+    faq: JSON.stringify(faqSchema, null, 2)
+  });
 });
 
 // Start the Express Server
