@@ -54,7 +54,7 @@ if (fs.existsSync(HISTORY_FILE)) {
       platform: 'GoHighLevel (Draft)',
       date: '2026-07-16',
       indexed: 'Indexing Requested',
-      url: 'https://bestdayfitness.com/blog/mobility-training-st-pete'
+      url: 'https://bestdayfitness.com/blog/posts/mobility-training-st-pete'
     }
   ];
   fs.writeFileSync(HISTORY_FILE, JSON.stringify(historyDb, null, 2));
@@ -272,7 +272,7 @@ async function publishGhlHelper(title, content, status, config = {}) {
       success: true,
       source: 'mock_ghl',
       postId: `mock-post-${Date.now()}`,
-      url: `https://bestdayfitness.com/blog/${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
+      url: `https://bestdayfitness.com/blog/posts/${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
       message: 'Article saved in mock mode. Setup GHL keys to go live!'
     };
   }
@@ -318,7 +318,7 @@ async function publishGhlHelper(title, content, status, config = {}) {
     success: true,
     source: 'live_ghl',
     postId: data.id || data.postId,
-    url: data.url || `https://bestdayfitness.com/blog/${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
+    url: data.url || `https://bestdayfitness.com/blog/posts/${slug}`,
     message: 'Article successfully published to GoHighLevel!'
   };
 }

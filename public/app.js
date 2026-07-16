@@ -14,7 +14,7 @@ document.addEventListener('DOMContentLoaded', () => {
         platform: 'GoHighLevel (Draft)',
         date: '2026-07-16',
         indexed: 'Indexing Requested',
-        url: 'https://bestdayfitness.com/blog/mobility-training-st-pete'
+        url: 'https://bestdayfitness.com/blog/posts/mobility-training-st-pete'
       }
     ]
   };
@@ -687,6 +687,10 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       const res = await fetch('/api/autopilot-run-now', { method: 'POST' });
       const data = await res.json();
+      
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Server error during autopilot run');
+      }
       
       alert(data.message);
       
