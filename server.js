@@ -22,12 +22,81 @@ let ai = null;
 if (process.env.GEMINI_API_KEY) {
   try {
     ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-    console.log('[Gemini SDK] Initialized successfully.');
+    console.log('[Gemini SDK] Autopilot ready. Initialized successfully.');
   } catch (error) {
     console.error('[Gemini SDK] Initialization failed:', error.message);
   }
 } else {
   console.log('[Gemini SDK] No GEMINI_API_KEY found in .env. Running in Mock generation mode.');
+}
+
+// ----------------------------------------------------
+// Persistent JSON Database Configuration
+// ----------------------------------------------------
+const HISTORY_FILE = path.join(__dirname, 'history.json');
+const LOGS_FILE = path.join(__dirname, 'autopilot-logs.json');
+
+let historyDb = [];
+let autopilotLogs = [];
+
+// Initialize history database
+if (fs.existsSync(HISTORY_FILE)) {
+  try {
+    historyDb = JSON.parse(fs.readFileSync(HISTORY_FILE, 'utf8'));
+  } catch (e) {
+    historyDb = [];
+  }
+} else {
+  historyDb = [
+    {
+      title: 'The Ultimate Guide to Senior Mobility Training',
+      keyword: 'mobility training st pete',
+      platform: 'GoHighLevel (Draft)',
+      date: '2026-07-16',
+      indexed: 'Indexing Requested',
+      url: 'https://bestdayfitness.com/blog/mobility-training-st-pete'
+    }
+  ];
+  fs.writeFileSync(HISTORY_FILE, JSON.stringify(historyDb, null, 2));
+}
+
+// Initialize autopilot logs database
+if (fs.existsSync(LOGS_FILE)) {
+  try {
+    autopilotLogs = JSON.parse(fs.readFileSync(LOGS_FILE, 'utf8'));
+  } catch (e) {
+    autopilotLogs = [];
+  }
+} else {
+  autopilotLogs = [
+    {
+      timestamp: new Date().toISOString(),
+      message: 'Autopilot Agent initialized. Standing by.'
+    }
+  ];
+  fs.writeFileSync(LOGS_FILE, JSON.stringify(autopilotLogs, null, 2));
+}
+
+// Helper to log Autopilot activity
+function logAutopilotActivity(message) {
+  const timestamp = new Date().toISOString();
+  autopilotLogs.unshift({ timestamp, message });
+  if (autopilotLogs.length > 100) autopilotLogs.pop(); // Cap at 100 logs
+  try {
+    fs.writeFileSync(LOGS_FILE, JSON.stringify(autopilotLogs, null, 2));
+  } catch (err) {
+    console.error('[Logs File] Failed to write logs:', err.message);
+  }
+  console.log(`[Autopilot Agent] ${message}`);
+}
+
+// Helper to save history
+function saveHistory() {
+  try {
+    fs.writeFileSync(HISTORY_FILE, JSON.stringify(historyDb, null, 2));
+  } catch (err) {
+    console.error('[History File] Failed to save history:', err.message);
+  }
 }
 
 // ----------------------------------------------------
@@ -47,7 +116,9 @@ const MOCK_GSC_DATA = [
   { query: 'co-op gym for wellness professionals st pete', impressions: 290, clicks: 0, ctr: 0, position: 16.5, leak: true }
 ];
 
-// Helper to check for Service Account credentials
+// ----------------------------------------------------
+// Google API Helpers
+// ----------------------------------------------------
 function getGoogleAuth() {
   const credentialsPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
   if (!credentialsPath) return null;
@@ -73,74 +144,11 @@ function getGoogleAuth() {
 }
 
 // ----------------------------------------------------
-// Endpoints
+// Reusable Core Service Helpers
 // ----------------------------------------------------
 
-// 1. Fetch Google Search Console Data (Mock fallback)
-app.get('/api/gsc-data', async (req, res) => {
-  const auth = getGoogleAuth();
-  const siteUrl = process.env.GSC_SITE_URL;
-
-  if (auth && siteUrl) {
-    try {
-      console.log(`[GSC API] Attempting to query site: ${siteUrl}`);
-      const webmasters = google.webmasters({ version: 'v3', auth: auth });
-      
-      // Query Search Console data for the last 30 days
-      const today = new Date().toISOString().split('T')[0];
-      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-
-      const response = await webmasters.searchanalytics.query({
-        siteUrl: siteUrl,
-        requestBody: {
-          startDate: thirtyDaysAgo,
-          endDate: today,
-          dimensions: ['query'],
-          rowLimit: 100
-        }
-      });
-
-      if (response.data.rows && response.data.rows.length > 0) {
-        const rows = response.data.rows.map(row => {
-          const impressions = row.impressions || 0;
-          const clicks = row.clicks || 0;
-          const ctr = row.ctr ? parseFloat((row.ctr * 100).toFixed(2)) : 0;
-          const position = row.keys ? parseFloat((row.position).toFixed(1)) : 0;
-          const query = row.keys ? row.keys[0] : '';
-          
-          // An SEO leak is defined as a query getting substantial impressions but 0 or near 0 clicks, 
-          // ranking on page 2 or late page 1 (position > 7)
-          const leak = clicks === 0 && impressions > 10;
-
-          return { query, impressions, clicks, ctr, position, leak };
-        });
-
-        // Sort: leaks first, then highest impressions
-        rows.sort((a, b) => {
-          if (a.leak && !b.leak) return -1;
-          if (!a.leak && b.leak) return 1;
-          return b.impressions - a.impressions;
-        });
-
-        return res.json({ source: 'live_gsc', data: rows });
-      }
-    } catch (error) {
-      console.error('[GSC API] Failed to fetch live GSC data. Falling back to Mock data. Error:', error.message);
-    }
-  }
-
-  // Fallback to mock data if credentials or site URL are not set, or GSC API fails
-  return res.json({ source: 'mock_data', data: MOCK_GSC_DATA });
-});
-
-// 2. Generate SEO-optimized Blog Article using Gemini API
-app.post('/api/generate-article', async (req, res) => {
-  const { keyword, caseStudy, ctaText, ctaUrl } = req.body;
-
-  if (!keyword) {
-    return res.status(404).json({ error: 'Keyword is required' });
-  }
-
+// 1. Generation Helper
+async function generateArticleHelper(keyword, caseStudy, ctaText, ctaUrl) {
   const prompt = `Write a high-quality, professional, and SEO-optimized blog article targeting the keyword: "${keyword}".
 The article is for a business called "Best Day Fitness", a specialized longevity, mobility, and functional movement training gym in St. Petersburg, Florida. Their focus is adults 50+, seniors, and people recovering from injuries, with a core philosophy of: Energy = Mobility + Posture + Strength.
 
@@ -161,18 +169,14 @@ Follow these strict structural and formatting guidelines to ensure maximum Googl
 
 Return the HTML directly. Do not include markdown block markers like \`\`\`html.`;
 
-  // Check if we are running in Mock or Live mode
   if (ai) {
     try {
-      console.log(`[Gemini API] Generating article for keyword: "${keyword}"`);
       const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
         contents: prompt,
       });
 
       const rawText = response.text || '';
-      
-      // Clean up markdown markers if Gemini returned them
       let htmlContent = rawText;
       if (htmlContent.startsWith('```html')) {
         htmlContent = htmlContent.substring(7);
@@ -182,7 +186,6 @@ Return the HTML directly. Do not include markdown block markers like \`\`\`html.
       }
       htmlContent = htmlContent.trim();
 
-      // Extract a Title from H1 if present, otherwise generate one
       let title = `Ultimate Guide to ${keyword}`;
       const h1Match = htmlContent.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
       if (h1Match && h1Match[1]) {
@@ -191,234 +194,432 @@ Return the HTML directly. Do not include markdown block markers like \`\`\`html.
 
       const slug = keyword.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 
-      return res.json({
+      return {
         success: true,
         source: 'live_gemini',
         title,
         slug,
         content: htmlContent
-      });
-
-    } catch (error) {
-      console.error('[Gemini API] Generation failed. Falling back to mock generator. Error:', error.message);
+      };
+    } catch (err) {
+      console.error('[Service Helper] Gemini generation failed:', err.message);
     }
   }
 
-  // Fallback / Mock article generator
-  console.log(`[Mock Generator] Creating mock article for keyword: "${keyword}"`);
+  // Mock Fallback
   const title = `The Ultimate Guide to ${keyword.charAt(0).toUpperCase() + keyword.slice(1)} | Best Day Fitness`;
   const slug = keyword.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
-  
   const mockHtml = `<div class="seo-article-content">
   <h1>The Ultimate Guide to ${keyword.charAt(0).toUpperCase() + keyword.slice(1)}</h1>
-  <p>Are you looking to improve your quality of life, regain independence, and move without pain? At <strong>Best Day Fitness</strong> in St. Petersburg, Florida, we believe that fitness isn't just about intense workouts—it's about functional movement that extends your healthspan. This guide explores how targeting <strong>${keyword}</strong> can help you achieve your wellness goals.</p>
-
-  <h2>Understanding ${keyword.charAt(0).toUpperCase() + keyword.slice(1)} for Longevity</h2>
-  <p>As we age, our bodies experience natural shifts. However, pain, lack of balance, and stiffness do not have to be a normal part of getting older. Focus on movement quality, posture, and core strength forms the cornerstone of longevity. This is why specialized training targeting <em>${keyword}</em> is so crucial.</p>
-
-  <h3>Our Core Philosophy: Energy = Mobility + Posture + Strength</h3>
-  <p>Unlike open commercial gyms that leave you to figure exercises out on your own, our trainer-led programs ensure you perform every movement safely. Our philosophy focuses on three pillars:</p>
+  <p>At <strong>Best Day Fitness</strong> in St. Petersburg, Florida, we believe in functional movement that extends healthspan. This guide explores targeting <strong>${keyword}</strong> to improve mobility and posture.</p>
+  <h2>Why ${keyword.charAt(0).toUpperCase() + keyword.slice(1)} Matters</h2>
+  <p>Our formula: Energy = Mobility + Posture + Strength helps seniors stay active and pain-free.</p>
+  <h3>Key Benefits</h3>
   <ul>
-    <li><strong>Mobility:</strong> Restoring the natural range of motion in your joints.</li>
-    <li><strong>Posture:</strong> Re-aligning the spine to reduce stress on your hips, knees, and back.</li>
-    <li><strong>Strength:</strong> Developing functional muscles that support daily tasks like carrying groceries or standing up easily.</li>
+    <li>Regained Joint Mobility</li>
+    <li>Improved Postural Support</li>
+    <li>Foot and Balance Stabilization</li>
   </ul>
-
-  <h2>Step-by-Step Exercise Routine for ${keyword.charAt(0).toUpperCase() + keyword.slice(1)}</h2>
-  <p>Here is a basic daily routine designed by our St. Petersburg personal trainers to safely build your foundation:</p>
-  <ol>
-    <li><strong>Gentle Joint Mobility (5 Mins):</strong> Perform slow shoulder rolls, neck rotations, and ankle circles to warm up the joints.</li>
-    <li><strong>Supported Squats (10 Reps):</strong> Hold onto a sturdy rail or chair. Slowly lower your hips as if sitting down, keeping your chest tall, then push through your heels to stand.</li>
-    <li><strong>Wall Posture Alignment (2 Mins):</strong> Stand with your heels, glutes, upper back, and head gently touching a flat wall. Breathe deeply, focusing on core engagement.</li>
-    <li><strong>Barefoot Balance Hold (1 Min per side):</strong> Standing near a support, lift one foot slightly and hold. Training barefoot strengthens the stabilizers in your feet and ankles, crucial for balance.</li>
-  </ol>
-
-  <h2>How Best Day Fitness Compares to Traditional Gyms</h2>
-  <p>If you've been hesitant to join a gym, it helps to understand how a specialized senior mobility center differs from an open commercial fitness facility:</p>
-  
-  <table>
-    <thead>
-      <tr>
-        <th>Feature</th>
-        <th>Best Day Fitness Co-Op</th>
-        <th>Traditional Commercial Gyms</th>
-      </tr>
-    </thead>
-    <tbody>
-      <tr>
-        <td><strong>Environment</strong></td>
-        <td>Quiet, private, specialized equipment, barefoot-friendly</td>
-        <td>Loud, crowded, intimidating, heavy machines only</td>
-      </tr>
-      <tr>
-        <td><strong>Guidance</strong></td>
-        <td>100% trainer-led, small groups (max 8) or 1-on-1</td>
-        <td>Self-directed, no supervision, high injury risk</td>
-      </tr>
-      <tr>
-        <td><strong>Approach</strong></td>
-        <td>Longevity, joint safety, posture, balance</td>
-        <td>High-intensity, weight loss, muscle building</td>
-      </tr>
-      <tr>
-        <td><strong>Coordinated Care</strong></td>
-        <td>Integration with physical therapists & massage coaches</td>
-        <td>None</td>
-      </tr>
-    </tbody>
-  </table>
-
-  <h2>Case Study: Success with ${keyword.charAt(0).toUpperCase() + keyword.slice(1)}</h2>
+  <h2>Case Study</h2>
   <div class="case-study-box">
-    <h4>Client Spotlight</h4>
-    <p>${caseStudy || "One of our St. Pete clients, age 68, joined Best Day Fitness after recovering from hip replacement surgery. Through a tailored balance and mobility program, they went from using a cane to walking barefoot comfortably in our studio and hiking on weekends. This is the power of trainer-led movement."}</p>
+    <h4>Success Story</h4>
+    <p>${caseStudy || "We helped a local client recover balance and core stability, eliminating their fear of falling."}</p>
   </div>
-
-  <h2>Take the First Step to Your Best Day</h2>
   <div class="cta-section">
-    <p>Ready to experience the Best Day difference? Schedule a consultation with our fitness and physical therapy experts in St. Petersburg today. We will assess your balance, gait, posture, and strength to map out a safe, custom program.</p>
-    <a href="${ctaUrl || 'https://bestdayfitness.com/consultation'}" class="article-cta-btn">${ctaText || 'Claim Your Free Consultation'}</a>
+    <p>Get started on your custom program today.</p>
+    <a href="${ctaUrl || '#'}" class="article-cta-btn">${ctaText || 'Claim Free Consultation'}</a>
   </div>
-
-  <p>Explore more wellness insights in our articles on [Link: Senior Fitness St Petersburg] and [Link: Posture Correction Exercises].</p>
-
   <h2>Frequently Asked Questions</h2>
   <div class="faq-item">
-    <strong>Q: How often should I practice mobility training?</strong>
-    <p>A: Ideally, mobility and posture alignment exercises should be practiced daily for 10-15 minutes, or in structured sessions 2-3 times per week.</p>
-  </div>
-  <div class="faq-item">
-    <strong>Q: Do I need fitness experience to join Best Day Fitness?</strong>
-    <p>A: Not at all. Most of our clients are seniors, active adults, or people recovering from injuries who prefer a private, non-intimidating, and supervised setting.</p>
-  </div>
-  <div class="faq-item">
-    <strong>Q: Why is training barefoot recommended?</strong>
-    <p>A: Barefoot training stimulates the sensory receptors in the feet, improves ankle stability, strengthens foot arches, and significantly enhances balance, helping prevent falls.</p>
+    <strong>Q: How long does it take to see results?</strong>
+    <p>A: Most clients experience improved mobility and less stiffness within 4-6 weeks of consistent sessions.</p>
   </div>
 </div>`;
 
-  return res.json({
+  return {
     success: true,
     source: 'mock_generator',
     title,
     slug,
     content: mockHtml
-  });
-});
+  };
+}
 
-// 3. Publish to GoHighLevel Blog API
-app.post('/api/publish-ghl', async (req, res) => {
-  const { title, content, status } = req.body;
-  const locationId = process.env.GHL_LOCATION_ID || req.body.locationId;
-  const accessToken = process.env.GHL_ACCESS_TOKEN || req.body.accessToken;
-  const blogId = process.env.GHL_BLOG_ID || req.body.blogId;
-  const authorId = process.env.GHL_AUTHOR_ID || req.body.authorId || 'default-author';
+// 2. GoHighLevel Publishing Helper
+async function publishGhlHelper(title, content, status, config = {}) {
+  const locationId = config.locationId || process.env.GHL_LOCATION_ID;
+  const accessToken = config.accessToken || process.env.GHL_ACCESS_TOKEN;
+  const blogId = config.blogId || process.env.GHL_BLOG_ID;
+  const authorId = config.authorId || process.env.GHL_AUTHOR_ID || 'default-author';
 
-  if (!title || !content) {
-    return res.status(400).json({ error: 'Title and content are required' });
-  }
-
-  // If GHL API credentials are not set, return a simulated successful response (Mock Mode)
   if (!accessToken || !locationId || !blogId) {
-    console.log('[GHL API] Running in Mock Mode. Credentials missing in .env');
-    return res.json({
+    return {
       success: true,
       source: 'mock_ghl',
       postId: `mock-post-${Date.now()}`,
-      url: `https://gohighlevel.com/mock-blog/${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
-      message: 'Article saved and published in MOCK MODE. Setup GHL credentials in Settings to publish live!'
-    });
+      url: `https://bestdayfitness.com/blog/${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
+      message: 'Article saved in mock mode. Setup GHL keys to go live!'
+    };
   }
 
-  try {
-    console.log(`[GHL API] Sending request to publish blog post: "${title}"`);
-    // GHL API V2 Blog Post creation
-    // Endpoint: POST https://services.leadconnectorhq.com/blogs/posts
-    const response = await fetch('https://services.leadconnectorhq.com/blogs/posts', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Version': '2021-04-15', // Standard GHL Version header
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        title: title,
-        content: content,
-        blogId: blogId,
-        locationId: locationId,
-        authorId: authorId,
-        status: status || 'draft'
-      })
-    });
+  const response = await fetch('https://services.leadconnectorhq.com/blogs/posts', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Version': '2021-04-15',
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      title,
+      content,
+      blogId,
+      locationId,
+      authorId,
+      status: status || 'draft'
+    })
+  });
 
-    const data = await response.json();
+  const data = await response.json();
 
-    if (!response.ok) {
-      throw new Error(data.message || `GHL HTTP error! status: ${response.status}`);
-    }
-
-    return res.json({
-      success: true,
-      source: 'live_ghl',
-      postId: data.id || data.postId,
-      url: data.url || `https://services.leadconnectorhq.com/blogs/posts/${data.id}`,
-      message: 'Article successfully published to GoHighLevel!'
-    });
-
-  } catch (error) {
-    console.error('[GHL API] Publish failed:', error.message);
-    return res.status(500).json({
-      success: false,
-      error: error.message,
-      message: 'Failed to publish to GoHighLevel API. Please check your credentials and token scope.'
-    });
-  }
-});
-
-// 4. Request Google Indexing API Submission
-app.post('/api/index-url', async (req, res) => {
-  const { url } = req.body;
-
-  if (!url) {
-    return res.status(400).json({ error: 'URL is required' });
+  if (!response.ok) {
+    throw new Error(data.message || `GHL HTTP error! status: ${response.status}`);
   }
 
+  return {
+    success: true,
+    source: 'live_ghl',
+    postId: data.id || data.postId,
+    url: data.url || `https://bestdayfitness.com/blog/${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
+    message: 'Article successfully published to GoHighLevel!'
+  };
+}
+
+// 3. Indexing Helper
+async function indexUrlHelper(url) {
   const auth = getGoogleAuth();
 
   if (auth) {
-    try {
-      console.log(`[Indexing API] Submitting URL: ${url}`);
-      // Initialize the Indexing API client
-      const indexing = google.indexing({ version: 'v3', auth: auth });
+    const indexing = google.indexing({ version: 'v3', auth: auth });
+    const response = await indexing.urlNotifications.publish({
+      requestBody: {
+        url: url,
+        type: 'URL_UPDATED'
+      }
+    });
 
-      const response = await indexing.urlNotifications.publish({
+    return {
+      success: true,
+      source: 'live_indexing',
+      message: 'URL submitted to Google Indexing API successfully!',
+      data: response.data
+    };
+  }
+
+  return {
+    success: true,
+    source: 'mock_indexing',
+    message: 'Submission simulated in Mock Mode.'
+  };
+}
+
+// ----------------------------------------------------
+// Autopilot Agent Logic
+// ----------------------------------------------------
+let autopilotInterval = null;
+let autopilotEnabled = false;
+let autopilotIntervalHours = 24;
+let nextRunTime = null;
+
+// Case study text mapping for Autopilot
+const AUTOPILOT_CASE_STUDIES = {
+  'senior fitness st petersburg fl': "Our client Margaret (71) suffered from severe knee stiffness that prevented her from walking. Within 12 weeks of our trainer-led posture and barefoot balance mat exercises, she eliminated knee pain and walks 3 miles daily.",
+  'mobility training st pete': "We worked with Arthur (64) to resolve shoulder tightness. By combining manual massage therapy with customized range-of-motion routines, he returned to playing tennis within 6 weeks.",
+  'longevity fitness coach st petersburg': "David (82) joined Best Day Fitness to maintain his daily functional freedom. Focused exercises built foot stability and core strength, letting him comfortably carry his own groceries.",
+  'posture correction exercises senior': "Elena (69) improved her posture profile by 30% and eliminated lower back pain within 2 months through tailored core posture training and chest mobility patterns."
+};
+
+async function runAutopilotCycle() {
+  logAutopilotActivity('Scanning GSC Content Gaps for leaks...');
+  
+  // Get keywords
+  let keywords = MOCK_GSC_DATA;
+  const auth = getGoogleAuth();
+  const siteUrl = process.env.GSC_SITE_URL;
+
+  if (auth && siteUrl) {
+    try {
+      const webmasters = google.webmasters({ version: 'v3', auth: auth });
+      const today = new Date().toISOString().split('T')[0];
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      const response = await webmasters.searchanalytics.query({
+        siteUrl,
         requestBody: {
-          url: url,
-          type: 'URL_UPDATED' // URL_UPDATED triggers crawl, URL_DELETED requests removal
+          startDate: thirtyDaysAgo,
+          endDate: today,
+          dimensions: ['query'],
+          rowLimit: 100
         }
       });
-
-      console.log('[Indexing API] Response data:', response.data);
-      return res.json({
-        success: true,
-        source: 'live_indexing',
-        message: 'URL submitted to Google Indexing API successfully!',
-        data: response.data
-      });
-    } catch (error) {
-      console.error('[Indexing API] Live submission failed. Falling back to Mock indexer. Error:', error.message);
+      if (response.data.rows) {
+        keywords = response.data.rows.map(r => ({
+          query: r.keys ? r.keys[0] : '',
+          impressions: r.impressions || 0,
+          clicks: r.clicks || 0,
+          leak: (r.clicks === 0 && r.impressions > 10)
+        }));
+      }
+    } catch (err) {
+      logAutopilotActivity(`GSC API Fetch failed, falling back to mock leaks. Error: ${err.message}`);
     }
   }
 
-  // Fallback / Mock indexing response
-  console.log(`[Mock Indexer] Indexing requested for: ${url}`);
+  // Find a leak keyword that we haven't targeted in our history yet
+  const leakKeywords = keywords.filter(k => k.leak);
+  const targetLeak = leakKeywords.find(k => {
+    return !historyDb.some(h => h.keyword.toLowerCase() === k.query.toLowerCase());
+  });
+
+  if (!targetLeak) {
+    logAutopilotActivity('Check complete. No new untargeted content gaps identified.');
+    return null;
+  }
+
+  const query = targetLeak.query;
+  logAutopilotActivity(`Targeting leak query: "${query}" (Impressions: ${targetLeak.impressions})`);
+
+  try {
+    // 1. Generate Content
+    logAutopilotActivity('Generating structural SEO article via Gemini API...');
+    const caseStudy = AUTOPILOT_CASE_STUDIES[query.toLowerCase()] || 
+      "Our specialized mobility exercises help St. Pete seniors build posture, balance, and core strength, restoring independence.";
+    
+    const article = await generateArticleHelper(
+      query, 
+      caseStudy, 
+      'Claim Longevity Assessment', 
+      'https://bestdayfitness.com/consultation'
+    );
+
+    // 2. Publish Content to GHL
+    logAutopilotActivity('Publishing article to GoHighLevel...');
+    const publish = await publishGhlHelper(article.title, article.content, 'published');
+
+    // 3. Request Google Indexing
+    logAutopilotActivity(`Requesting instant Google Indexing for: ${publish.url}`);
+    const index = await indexUrlHelper(publish.url);
+
+    // 4. Update History
+    const historyEntry = {
+      title: article.title,
+      keyword: query,
+      platform: publish.source === 'mock_ghl' ? 'GHL (Mock Autopilot)' : 'GoHighLevel (Published)',
+      date: new Date().toISOString().split('T')[0],
+      indexed: 'Indexing Requested',
+      url: publish.url
+    };
+
+    historyDb.unshift(historyEntry);
+    saveHistory();
+
+    logAutopilotActivity(`✅ Autopilot run complete! Deployed and Indexed: "${article.title}"`);
+    return historyEntry;
+
+  } catch (err) {
+    logAutopilotActivity(`❌ Autopilot cycle failed: ${err.message}`);
+    throw err;
+  }
+}
+
+function calculateNextRun() {
+  if (autopilotEnabled) {
+    nextRunTime = new Date(Date.now() + autopilotIntervalHours * 60 * 60 * 1000).toISOString();
+  } else {
+    nextRunTime = null;
+  }
+}
+
+function startAutopilotScheduler() {
+  if (autopilotInterval) clearInterval(autopilotInterval);
+  
+  if (autopilotEnabled) {
+    logAutopilotActivity(`Background Autopilot enabled. Schedule: Run every ${autopilotIntervalHours} hours.`);
+    calculateNextRun();
+    
+    autopilotInterval = setInterval(async () => {
+      try {
+        await runAutopilotCycle();
+      } catch (err) {
+        console.error('[Scheduler] Autopilot runtime error:', err.message);
+      }
+      calculateNextRun();
+    }, autopilotIntervalHours * 60 * 60 * 1000);
+  } else {
+    logAutopilotActivity('Background Autopilot scheduler stopped.');
+    nextRunTime = null;
+  }
+}
+
+// ----------------------------------------------------
+// Routes
+// ----------------------------------------------------
+
+// 1. Fetch Google Search Console Data
+app.get('/api/gsc-data', async (req, res) => {
+  const auth = getGoogleAuth();
+  const siteUrl = process.env.GSC_SITE_URL;
+
+  if (auth && siteUrl) {
+    try {
+      const webmasters = google.webmasters({ version: 'v3', auth: auth });
+      const today = new Date().toISOString().split('T')[0];
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+      const response = await webmasters.searchanalytics.query({
+        siteUrl: siteUrl,
+        requestBody: {
+          startDate: thirtyDaysAgo,
+          endDate: today,
+          dimensions: ['query'],
+          rowLimit: 100
+        }
+      });
+
+      if (response.data.rows && response.data.rows.length > 0) {
+        const rows = response.data.rows.map(row => {
+          const impressions = row.impressions || 0;
+          const clicks = row.clicks || 0;
+          const ctr = row.ctr ? parseFloat((row.ctr * 100).toFixed(2)) : 0;
+          const position = row.keys ? parseFloat((row.position).toFixed(1)) : 0;
+          const query = row.keys ? row.keys[0] : '';
+          const leak = clicks === 0 && impressions > 10;
+
+          return { query, impressions, clicks, ctr, position, leak };
+        });
+
+        rows.sort((a, b) => {
+          if (a.leak && !b.leak) return -1;
+          if (!a.leak && b.leak) return 1;
+          return b.impressions - a.impressions;
+        });
+
+        return res.json({ source: 'live_gsc', data: rows });
+      }
+    } catch (error) {
+      console.error('[GSC API] Failed, falling back to mock. Error:', error.message);
+    }
+  }
+
+  return res.json({ source: 'mock_data', data: MOCK_GSC_DATA });
+});
+
+// 2. Generate Article Endpoint
+app.post('/api/generate-article', async (req, res) => {
+  const { keyword, caseStudy, ctaText, ctaUrl } = req.body;
+  if (!keyword) return res.status(400).json({ error: 'Keyword is required' });
+
+  try {
+    const data = await generateArticleHelper(keyword, caseStudy, ctaText, ctaUrl);
+    return res.json(data);
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 3. Publish to GoHighLevel
+app.post('/api/publish-ghl', async (req, res) => {
+  const { title, content, status, locationId, accessToken, blogId } = req.body;
+
+  try {
+    const data = await publishGhlHelper(title, content, status, { locationId, accessToken, blogId });
+    
+    // Save to history list
+    const historyEntry = {
+      title,
+      keyword: req.body.keyword || 'Manual Entry',
+      platform: data.source === 'mock_ghl' ? 'GHL (Mock Manual)' : `GoHighLevel (${status})`,
+      date: new Date().toISOString().split('T')[0],
+      indexed: 'Indexing Available',
+      url: data.url
+    };
+    
+    // Avoid duplicates
+    if (!historyDb.some(h => h.url === historyEntry.url)) {
+      historyDb.unshift(historyEntry);
+      saveHistory();
+    }
+
+    return res.json(data);
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 4. Request Google Indexing
+app.post('/api/index-url', async (req, res) => {
+  const { url } = req.body;
+  if (!url) return res.status(400).json({ error: 'URL is required' });
+
+  try {
+    const data = await indexUrlHelper(url);
+    
+    // Update matching entry in history
+    historyDb.forEach(h => {
+      if (h.url === url) h.indexed = 'Indexing Requested';
+    });
+    saveHistory();
+
+    return res.json(data);
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 5. Get History List
+app.get('/api/history', (req, res) => {
+  return res.json(historyDb);
+});
+
+// 6. Get Autopilot Status
+app.get('/api/autopilot-status', (req, res) => {
+  return res.json({
+    enabled: autopilotEnabled,
+    intervalHours: autopilotIntervalHours,
+    nextRunTime: nextRunTime,
+    logs: autopilotLogs
+  });
+});
+
+// 7. Toggle Autopilot Agent
+app.post('/api/autopilot-toggle', (req, res) => {
+  const { enabled, intervalHours } = req.body;
+  
+  autopilotEnabled = !!enabled;
+  if (intervalHours) autopilotIntervalHours = parseFloat(intervalHours);
+  
+  startAutopilotScheduler();
+  
   return res.json({
     success: true,
-    source: 'mock_indexing',
-    message: 'Submission simulated! Setup Google Indexing credentials (JSON key) in Settings to index live.',
-    url: url,
-    timestamp: new Date().toISOString()
+    enabled: autopilotEnabled,
+    intervalHours: autopilotIntervalHours,
+    nextRunTime: nextRunTime,
+    message: `Autopilot schedule updated successfully.`
   });
+});
+
+// 8. Trigger Autopilot run immediately (Manual Override)
+app.post('/api/autopilot-run-now', async (req, res) => {
+  try {
+    const entry = await runAutopilotCycle();
+    return res.json({
+      success: true,
+      ran: !!entry,
+      entry,
+      message: entry ? 'Autopilot completed a run successfully!' : 'Autopilot checked GSC, but found no new content leaks.'
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 // Start the Express Server

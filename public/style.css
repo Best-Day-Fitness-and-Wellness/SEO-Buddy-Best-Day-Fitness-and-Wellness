@@ -1119,3 +1119,207 @@ small.text-muted {
   outline: 2px solid var(--color-secondary) !important;
   transition: var(--transition-smooth);
 }
+
+/* Onboarding Tour styles appended above */
+
+/* ==========================================================================
+   Autopilot Agent Styles
+   ========================================================================== */
+.autopilot-agent-card {
+  background: linear-gradient(135deg, rgba(20, 26, 38, 0.75) 0%, rgba(13, 17, 24, 0.85) 100%);
+  border: 1px solid rgba(16, 185, 129, 0.15); /* Soft emerald boundary to signify agent safety */
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), inset 0 0 15px rgba(16, 185, 129, 0.03);
+  border-radius: 16px;
+  padding: 2rem;
+}
+
+.autopilot-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 1.25rem;
+  margin-bottom: 1.25rem;
+}
+
+.autopilot-title-group {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+}
+
+.autopilot-title-group h3 {
+  font-family: var(--font-heading);
+  font-size: var(--font-lg);
+  font-weight: 700;
+  color: white;
+}
+
+.autopilot-icon-badge {
+  background: rgba(16, 185, 129, 0.12);
+  color: var(--color-success);
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 15px rgba(16, 185, 129, 0.15);
+}
+
+.autopilot-toggle-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.toggle-label {
+  font-family: var(--font-heading);
+  font-size: var(--font-xs);
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+}
+
+/* Switch styling */
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 46px;
+  height: 24px;
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(255, 255, 255, 0.1);
+  transition: .4s;
+  border: 1px solid var(--border-color);
+}
+
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 16px;
+  width: 16px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  transition: .4s;
+}
+
+input:checked + .slider {
+  background-color: var(--color-success);
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.3);
+}
+
+input:focus + .slider {
+  box-shadow: 0 0 1px var(--color-success);
+}
+
+input:checked + .slider:before {
+  transform: translateX(22px);
+}
+
+.slider.round {
+  border-radius: 34px;
+}
+
+.slider.round:before {
+  border-radius: 50%;
+}
+
+/* Config row */
+.autopilot-config-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 220px;
+  gap: 1.5rem;
+  align-items: flex-end;
+}
+
+.config-item {
+  display: flex;
+  flex-direction: column;
+}
+
+.read-only-field {
+  background: rgba(255, 255, 255, 0.01);
+  border: 1px solid var(--border-color);
+  color: var(--text-muted);
+  font-family: var(--font-body);
+  font-size: var(--font-sm);
+  padding: 0.65rem 1rem;
+  border-radius: 8px;
+  width: 100%;
+  height: 38px;
+  display: flex;
+  align-items: center;
+}
+
+/* Terminal logs styling */
+.autopilot-terminal {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  background-color: #05070a;
+  overflow: hidden;
+}
+
+.terminal-header {
+  background-color: rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 0.5rem 1rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-family: var(--font-heading);
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  letter-spacing: 0.5px;
+}
+
+.terminal-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: var(--text-dark);
+}
+
+.terminal-dot.active {
+  background-color: var(--color-success);
+  box-shadow: 0 0 6px var(--color-success);
+  animation: pulse 1.8s infinite alternate;
+}
+
+.terminal-body {
+  padding: 1rem;
+  max-height: 180px;
+  overflow-y: auto;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: var(--font-xs);
+  color: #a7f3d0; /* Soft emerald */
+  line-height: 1.6;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.terminal-log-line {
+  word-break: break-all;
+}
+
+.terminal-log-line.timestamp {
+  color: var(--text-dark);
+  margin-right: 0.5rem;
+}
+

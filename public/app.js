@@ -597,6 +597,123 @@ document.addEventListener('DOMContentLoaded', () => {
     switchTab('gsc-tab');
   });
 
+  // --- PERSISTENT HISTORY & AUTOPILOT CONTROLLER ---
+  const autopilotToggle = document.getElementById('autopilot-toggle');
+  const autopilotToggleLabel = document.getElementById('autopilot-toggle-label');
+  const autopilotInterval = document.getElementById('autopilot-interval');
+  const autopilotNextRun = document.getElementById('autopilot-next-run');
+  const btnRunAutopilotNow = document.getElementById('btn-run-autopilot-now');
+  const autopilotLogsContainer = document.getElementById('autopilot-logs-container');
+
+  async function fetchHistory() {
+    try {
+      const res = await fetch('/api/history');
+      const data = await res.json();
+      state.history = data;
+      renderHistory();
+    } catch (err) {
+      console.error('[History] Sync failed:', err.message);
+    }
+  }
+
+  async function fetchAutopilotStatus() {
+    try {
+      const res = await fetch('/api/autopilot-status');
+      const data = await res.json();
+      
+      autopilotToggle.checked = data.enabled;
+      autopilotToggleLabel.innerText = `Autopilot: ${data.enabled ? 'ON' : 'OFF'}`;
+      autopilotToggleLabel.style.color = data.enabled ? 'var(--color-success)' : 'var(--text-muted)';
+      
+      const terminalDot = document.querySelector('.terminal-dot');
+      if (terminalDot) {
+        if (data.enabled) terminalDot.classList.add('active');
+        else terminalDot.classList.remove('active');
+      }
+
+      autopilotInterval.value = data.intervalHours;
+
+      if (data.enabled && data.nextRunTime) {
+        const nextDate = new Date(data.nextRunTime);
+        autopilotNextRun.innerText = nextDate.toLocaleString();
+        autopilotNextRun.style.color = 'var(--color-secondary)';
+      } else {
+        autopilotNextRun.innerText = 'Not Scheduled';
+        autopilotNextRun.style.color = 'var(--text-muted)';
+      }
+
+      // Render logs
+      autopilotLogsContainer.innerHTML = '';
+      if (data.logs.length === 0) {
+        autopilotLogsContainer.innerHTML = `<div class="terminal-log-line text-sm">[System] Standing by. Enable Autopilot to schedule checks.</div>`;
+      } else {
+        data.logs.forEach(log => {
+          const div = document.createElement('div');
+          div.className = 'terminal-log-line';
+          const localTime = new Date(log.timestamp).toLocaleTimeString();
+          div.innerHTML = `<span class="timestamp">${localTime}</span> ${log.message}`;
+          autopilotLogsContainer.appendChild(div);
+        });
+      }
+    } catch (err) {
+      console.error('[Autopilot Status] Fetch failed:', err.message);
+    }
+  }
+
+  async function updateAutopilotSchedule() {
+    const enabled = autopilotToggle.checked;
+    const intervalHours = parseFloat(autopilotInterval.value);
+    
+    try {
+      await fetch('/api/autopilot-toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled, intervalHours })
+      });
+      fetchAutopilotStatus();
+    } catch (err) {
+      console.error('[Autopilot Toggle] Failed:', err.message);
+    }
+  }
+
+  autopilotToggle.addEventListener('change', updateAutopilotSchedule);
+  autopilotInterval.addEventListener('change', updateAutopilotSchedule);
+
+  btnRunAutopilotNow.addEventListener('click', async () => {
+    btnRunAutopilotNow.disabled = true;
+    const originalContent = btnRunAutopilotNow.innerHTML;
+    btnRunAutopilotNow.innerText = 'Agent Operating...';
+
+    try {
+      const res = await fetch('/api/autopilot-run-now', { method: 'POST' });
+      const data = await res.json();
+      
+      alert(data.message);
+      
+      // Update GSC gaps, history, and log viewer
+      syncGSCData();
+      fetchHistory();
+      fetchAutopilotStatus();
+    } catch (err) {
+      alert(`Autopilot Run failed: ${err.message}`);
+    } finally {
+      btnRunAutopilotNow.disabled = false;
+      btnRunAutopilotNow.innerHTML = originalContent;
+    }
+  });
+
+  // Background sync loops
+  fetchHistory();
+  fetchAutopilotStatus();
+
+  setInterval(() => {
+    if (state.activeTab === 'publish-tab') {
+      fetchAutopilotStatus();
+      fetchHistory();
+    }
+  }, 12000);
+
+
   // --- INTERACTIVE ONBOARDING WIZARD ---
   const wizardSteps = [
     {

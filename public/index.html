@@ -264,6 +264,63 @@
             </div>
           </div>
 
+          <!-- Autopilot Agent Panel -->
+          <div class="autopilot-agent-card mb-4">
+            <div class="autopilot-header">
+              <div class="autopilot-title-group">
+                <div class="autopilot-icon-badge">
+                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><polygon points="10 8 16 12 10 16 10 8"></polygon></svg>
+                </div>
+                <div>
+                  <h3>SEO Autopilot Agent</h3>
+                  <p class="text-muted text-xs" style="font-size: 11px; margin-top: 2px;">Autonomous scanner: writes, publishes, and indexes content gaps on a schedule.</p>
+                </div>
+              </div>
+              <div class="autopilot-toggle-wrapper">
+                <label class="switch">
+                  <input type="checkbox" id="autopilot-toggle">
+                  <span class="slider round"></span>
+                </label>
+                <span class="toggle-label" id="autopilot-toggle-label">Autopilot: OFF</span>
+              </div>
+            </div>
+
+            <div class="autopilot-body">
+              <div class="autopilot-config-row">
+                <div class="config-item">
+                  <label for="autopilot-interval">Run Interval</label>
+                  <select id="autopilot-interval" class="form-input form-input-sm">
+                    <option value="12">Every 12 Hours</option>
+                    <option value="24" selected>Every 24 Hours (Daily)</option>
+                    <option value="48">Every 48 Hours</option>
+                    <option value="168">Every 7 Days (Weekly)</option>
+                  </select>
+                </div>
+                <div class="config-item">
+                  <label>Next Scheduled Run</label>
+                  <div class="read-only-field" id="autopilot-next-run">Not Scheduled</div>
+                </div>
+                <div class="config-item button-align">
+                  <button class="btn btn-secondary btn-sm w-100" id="btn-run-autopilot-now">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+                    Run Autopilot Cycle Now
+                  </button>
+                </div>
+              </div>
+
+              <!-- Terminal Output for logs -->
+              <div class="autopilot-terminal mt-3">
+                <div class="terminal-header">
+                  <span>Agent Activity Logs</span>
+                  <span class="terminal-dot active"></span>
+                </div>
+                <div class="terminal-body" id="autopilot-logs-container">
+                  <div class="terminal-log-line text-sm">[On startup] Standing by. Enable Autopilot to schedule checks.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div class="deploy-controls-card">
             <h3>Publish Current Article</h3>
             <div class="deploy-grid">
