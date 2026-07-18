@@ -291,18 +291,25 @@ async function publishGhlHelper(title, content, status, config = {}) {
   const accessToken = config.accessToken || process.env.GHL_ACCESS_TOKEN;
   const blogId = config.blogId || process.env.GHL_BLOG_ID;
   const author = config.authorId || process.env.GHL_AUTHOR_ID || 'default-author';
+  const siteUrl = config.siteUrl || process.env.GSC_SITE_URL || 'https://bestdayfitness.com';
+  const blogPrefix = config.blogPrefix || process.env.GHL_BLOG_PATH_PREFIX || '/blog/posts';
+
+  const baseDomain = siteUrl.replace(/\/$/, '');
+  const cleanPrefix = blogPrefix.startsWith('/') ? blogPrefix : `/${blogPrefix}`;
+  const formattedPrefix = cleanPrefix.endsWith('/') ? cleanPrefix.slice(0, -1) : cleanPrefix;
+
+  const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 
   if (!accessToken || !locationId || !blogId) {
     return {
       success: true,
       source: 'mock_ghl',
       postId: `mock-post-${Date.now()}`,
-      url: `https://bestdayfitness.com/blog/posts/${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
+      url: `${baseDomain}${formattedPrefix}/${slug}`,
       message: 'Article saved in mock mode. Setup GHL keys to go live!'
     };
   }
 
-  const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
   const description = content.replace(/<[^>]*>/g, '').substring(0, 150).trim() + '...';
 
   const payload = {
@@ -343,7 +350,7 @@ async function publishGhlHelper(title, content, status, config = {}) {
     success: true,
     source: 'live_ghl',
     postId: data.id || data.postId,
-    url: data.url || `https://bestdayfitness.com/blog/posts/${slug}`,
+    url: data.url || `${baseDomain}${formattedPrefix}/${slug}`,
     message: 'Article successfully published to GoHighLevel!'
   };
 }
@@ -447,11 +454,15 @@ async function runAutopilotCycle() {
     const caseStudy = AUTOPILOT_CASE_STUDIES[query.toLowerCase()] || 
       "Our specialized mobility exercises help St. Pete seniors build posture, balance, and core strength, restoring independence.";
     
+    const siteUrl = process.env.GSC_SITE_URL || 'https://bestdayfitness.com';
+    const baseDomain = siteUrl.replace(/\/$/, '');
+    const ctaUrl = `${baseDomain}/consultation`;
+
     const article = await generateArticleHelper(
       query, 
       caseStudy, 
       'Claim Longevity Assessment', 
-      'https://bestdayfitness.com/consultation'
+      ctaUrl
     );
 
     // 2. Publish Content to GHL
@@ -516,6 +527,63 @@ function startAutopilotScheduler() {
 // ----------------------------------------------------
 // Routes
 // ----------------------------------------------------
+
+// 0. Save Configuration Settings
+app.post('/api/save-settings', (req, res) => {
+  const { geminiKey, ghlToken, ghlLocation, ghlBlog, siteUrl, blogPrefix, gscJson } = req.body;
+
+  try {
+    let envContent = '';
+    
+    // Write service account file if gscJson is provided
+    if (gscJson && gscJson.trim() !== '') {
+      try {
+        // Validate JSON
+        JSON.parse(gscJson);
+        const credentialsPath = path.join(__dirname, 'google-creations.json');
+        fs.writeFileSync(credentialsPath, gscJson);
+        envContent += `GOOGLE_APPLICATION_CREDENTIALS=google-creations.json\n`;
+      } catch (jsonErr) {
+        console.error('[Settings] Invalid GSC JSON key:', jsonErr.message);
+      }
+    } else {
+      // If GOOGLE_APPLICATION_CREDENTIALS was set in the environment or file exists, keep it
+      if (fs.existsSync(path.join(__dirname, 'google-creations.json'))) {
+        envContent += `GOOGLE_APPLICATION_CREDENTIALS=google-creations.json\n`;
+      }
+    }
+
+    if (geminiKey) envContent += `GEMINI_API_KEY=${geminiKey}\n`;
+    if (ghlToken) envContent += `GHL_ACCESS_TOKEN=${ghlToken}\n`;
+    if (ghlLocation) envContent += `GHL_LOCATION_ID=${ghlLocation}\n`;
+    if (ghlBlog) envContent += `GHL_BLOG_ID=${ghlBlog}\n`;
+    if (siteUrl) envContent += `GSC_SITE_URL=${siteUrl}\n`;
+    if (blogPrefix) envContent += `GHL_BLOG_PATH_PREFIX=${blogPrefix}\n`;
+
+    fs.writeFileSync(path.join(__dirname, '.env'), envContent);
+    
+    // Reload dotenv
+    dotenv.config({ override: true });
+    
+    // Re-initialize Gemini client if key is loaded
+    if (process.env.GEMINI_API_KEY) {
+      try {
+        ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+        console.log('[Gemini SDK] Re-initialized successfully.');
+      } catch (err) {
+        console.error('[Gemini SDK] Re-initialization failed:', err.message);
+      }
+    }
+
+    return res.json({
+      success: true,
+      message: 'Configuration saved to server .env file and active environment.'
+    });
+  } catch (err) {
+    console.error('[Settings] Failed to save server settings:', err.message);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
 
 // 1. Fetch Google Search Console Data
 app.get('/api/gsc-data', async (req, res) => {

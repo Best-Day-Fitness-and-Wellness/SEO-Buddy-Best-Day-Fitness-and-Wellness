@@ -69,6 +69,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const settingsGhlLocation = document.getElementById('settings-ghl-location');
   const settingsGhlBlog = document.getElementById('settings-ghl-blog');
   const settingsSiteUrl = document.getElementById('settings-site-url');
+  const settingsBlogPrefix = document.getElementById('settings-blog-prefix');
   const settingsGscJson = document.getElementById('settings-gsc-json');
   const displaySiteUrlBadge = document.getElementById('display-site-url');
 
@@ -331,7 +332,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
       // Populate publish hub fields
       deployTitle.value = data.title;
-      indexingUrlInput.value = `https://bestdayfitness.com/blog/${data.slug}`;
+      
+      const credentials = getStoredCredentials();
+      const baseSiteUrl = credentials.siteUrl ? credentials.siteUrl.replace(/\/$/, '') : 'https://bestdayfitness.com';
+      const cleanBlogPrefix = credentials.blogPrefix ? (credentials.blogPrefix.startsWith('/') ? credentials.blogPrefix : `/${credentials.blogPrefix}`) : '/blog/posts';
+      const formattedBlogPrefix = cleanBlogPrefix.endsWith('/') ? cleanBlogPrefix.slice(0, -1) : cleanBlogPrefix;
+      indexingUrlInput.value = `${baseSiteUrl}${formattedBlogPrefix}/${data.slug}`;
 
       // Update visibility
       editorLoader.style.display = 'none';
@@ -476,7 +482,9 @@ document.addEventListener('DOMContentLoaded', () => {
           status,
           locationId: credentials.ghlLocation,
           accessToken: credentials.ghlToken,
-          blogId: credentials.ghlBlog
+          blogId: credentials.ghlBlog,
+          siteUrl: credentials.siteUrl,
+          blogPrefix: credentials.blogPrefix
         })
       });
 
@@ -585,6 +593,7 @@ document.addEventListener('DOMContentLoaded', () => {
       ghlLocation: localStorage.getItem('seo_ghl_location') || '',
       ghlBlog: localStorage.getItem('seo_ghl_blog') || '',
       siteUrl: localStorage.getItem('seo_site_url') || '',
+      blogPrefix: localStorage.getItem('seo_blog_prefix') || '/blog/posts',
       gscJson: localStorage.getItem('seo_gsc_json') || ''
     };
   }
@@ -597,6 +606,7 @@ document.addEventListener('DOMContentLoaded', () => {
     settingsGhlLocation.value = creds.ghlLocation;
     settingsGhlBlog.value = creds.ghlBlog;
     settingsSiteUrl.value = creds.siteUrl || 'https://bestdayfitness.com';
+    settingsBlogPrefix.value = creds.blogPrefix || '/blog/posts';
     settingsGscJson.value = creds.gscJson;
 
     if (creds.siteUrl) {
@@ -604,23 +614,45 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  settingsForm.addEventListener('submit', (e) => {
+  settingsForm.addEventListener('submit', async (e) => {
     e.preventDefault();
 
-    localStorage.setItem('seo_gemini_key', settingsGeminiKey.value.trim());
-    localStorage.setItem('seo_ghl_token', settingsGhlToken.value.trim());
-    localStorage.setItem('seo_ghl_location', settingsGhlLocation.value.trim());
-    localStorage.setItem('seo_ghl_blog', settingsGhlBlog.value.trim());
-    
+    const geminiKey = settingsGeminiKey.value.trim();
+    const ghlToken = settingsGhlToken.value.trim();
+    const ghlLocation = settingsGhlLocation.value.trim();
+    const ghlBlog = settingsGhlBlog.value.trim();
     const siteUrl = settingsSiteUrl.value.trim();
+    const blogPrefix = settingsBlogPrefix.value.trim();
+    const gscJson = settingsGscJson.value.trim();
+
+    localStorage.setItem('seo_gemini_key', geminiKey);
+    localStorage.setItem('seo_ghl_token', ghlToken);
+    localStorage.setItem('seo_ghl_location', ghlLocation);
+    localStorage.setItem('seo_ghl_blog', ghlBlog);
     localStorage.setItem('seo_site_url', siteUrl);
-    localStorage.setItem('seo_gsc_json', settingsGscJson.value.trim());
+    localStorage.setItem('seo_blog_prefix', blogPrefix);
+    localStorage.setItem('seo_gsc_json', gscJson);
 
     if (siteUrl) {
       displaySiteUrlBadge.innerText = siteUrl.replace('https://', '').replace('http://', '');
     }
 
-    alert('Configuration saved locally in browser! Note: If you want these credentials to apply server-side automatically, write them directly into the .env file in your project folder.');
+    try {
+      const response = await fetch('/api/save-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ geminiKey, ghlToken, ghlLocation, ghlBlog, siteUrl, blogPrefix, gscJson })
+      });
+      const data = await response.json();
+      if (response.ok && data.success) {
+        alert('Configuration saved successfully in browser and synced to backend server!');
+      } else {
+        alert(`Saved locally, but failed to sync to server: ${data.error || 'Unknown server error'}`);
+      }
+    } catch (err) {
+      alert(`Saved locally, but connection to server failed: ${err.message}`);
+    }
+
     switchTab('gsc-tab');
   });
 
