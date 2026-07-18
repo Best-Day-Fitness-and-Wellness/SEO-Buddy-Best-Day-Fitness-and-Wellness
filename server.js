@@ -296,7 +296,12 @@ async function publishGhlHelper(title, content, status, config = {}) {
   const authorName = config.authorName || process.env.GHL_AUTHOR_NAME || '';
   const authorUrl = config.authorUrl || process.env.GHL_AUTHOR_URL || '';
 
-  const baseDomain = siteUrl.replace(/\/$/, '');
+  let baseDomain = siteUrl.trim();
+  if (baseDomain.startsWith('sc-domain:')) {
+    baseDomain = 'https://' + baseDomain.substring(10);
+  }
+  baseDomain = baseDomain.replace(/\/$/, '');
+  
   const cleanPrefix = blogPrefix.startsWith('/') ? blogPrefix : `/${blogPrefix}`;
   const formattedPrefix = cleanPrefix.endsWith('/') ? cleanPrefix.slice(0, -1) : cleanPrefix;
 
@@ -567,7 +572,11 @@ async function runAutopilotCycle() {
       "Our specialized mobility exercises help St. Pete seniors build posture, balance, and core strength, restoring independence.";
     
     const siteUrl = process.env.GSC_SITE_URL || 'https://bestdayfitness.com';
-    const baseDomain = siteUrl.replace(/\/$/, '');
+    let baseDomain = siteUrl.trim();
+    if (baseDomain.startsWith('sc-domain:')) {
+      baseDomain = 'https://' + baseDomain.substring(10);
+    }
+    baseDomain = baseDomain.replace(/\/$/, '');
     const ctaUrl = `${baseDomain}/consultation`;
 
     const article = await generateArticleHelper(
@@ -963,9 +972,12 @@ app.get('/api/aio-history', (req, res) => {
 
 // 11. Generate JSON-LD Schema Assets
 app.get('/api/aio-schema', (req, res) => {
-  const domain = process.env.GSC_SITE_URL && process.env.GSC_SITE_URL.includes('http')
-    ? process.env.GSC_SITE_URL.replace(/\/$/, '')
-    : 'https://bestdayfitness.com';
+  let domain = process.env.GSC_SITE_URL || 'https://bestdayfitness.com';
+  domain = domain.trim();
+  if (domain.startsWith('sc-domain:')) {
+    domain = 'https://' + domain.substring(10);
+  }
+  domain = domain.replace(/\/$/, '');
 
   const localBusinessSchema = {
     "@context": "https://schema.org",

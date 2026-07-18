@@ -336,7 +336,11 @@ document.addEventListener('DOMContentLoaded', () => {
       deployTitle.value = data.title;
       
       const credentials = getStoredCredentials();
-      const baseSiteUrl = credentials.siteUrl ? credentials.siteUrl.replace(/\/$/, '') : 'https://bestdayfitness.com';
+      let baseSiteUrl = credentials.siteUrl ? credentials.siteUrl.trim() : 'https://bestdayfitness.com';
+      if (baseSiteUrl.startsWith('sc-domain:')) {
+        baseSiteUrl = 'https://' + baseSiteUrl.substring(10);
+      }
+      baseSiteUrl = baseSiteUrl.replace(/\/$/, '');
       const cleanBlogPrefix = credentials.blogPrefix ? (credentials.blogPrefix.startsWith('/') ? credentials.blogPrefix : `/${credentials.blogPrefix}`) : '/blog/posts';
       const formattedBlogPrefix = cleanBlogPrefix.endsWith('/') ? cleanBlogPrefix.slice(0, -1) : cleanBlogPrefix;
       indexingUrlInput.value = `${baseSiteUrl}${formattedBlogPrefix}/${data.slug}`;
