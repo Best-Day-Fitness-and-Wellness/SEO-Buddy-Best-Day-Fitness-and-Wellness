@@ -293,6 +293,8 @@ async function publishGhlHelper(title, content, status, config = {}) {
   const author = config.authorId || process.env.GHL_AUTHOR_ID || 'default-author';
   const siteUrl = config.siteUrl || process.env.GSC_SITE_URL || 'https://bestdayfitness.com';
   const blogPrefix = config.blogPrefix || process.env.GHL_BLOG_PATH_PREFIX || '/blog/posts';
+  const authorName = config.authorName || process.env.GHL_AUTHOR_NAME || '';
+  const authorUrl = config.authorUrl || process.env.GHL_AUTHOR_URL || '';
 
   const baseDomain = siteUrl.replace(/\/$/, '');
   const cleanPrefix = blogPrefix.startsWith('/') ? blogPrefix : `/${blogPrefix}`;
@@ -300,12 +302,121 @@ async function publishGhlHelper(title, content, status, config = {}) {
 
   const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 
+  // 1. Resolve Internal Links
+  let resolvedContent = content;
+  const linkRegex = /\[Link:\s*([^\]]+)\]/gi;
+  resolvedContent = resolvedContent.replace(linkRegex, (match, p1) => {
+    const term = p1.trim().toLowerCase();
+    // Search historyDb
+    const matchedPost = historyDb.find(h => 
+      h.keyword.toLowerCase().includes(term) || 
+      h.title.toLowerCase().includes(term) || 
+      term.includes(h.keyword.toLowerCase())
+    );
+    if (matchedPost) {
+      return `<a href="${matchedPost.url}" class="internal-link" style="color: #1a73e8; text-decoration: underline;">${p1.trim()}</a>`;
+    }
+    return `<a href="${baseDomain}${formattedPrefix}" class="internal-link" style="color: #1a73e8; text-decoration: underline;">${p1.trim()}</a>`;
+  });
+
+  // 2. Extract and Build FAQ Page Schema
+  const faqItems = [];
+  const faqBlockRegex = /(?:<strong>|<b>)Q:\s*([\s\S]*?)(?:<\/strong>|<\/b>)[\s\S]*?<p>(?:A:\s*)?([\s\S]*?)<\/p>/gi;
+  let faqMatch;
+  while ((faqMatch = faqBlockRegex.exec(resolvedContent)) !== null) {
+    if (faqMatch[1] && faqMatch[2]) {
+      faqItems.push({
+        question: faqMatch[1].replace(/<[^>]*>/g, '').trim(),
+        answer: faqMatch[2].replace(/<[^>]*>/g, '').trim()
+      });
+    }
+  }
+
+  let schemaScripts = '';
+  if (faqItems.length > 0) {
+    const faqSchema = {
+      "@context": "https://schema.org",
+      "@type": "FAQPage",
+      "mainEntity": faqItems.map(item => ({
+        "@type": "Question",
+        "name": item.question,
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": item.answer
+        }
+      }))
+    };
+    schemaScripts += `\n<script type="application/ld+json">\n${JSON.stringify(faqSchema, null, 2)}\n</script>`;
+  }
+
+  // 3. Build LocalBusiness Schema
+  const localBusinessSchema = {
+    "@context": "https://schema.org",
+    "@type": "SportsClub",
+    "name": "Best Day Fitness",
+    "image": `${baseDomain}/assets/logo.png`,
+    "@id": `${baseDomain}/#organization`,
+    "url": baseDomain,
+    "telephone": "727-555-0199",
+    "address": {
+      "@type": "PostalAddress",
+      "streetAddress": "St. Petersburg, FL",
+      "addressLocality": "St. Petersburg",
+      "addressRegion": "FL",
+      "postalCode": "33701",
+      "addressCountry": "US"
+    }
+  };
+  schemaScripts += `\n<script type="application/ld+json">\n${JSON.stringify(localBusinessSchema, null, 2)}\n</script>`;
+
+  // 4. Build Author Schema and visual box
+  if (authorName) {
+    const authorSchema = {
+      "@context": "https://schema.org",
+      "@type": "BlogPosting",
+      "headline": title,
+      "url": `${baseDomain}${formattedPrefix}/${slug}`,
+      "datePublished": new Date().toISOString(),
+      "author": {
+        "@type": "Person",
+        "name": authorName,
+        "url": authorUrl || undefined
+      },
+      "publisher": {
+        "@type": "Organization",
+        "name": "Best Day Fitness",
+        "logo": {
+          "@type": "ImageObject",
+          "url": `${baseDomain}/assets/logo.png`
+        }
+      }
+    };
+    schemaScripts += `\n<script type="application/ld+json">\n${JSON.stringify(authorSchema, null, 2)}\n</script>`;
+
+    // Add E-E-A-T trust bio block
+    let authorHtml = `\n<div class="article-author-card" style="margin-top: 40px; padding: 20px; border-top: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.01); border-radius: 8px; display: flex; align-items: center; gap: 15px;">`;
+    authorHtml += `<div class="author-info">`;
+    authorHtml += `<span style="font-size: 11px; text-transform: uppercase; color: #888; letter-spacing: 0.5px; display: block; margin-bottom: 4px;">Published By Expert Coach</span>`;
+    if (authorUrl) {
+      authorHtml += `<a href="${authorUrl}" target="_blank" style="font-size: 16px; font-weight: bold; color: #1a73e8; text-decoration: none;">${authorName}</a>`;
+    } else {
+      authorHtml += `<strong style="font-size: 16px; font-weight: bold; color: #fff;">${authorName}</strong>`;
+    }
+    authorHtml += `<p style="font-size: 13px; color: #aaa; margin: 6px 0 0 0; line-height: 1.4;">Certified longevity, mobility, and functional movement specialist at Best Day Fitness.</p>`;
+    authorHtml += `</div></div>`;
+    resolvedContent += authorHtml;
+  }
+
+  // Append schemas
+  resolvedContent += schemaScripts;
+
   if (!accessToken || !locationId || !blogId) {
     return {
       success: true,
       source: 'mock_ghl',
       postId: `mock-post-${Date.now()}`,
       url: `${baseDomain}${formattedPrefix}/${slug}`,
+      content: resolvedContent,
       message: 'Article saved in mock mode. Setup GHL keys to go live!'
     };
   }
@@ -317,7 +428,7 @@ async function publishGhlHelper(title, content, status, config = {}) {
     blogId,
     title,
     description,
-    rawHTML: content,
+    rawHTML: resolvedContent,
     status: (status || 'draft').toUpperCase(),
     categories: [],
     imageUrl: "",
@@ -351,6 +462,7 @@ async function publishGhlHelper(title, content, status, config = {}) {
     source: 'live_ghl',
     postId: data.id || data.postId,
     url: data.url || `${baseDomain}${formattedPrefix}/${slug}`,
+    content: resolvedContent,
     message: 'Article successfully published to GoHighLevel!'
   };
 }
@@ -530,7 +642,7 @@ function startAutopilotScheduler() {
 
 // 0. Save Configuration Settings
 app.post('/api/save-settings', (req, res) => {
-  const { geminiKey, ghlToken, ghlLocation, ghlBlog, siteUrl, blogPrefix, gscJson } = req.body;
+  const { geminiKey, ghlToken, ghlLocation, ghlBlog, siteUrl, blogPrefix, authorName, authorUrl, gscJson } = req.body;
 
   try {
     let envContent = '';
@@ -559,6 +671,8 @@ app.post('/api/save-settings', (req, res) => {
     if (ghlBlog) envContent += `GHL_BLOG_ID=${ghlBlog}\n`;
     if (siteUrl) envContent += `GSC_SITE_URL=${siteUrl}\n`;
     if (blogPrefix) envContent += `GHL_BLOG_PATH_PREFIX=${blogPrefix}\n`;
+    if (authorName) envContent += `GHL_AUTHOR_NAME=${authorName}\n`;
+    if (authorUrl) envContent += `GHL_AUTHOR_URL=${authorUrl}\n`;
 
     fs.writeFileSync(path.join(__dirname, '.env'), envContent);
     

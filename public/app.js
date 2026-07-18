@@ -70,6 +70,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const settingsGhlBlog = document.getElementById('settings-ghl-blog');
   const settingsSiteUrl = document.getElementById('settings-site-url');
   const settingsBlogPrefix = document.getElementById('settings-blog-prefix');
+  const settingsAuthorName = document.getElementById('settings-author-name');
+  const settingsAuthorUrl = document.getElementById('settings-author-url');
   const settingsGscJson = document.getElementById('settings-gsc-json');
   const displaySiteUrlBadge = document.getElementById('display-site-url');
 
@@ -484,7 +486,9 @@ document.addEventListener('DOMContentLoaded', () => {
           accessToken: credentials.ghlToken,
           blogId: credentials.ghlBlog,
           siteUrl: credentials.siteUrl,
-          blogPrefix: credentials.blogPrefix
+          blogPrefix: credentials.blogPrefix,
+          authorName: credentials.authorName,
+          authorUrl: credentials.authorUrl
         })
       });
 
@@ -594,6 +598,8 @@ document.addEventListener('DOMContentLoaded', () => {
       ghlBlog: localStorage.getItem('seo_ghl_blog') || '',
       siteUrl: localStorage.getItem('seo_site_url') || '',
       blogPrefix: localStorage.getItem('seo_blog_prefix') || '/blog/posts',
+      authorName: localStorage.getItem('seo_author_name') || '',
+      authorUrl: localStorage.getItem('seo_author_url') || '',
       gscJson: localStorage.getItem('seo_gsc_json') || ''
     };
   }
@@ -607,6 +613,8 @@ document.addEventListener('DOMContentLoaded', () => {
     settingsGhlBlog.value = creds.ghlBlog;
     settingsSiteUrl.value = creds.siteUrl || 'https://bestdayfitness.com';
     settingsBlogPrefix.value = creds.blogPrefix || '/blog/posts';
+    settingsAuthorName.value = creds.authorName || '';
+    settingsAuthorUrl.value = creds.authorUrl || '';
     settingsGscJson.value = creds.gscJson;
 
     if (creds.siteUrl) {
@@ -623,6 +631,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const ghlBlog = settingsGhlBlog.value.trim();
     const siteUrl = settingsSiteUrl.value.trim();
     const blogPrefix = settingsBlogPrefix.value.trim();
+    const authorName = settingsAuthorName.value.trim();
+    const authorUrl = settingsAuthorUrl.value.trim();
     const gscJson = settingsGscJson.value.trim();
 
     localStorage.setItem('seo_gemini_key', geminiKey);
@@ -631,6 +641,8 @@ document.addEventListener('DOMContentLoaded', () => {
     localStorage.setItem('seo_ghl_blog', ghlBlog);
     localStorage.setItem('seo_site_url', siteUrl);
     localStorage.setItem('seo_blog_prefix', blogPrefix);
+    localStorage.setItem('seo_author_name', authorName);
+    localStorage.setItem('seo_author_url', authorUrl);
     localStorage.setItem('seo_gsc_json', gscJson);
 
     if (siteUrl) {
@@ -641,7 +653,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const response = await fetch('/api/save-settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ geminiKey, ghlToken, ghlLocation, ghlBlog, siteUrl, blogPrefix, gscJson })
+        body: JSON.stringify({ geminiKey, ghlToken, ghlLocation, ghlBlog, siteUrl, blogPrefix, authorName, authorUrl, gscJson })
       });
       const data = await response.json();
       if (response.ok && data.success) {
