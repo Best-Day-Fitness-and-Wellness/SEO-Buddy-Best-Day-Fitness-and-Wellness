@@ -1435,6 +1435,93 @@ app.get('/api/performance', async (req, res) => {
   return res.json(out);
 });
 
+// 16. On-Site & Technical SEO tools
+function parseGeminiJson(text) {
+  let raw = (text || '').trim().replace(/^```json/i, '').replace(/^```/, '').replace(/```$/, '').trim();
+  const m = raw.match(/\{[\s\S]*\}/);
+  if (m) raw = m[0];
+  try { return JSON.parse(raw); } catch (e) { return null; }
+}
+
+app.post('/api/onsite', requireAuth, async (req, res) => {
+  const { tool, seed, keyword, currentTitle } = req.body || {};
+  const geminiKey = process.env.GEMINI_API_KEY;
+  if (!geminiKey) {
+    return res.json({ success: true, unavailable: true, message: 'Add your Gemini API key in Settings to use the on-site tools.' });
+  }
+  const client = new GoogleGenAI({ apiKey: geminiKey });
+  const brand = `Best Day Fitness — a holistic health & wellness studio in St. Petersburg, FL for adults 50+, seniors, and people recovering from injury. Method: Energy = Mobility + Posture + Strength; longevity, not quick fixes.`;
+
+  try {
+    if (tool === 'keywords') {
+      if (!seed) return res.status(400).json({ error: 'Enter a seed keyword.' });
+      const prompt = `${brand}\nUsing current web information, expand the seed keyword "${seed}" into 4–5 topic clusters this business could realistically target. For each cluster give: a short theme, 4–6 specific keyword phrases people actually search (favor local and long‑tail), 2–3 real questions people ask, and one concrete blog/page content idea. Return ONLY raw JSON, no markdown: {"clusters":[{"theme":"","keywords":[],"questions":[],"contentIdea":""}]}`;
+      const r = await client.models.generateContent({ model: GEMINI_MODEL, contents: prompt, config: { tools: [{ googleSearch: {} }] } });
+      return res.json({ success: true, data: parseGeminiJson(r.text) });
+    }
+    if (tool === 'titlemeta') {
+      if (!keyword) return res.status(400).json({ error: 'Enter a target keyword.' });
+      const prompt = `${brand}\nWrite SEO title tags and meta descriptions targeting the keyword "${keyword}"${currentTitle ? ` (current title is: "${currentTitle}")` : ''}. Provide 3 title options (each 60 characters or fewer, compelling, naturally including the keyword) and 2 meta descriptions (each 155 characters or fewer, with a clear call to action). Return ONLY raw JSON, no markdown: {"titles":[],"metas":[]}`;
+      const r = await client.models.generateContent({ model: GEMINI_MODEL, contents: prompt });
+      return res.json({ success: true, data: parseGeminiJson(r.text) });
+    }
+    if (tool === 'links') {
+      const pages = historyDb.map(h => ({ title: h.title, keyword: h.keyword, url: h.url }));
+      if (pages.length < 2) {
+        return res.json({ success: true, data: { suggestions: [], note: 'Publish at least two pages first — then this suggests internal links between them to build topic authority.' } });
+      }
+      const prompt = `${brand}\nHere are the pages this website has published:\n${JSON.stringify(pages)}\nSuggest internal links between them to build topic authority (pillar/cluster style). For each suggestion give the source page title, the target page title, a natural anchor phrase, and a one‑line reason. Return ONLY raw JSON, no markdown: {"suggestions":[{"from":"","to":"","anchor":"","why":""}]}`;
+      const r = await client.models.generateContent({ model: GEMINI_MODEL, contents: prompt });
+      return res.json({ success: true, data: parseGeminiJson(r.text) });
+    }
+    return res.status(400).json({ error: 'Unknown tool.' });
+  } catch (err) {
+    console.error('[On-Site] failed:', err.message);
+    return res.status(502).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/api/onsite-schema', (req, res) => {
+  let domain = (process.env.GSC_SITE_URL || 'https://bestdayfitness.com').trim();
+  if (domain.startsWith('sc-domain:')) domain = 'https://' + domain.substring(10);
+  domain = domain.replace(/\/$/, '');
+
+  const service = {
+    "@context": "https://schema.org",
+    "@type": "Service",
+    "serviceType": "Personal Training for Adults 50+",
+    "provider": { "@type": "SportsClub", "name": BUSINESS.name, "@id": `${domain}/#organization` },
+    "areaServed": { "@type": "City", "name": "St. Petersburg, FL" },
+    "description": "Personalized personal training, integrated physical therapy, and mobility coaching for adults 50+, seniors, and people recovering from injury."
+  };
+  const review = {
+    "@context": "https://schema.org",
+    "@type": "SportsClub",
+    "name": BUSINESS.name,
+    "@id": `${domain}/#organization`,
+    "aggregateRating": {
+      "@type": "AggregateRating",
+      "ratingValue": "REPLACE_WITH_YOUR_REAL_GOOGLE_RATING",
+      "reviewCount": "REPLACE_WITH_YOUR_REAL_REVIEW_COUNT",
+      "bestRating": "5"
+    }
+  };
+  const breadcrumb = {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      { "@type": "ListItem", "position": 1, "name": "Home", "item": domain },
+      { "@type": "ListItem", "position": 2, "name": "Services", "item": `${domain}/services` },
+      { "@type": "ListItem", "position": 3, "name": "Personal Training", "item": `${domain}/personal-training` }
+    ]
+  };
+  res.json({
+    service: JSON.stringify(service, null, 2),
+    review: JSON.stringify(review, null, 2),
+    breadcrumb: JSON.stringify(breadcrumb, null, 2)
+  });
+});
+
 // Start the Express Server
 app.listen(PORT, () => {
   console.log(`=======================================================`);
