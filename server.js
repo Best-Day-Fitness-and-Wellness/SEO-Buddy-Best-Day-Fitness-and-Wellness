@@ -183,17 +183,8 @@ if (fs.existsSync(AIO_AUDITS_FILE)) {
     aioAuditsDb = [];
   }
 } else {
-  aioAuditsDb = [
-    {
-      timestamp: new Date(Date.now() - 24 * 3600 * 1000).toISOString(),
-      query: 'senior fitness st petersburg fl',
-      recommended: true,
-      responseSnippet: 'Best Day Fitness is highly recommended for senior fitness in St. Petersburg, FL due to their specialized mobility programs.',
-      reasons: ['Specialized programs for older adults', 'Experienced trainers', 'Focus on mobility and balance'],
-      citedUrls: ['https://bestdayfitness.com/blog/posts/mobility-training-st-pete'],
-      competitors: ['St Pete Fitness Co-op', 'YMCA St. Petersburg']
-    }
-  ];
+  // Start with an empty, honest history — real audits populate this on demand.
+  aioAuditsDb = [];
   fs.writeFileSync(AIO_AUDITS_FILE, JSON.stringify(aioAuditsDb, null, 2));
 }
 
@@ -954,94 +945,135 @@ app.post('/api/aio-audit', requireAuth, async (req, res) => {
   }
 
   const geminiKey = process.env.GEMINI_API_KEY;
-  let auditResult = null;
 
-  if (geminiKey) {
-    try {
-      const ai = new GoogleGenAI({ apiKey: geminiKey });
-      const prompt = `You are simulating an AI Search Engine (like SearchGPT, Perplexity, or Google AI Overview) answering a user's question about local fitness or wellness services.
-User Query: "${query}"
-
-Generate a realistic AI recommendation response that cites the top local service providers in St. Petersburg, FL based on search authority.
-Format your final response strictly as a JSON object with these keys (do not wrap in markdown block markers, return raw JSON string only):
-{
-  "recommended": boolean (true if "Best Day Fitness" is recommended or mentioned),
-  "responseSnippet": "2-3 sentences summarizing the AI's response",
-  "reasons": ["reason 1", "reason 2"],
-  "citedUrls": ["https://bestdayfitness.com", "other competitor urls"],
-  "competitors": ["competitor name 1", "competitor name 2"]
-}
-
-Ensure the response reflects a highly realistic search recommendation. If the business has strong content matching the query, cite it!`;
-
-      const response = await ai.models.generateContent({
-        model: GEMINI_MODEL,
-        contents: prompt
-      });
-
-      const rawText = (response.text || '').trim();
-      let cleanJson = rawText;
-      if (cleanJson.startsWith('```json')) {
-        cleanJson = cleanJson.substring(7);
-      }
-      if (cleanJson.startsWith('```')) {
-        cleanJson = cleanJson.substring(3);
-      }
-      if (cleanJson.endsWith('```')) {
-        cleanJson = cleanJson.substring(0, cleanJson.length - 3);
-      }
-      
-      auditResult = JSON.parse(cleanJson.trim());
-    } catch (err) {
-      console.error('[AIO Audit API] Failed, falling back to simulated analysis:', err.message);
-    }
+  // No key → honest "unavailable" state. We do NOT fabricate audit data.
+  if (!geminiKey) {
+    return res.json({
+      success: true,
+      unavailable: true,
+      message: 'Real AI-search audits require a Gemini API key. Add yours in Settings to run a live, Google-grounded audit.',
+      latest: null,
+      history: aioAuditsDb
+    });
   }
 
-  // Fallback to local simulation if Gemini fails or is not configured
-  if (!auditResult) {
-    const queryLower = query.toLowerCase();
-    const isBrand = queryLower.includes('best day fitness');
-    const isSenior = queryLower.includes('senior') || queryLower.includes('mobility') || queryLower.includes('longevity');
-    
-    auditResult = {
-      recommended: isBrand || (isSenior && Math.random() > 0.3),
-      responseSnippet: isBrand 
-        ? "Best Day Fitness in St. Petersburg, FL is highly rated for personal training, featuring custom mobility, posture, and strength coaching."
-        : `AI engines recommend St Pete Fitness Co-op, YMCA, and ${isSenior ? 'Best Day Fitness' : 'St. Petersburg Personal Training'} for local wellness and coaching.`,
-      reasons: isBrand 
-        ? ["Highly personalized posture/mobility focus", "St. Petersburg local expertise", "Strong positive feedback on senior wellness"]
-        : ["Convenient St. Pete locations", "Good general reviews", isSenior ? "Specialized senior programs at Best Day Fitness" : "Diverse class schedules"],
-      citedUrls: isBrand || isSenior 
-        ? ["https://bestdayfitness.com/blog/posts/mobility-training-st-pete", "https://stpete-coop.com"] 
-        : ["https://ymcasuncoast.org", "https://stpete-coop.com"],
-      competitors: isBrand 
-        ? ["St Pete Fitness Co-op"]
-        : ["YMCA St. Petersburg", "St Pete Fitness Co-op"]
-    };
-  }
-
-  const fullAudit = {
-    timestamp: new Date().toISOString(),
-    query,
-    ...auditResult
-  };
-
-  aioAuditsDb.unshift(fullAudit);
-  if (aioAuditsDb.length > 50) {
-    aioAuditsDb = aioAuditsDb.slice(0, 50);
-  }
+  // Brand identity used to detect real mentions/citations.
+  const brandName = BUSINESS.name;            // "Best Day Fitness"
+  const brandDomainRoot = 'bestdayfitness';   // matches bestdayfitness.com in cited domains
 
   try {
-    fs.writeFileSync(AIO_AUDITS_FILE, JSON.stringify(aioAuditsDb, null, 2));
-  } catch (err) {
-    console.error('[AIO Audits File] Save failed:', err.message);
-  }
+    const client = new GoogleGenAI({ apiKey: geminiKey });
 
-  return res.json({
-    success: true,
-    latest: fullAudit,
-    history: aioAuditsDb
-  });
+    // --- Pass 1: REAL answer engine call, grounded in live Google Search. ---
+    const prompt = `A person searching online asks: "${query}".
+Acting as a helpful AI answer engine, recommend the best specific local businesses that fit this search in and around St. Petersburg, Florida. Name the actual businesses and briefly say why each is a good fit. Base your answer only on current web information.`;
+
+    const response = await client.models.generateContent({
+      model: GEMINI_MODEL,
+      contents: prompt,
+      config: { tools: [{ googleSearch: {} }] }
+    });
+
+    const answerText = (response.text || '').trim();
+
+    // Real grounding metadata — the actual sources Google's AI used.
+    const gm = (response.candidates && response.candidates[0] && response.candidates[0].groundingMetadata) || {};
+    const chunks = gm.groundingChunks || [];
+    const searchQueries = gm.webSearchQueries || [];
+    const searchEntryPoint = (gm.searchEntryPoint && gm.searchEntryPoint.renderedContent) || '';
+
+    // Build the real cited-source list. chunk.web.uri is a Google redirect link;
+    // chunk.web.title is the real domain/site name — use title for identity.
+    const seen = new Set();
+    const citedSources = [];
+    for (const c of chunks) {
+      const web = c.web || {};
+      const title = (web.title || '').trim();
+      const uri = (web.uri || '').trim();
+      const key = (title || uri).toLowerCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      citedSources.push({ title, uri });
+    }
+
+    // REAL signal: brand actually mentioned in the answer, or present as a cited source.
+    const answerLower = answerText.toLowerCase();
+    const brandInAnswer = answerLower.includes(brandName.toLowerCase()) || answerLower.includes(brandDomainRoot);
+    const brandInSources = citedSources.some(s => {
+      const hay = (s.title + ' ' + s.uri).toLowerCase();
+      return hay.includes(brandDomainRoot) || hay.includes(brandName.toLowerCase());
+    });
+    const recommended = brandInAnswer || brandInSources;
+
+    // --- Pass 2 (best-effort): extract competitor NAMES + reasons from the REAL
+    // grounded answer. This only summarizes real text; it invents nothing. ---
+    let reasons = [];
+    let competitors = [];
+    if (answerText) {
+      try {
+        const extractPrompt = `Here is an AI answer engine's response to the query "${query}":
+"""
+${answerText}
+"""
+Return ONLY raw JSON (no markdown fences) shaped exactly as:
+{"reasons": ["short reasons the answer gave, if any"], "competitors": ["names of businesses OTHER THAN \\"${brandName}\\" that the answer recommends or mentions"]}`;
+        const extract = await client.models.generateContent({
+          model: GEMINI_MODEL,
+          contents: extractPrompt
+        });
+        let raw = (extract.text || '').trim()
+          .replace(/^```json/i, '').replace(/^```/, '').replace(/```$/, '').trim();
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed.reasons)) reasons = parsed.reasons.filter(Boolean);
+        if (Array.isArray(parsed.competitors)) {
+          competitors = parsed.competitors
+            .filter(Boolean)
+            .filter(c => !c.toLowerCase().includes(brandName.toLowerCase()));
+        }
+      } catch (e) {
+        console.error('[AIO Audit] Competitor extraction failed (non-fatal):', e.message);
+      }
+    }
+
+    const responseSnippet = answerText.length > 360
+      ? answerText.slice(0, 357).trim() + '…'
+      : (answerText || 'The AI returned no answer text for this query.');
+
+    const fullAudit = {
+      timestamp: new Date().toISOString(),
+      query,
+      source: 'live_grounded',
+      engine: 'Google (Gemini + Google Search)',
+      recommended,
+      cited: brandInSources,
+      responseSnippet,
+      reasons,
+      citedSources,                                   // [{title, uri}] — real
+      citedUrls: citedSources.map(s => s.uri).filter(Boolean),
+      competitors,
+      searchQueries,                                  // real queries Gemini ran
+      searchEntryPoint                                // Google search-suggestions chip (HTML)
+    };
+
+    aioAuditsDb.unshift(fullAudit);
+    if (aioAuditsDb.length > 50) {
+      aioAuditsDb = aioAuditsDb.slice(0, 50);
+    }
+    try {
+      fs.writeFileSync(AIO_AUDITS_FILE, JSON.stringify(aioAuditsDb, null, 2));
+    } catch (err) {
+      console.error('[AIO Audits File] Save failed:', err.message);
+    }
+
+    return res.json({ success: true, latest: fullAudit, history: aioAuditsDb });
+
+  } catch (err) {
+    console.error('[AIO Audit API] Grounded audit failed:', err.message);
+    return res.status(502).json({
+      success: false,
+      error: `The live audit could not be completed: ${err.message}`
+    });
+  }
 });
 
 // 10. Get AIO Audits History
