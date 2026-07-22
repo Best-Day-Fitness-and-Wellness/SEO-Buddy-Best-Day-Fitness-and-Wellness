@@ -502,6 +502,13 @@
           <p class="text-muted mb-4">Configure your API credentials to switch from Mock Mode to Live Operations</p>
 
           <form id="settings-form">
+            <div class="settings-section-title">Dashboard Security</div>
+            <div class="form-group">
+              <label for="settings-admin-password">Admin Password</label>
+              <input type="password" id="settings-admin-password" class="form-input" placeholder="Required when the server sets ADMIN_PASSWORD">
+              <small class="text-muted">If the server is locked (public deployment), enter the same password here to authorize publishing, indexing, settings saves, and AI generation. Stored only in this browser.</small>
+            </div>
+
             <div class="settings-section-title">Generative AI API</div>
             <div class="form-group">
               <label for="settings-gemini-key">Google Gemini API Key</label>

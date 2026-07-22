@@ -73,7 +73,33 @@ document.addEventListener('DOMContentLoaded', () => {
   const settingsAuthorName = document.getElementById('settings-author-name');
   const settingsAuthorUrl = document.getElementById('settings-author-url');
   const settingsGscJson = document.getElementById('settings-gsc-json');
+  const settingsAdminPassword = document.getElementById('settings-admin-password');
   const displaySiteUrlBadge = document.getElementById('display-site-url');
+
+  // --- AUTH HELPERS ---
+  // The server protects sensitive endpoints when ADMIN_PASSWORD is set.
+  // Send the stored admin password as a Bearer token on protected calls.
+  function getAdminToken() {
+    return localStorage.getItem('seo_admin_password') || '';
+  }
+
+  function authHeaders(base) {
+    const headers = Object.assign({}, base || {});
+    const token = getAdminToken();
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return headers;
+  }
+
+  // Wraps fetch and surfaces a clear message if the server rejects auth.
+  async function authFetch(url, options) {
+    const opts = Object.assign({}, options || {});
+    opts.headers = authHeaders(opts.headers);
+    const res = await fetch(url, opts);
+    if (res.status === 401) {
+      throw new Error('This action is locked. Enter the admin password in the Settings tab, then try again.');
+    }
+    return res;
+  }
 
   // AIO / GEO Selectors
   const aioQuerySelector = document.getElementById('aio-query-selector');
@@ -310,7 +336,7 @@ document.addEventListener('DOMContentLoaded', () => {
     btnGenerate.disabled = true;
 
     try {
-      const res = await fetch('/api/generate-article', {
+      const res = await authFetch('/api/generate-article', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ keyword, caseStudy, ctaText, ctaUrl })
@@ -479,7 +505,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const credentials = getStoredCredentials();
 
     try {
-      const res = await fetch('/api/publish-ghl', {
+      const res = await authFetch('/api/publish-ghl', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -540,7 +566,7 @@ document.addEventListener('DOMContentLoaded', () => {
     btnIndexNow.innerText = 'Requesting Crawl...';
 
     try {
-      const res = await fetch('/api/index-url', {
+      const res = await authFetch('/api/index-url', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url })
@@ -604,7 +630,8 @@ document.addEventListener('DOMContentLoaded', () => {
       blogPrefix: localStorage.getItem('seo_blog_prefix') || '/blog/posts',
       authorName: localStorage.getItem('seo_author_name') || '',
       authorUrl: localStorage.getItem('seo_author_url') || '',
-      gscJson: localStorage.getItem('seo_gsc_json') || ''
+      gscJson: localStorage.getItem('seo_gsc_json') || '',
+      adminPassword: localStorage.getItem('seo_admin_password') || ''
     };
   }
 
@@ -620,6 +647,7 @@ document.addEventListener('DOMContentLoaded', () => {
     settingsAuthorName.value = creds.authorName || '';
     settingsAuthorUrl.value = creds.authorUrl || '';
     settingsGscJson.value = creds.gscJson;
+    settingsAdminPassword.value = creds.adminPassword || '';
 
     if (creds.siteUrl) {
       displaySiteUrlBadge.innerText = creds.siteUrl.replace('https://', '').replace('http://', '');
@@ -638,7 +666,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const authorName = settingsAuthorName.value.trim();
     const authorUrl = settingsAuthorUrl.value.trim();
     const gscJson = settingsGscJson.value.trim();
+    const adminPassword = settingsAdminPassword.value;
 
+    // Store the admin password first so the save request below is authorized.
+    localStorage.setItem('seo_admin_password', adminPassword);
     localStorage.setItem('seo_gemini_key', geminiKey);
     localStorage.setItem('seo_ghl_token', ghlToken);
     localStorage.setItem('seo_ghl_location', ghlLocation);
@@ -654,7 +685,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     try {
-      const response = await fetch('/api/save-settings', {
+      const response = await authFetch('/api/save-settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ geminiKey, ghlToken, ghlLocation, ghlBlog, siteUrl, blogPrefix, authorName, authorUrl, gscJson })
@@ -740,7 +771,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const intervalHours = parseFloat(autopilotInterval.value);
     
     try {
-      await fetch('/api/autopilot-toggle', {
+      await authFetch('/api/autopilot-toggle', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled, intervalHours })
@@ -760,7 +791,7 @@ document.addEventListener('DOMContentLoaded', () => {
     btnRunAutopilotNow.innerText = 'Agent Operating...';
 
     try {
-      const res = await fetch('/api/autopilot-run-now', { method: 'POST' });
+      const res = await authFetch('/api/autopilot-run-now', { method: 'POST' });
       const data = await res.json();
       
       if (!res.ok || !data.success) {
@@ -900,7 +931,7 @@ document.addEventListener('DOMContentLoaded', () => {
     aioResultsPanel.style.display = 'none';
 
     try {
-      const res = await fetch('/api/aio-audit', {
+      const res = await authFetch('/api/aio-audit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query })
