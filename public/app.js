@@ -2,7 +2,7 @@
 document.addEventListener('DOMContentLoaded', () => {
   // --- APPLICATION STATE ---
   const state = {
-    activeTab: 'gsc-tab',
+    activeTab: 'summary-tab',
     gscData: [],
     filterMode: 'leaks', // 'leaks' or 'all'
     generatedArticle: null, // { title, slug, content }
@@ -74,6 +74,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const settingsAuthorUrl = document.getElementById('settings-author-url');
   const settingsGscJson = document.getElementById('settings-gsc-json');
   const settingsAdminPassword = document.getElementById('settings-admin-password');
+  const settingsClientValue = document.getElementById('settings-client-value');
+  const settingsConvRate = document.getElementById('settings-conv-rate');
+  const settingsCaptureRate = document.getElementById('settings-capture-rate');
   const displaySiteUrlBadge = document.getElementById('display-site-url');
 
   // --- AUTH HELPERS ---
@@ -113,6 +116,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const aioSnippetText = document.getElementById('aio-snippet-text');
   const aioCitedUrls = document.getElementById('aio-cited-urls');
   const aioCompetitors = document.getElementById('aio-competitors');
+  const aioSearchQueries = document.getElementById('aio-search-queries');
+  const aioSearchSuggestions = document.getElementById('aio-search-suggestions');
   
   const btnSchemaLocal = document.getElementById('btn-schema-local');
   const btnSchemaFaq = document.getElementById('btn-schema-faq');
@@ -159,7 +164,11 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // Update Header Text dynamically
-    if (tabId === 'gsc-tab') {
+    if (tabId === 'summary-tab') {
+      pageTitle.innerText = 'Your SEO Summary';
+      pageSubtitle.innerText = 'A plain-English snapshot of what SEO Buddy is doing for you, updated live';
+      loadSummary();
+    } else if (tabId === 'gsc-tab') {
       pageTitle.innerText = 'GSC Content Gaps';
       pageSubtitle.innerText = 'Analyze Search Console impressions and find low-click authority loops';
     } else if (tabId === 'ai-tab') {
@@ -170,7 +179,7 @@ document.addEventListener('DOMContentLoaded', () => {
       pageSubtitle.innerText = 'Deploy formatted pages to GoHighLevel and request Google indexing';
     } else if (tabId === 'aio-tab') {
       pageTitle.innerText = 'AI Search (AIO) Audit';
-      pageSubtitle.innerText = 'Verify recommendations on AI Search platforms and build schema graphs';
+      pageSubtitle.innerText = 'See whether Google\'s live AI recommends and cites Best Day Fitness, and build schema graphs';
       fetchAioHistory();
       fetchAioSchemas();
     } else if (tabId === 'settings-tab') {
@@ -631,7 +640,10 @@ document.addEventListener('DOMContentLoaded', () => {
       authorName: localStorage.getItem('seo_author_name') || '',
       authorUrl: localStorage.getItem('seo_author_url') || '',
       gscJson: localStorage.getItem('seo_gsc_json') || '',
-      adminPassword: localStorage.getItem('seo_admin_password') || ''
+      adminPassword: localStorage.getItem('seo_admin_password') || '',
+      clientValue: localStorage.getItem('seo_client_value') || '1395',
+      convRate: localStorage.getItem('seo_conv_rate') || '2',
+      captureRate: localStorage.getItem('seo_capture_rate') || '5'
     };
   }
 
@@ -648,6 +660,9 @@ document.addEventListener('DOMContentLoaded', () => {
     settingsAuthorUrl.value = creds.authorUrl || '';
     settingsGscJson.value = creds.gscJson;
     settingsAdminPassword.value = creds.adminPassword || '';
+    if (settingsClientValue) settingsClientValue.value = creds.clientValue;
+    if (settingsConvRate) settingsConvRate.value = creds.convRate;
+    if (settingsCaptureRate) settingsCaptureRate.value = creds.captureRate;
 
     if (creds.siteUrl) {
       displaySiteUrlBadge.innerText = creds.siteUrl.replace('https://', '').replace('http://', '');
@@ -670,6 +685,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Store the admin password first so the save request below is authorized.
     localStorage.setItem('seo_admin_password', adminPassword);
+    // Business-value assumptions for the Summary dashboard estimates.
+    if (settingsClientValue) localStorage.setItem('seo_client_value', settingsClientValue.value.trim() || '1395');
+    if (settingsConvRate) localStorage.setItem('seo_conv_rate', settingsConvRate.value.trim() || '2');
+    if (settingsCaptureRate) localStorage.setItem('seo_capture_rate', settingsCaptureRate.value.trim() || '5');
     localStorage.setItem('seo_gemini_key', geminiKey);
     localStorage.setItem('seo_ghl_token', ghlToken);
     localStorage.setItem('seo_ghl_location', ghlLocation);
@@ -812,9 +831,182 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
+  // --- SUMMARY DASHBOARD (default landing tab) ---
+  // Aggregates the app's existing live data into a plain-English snapshot.
+  // Uses the open (view-only) GET endpoints, so it works without the admin password.
+  function sumEsc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  }
+
+  async function loadSummary() {
+    const [aioRes, gscRes, histRes] = await Promise.allSettled([
+      fetch('/api/aio-history').then(r => r.json()),
+      fetch('/api/gsc-data').then(r => r.json()),
+      fetch('/api/history').then(r => r.json())
+    ]);
+
+    const audits = (aioRes.status === 'fulfilled' && Array.isArray(aioRes.value)) ? aioRes.value : [];
+    const gsc = (gscRes.status === 'fulfilled' && gscRes.value) ? gscRes.value : { source: '', data: [] };
+    const gscData = Array.isArray(gsc.data) ? gsc.data : [];
+    const history = (histRes.status === 'fulfilled' && Array.isArray(histRes.value)) ? histRes.value : [];
+
+    const $ = id => document.getElementById(id);
+    if (!$('sum-updated')) return; // summary DOM not present
+
+    $('sum-updated').innerText = new Date().toLocaleTimeString();
+
+    // Data-source badge (the search numbers are the ones that can be demo data)
+    const badge = $('sum-data-badge');
+    if (gsc.source === 'live_gsc') {
+      badge.className = 'sum-badge live';
+      badge.innerText = 'Live Search Console data';
+    } else {
+      badge.className = 'sum-badge demo';
+      badge.innerText = 'Demo search data — connect Search Console for live numbers';
+    }
+
+    // ---- AI VISIBILITY ----
+    const nAudits = audits.length;
+    const recommended = audits.filter(a => a.recommended).length;
+    const rate = nAudits ? Math.round((recommended / nAudits) * 100) : 0;
+    let vColor = 'var(--text-dark)';
+    if (nAudits) vColor = rate >= 60 ? 'var(--color-success)' : (rate >= 1 ? 'var(--color-warning)' : 'var(--color-accent)');
+    $('sum-aiviz-pct').innerText = nAudits ? rate + '%' : '—';
+    $('sum-aiviz-dot').style.background = vColor;
+    $('sum-kpi-aiviz').style.setProperty('--kpi-accent', vColor);
+    $('sum-aiviz-sub').innerText = nAudits
+      ? `Recommended in ${recommended} of ${nAudits} AI check${nAudits > 1 ? 's' : ''} run.`
+      : 'Run an AI Search Audit to start measuring this.';
+
+    const donut = $('sum-donut');
+    donut.style.background = `conic-gradient(${vColor} 0 ${rate}%, rgba(255,255,255,.07) ${rate}% 100%)`;
+    $('sum-donut-num').innerText = nAudits ? rate + '%' : '—';
+
+    const standing = $('sum-standing-text');
+    if (!nAudits) standing.innerText = 'Run an AI Search Audit to see whether AI recommends you.';
+    else if (rate === 0) standing.innerText = "AI isn't recommending Best Day Fitness yet for the searches you've checked — that's the gap to close with new content.";
+    else standing.innerText = `AI recommended Best Day Fitness in ${rate}% of the searches you've checked so far.`;
+
+    // ---- COMPETITORS (aggregated across audits by frequency) ----
+    const compCounts = {};
+    audits.forEach(a => (a.competitors || []).forEach(c => {
+      const name = String(c || '').trim();
+      if (name) compCounts[name] = (compCounts[name] || 0) + 1;
+    }));
+    const compSorted = Object.keys(compCounts).sort((a, b) => compCounts[b] - compCounts[a]);
+    $('sum-comp-count').innerText = nAudits ? compSorted.length : '—';
+
+    const compList = $('sum-comp-list');
+    if (compSorted.length) {
+      compList.innerHTML = compSorted.slice(0, 5).map((name, i) =>
+        `<li><span class="sum-comp-rank">${i + 1}</span> ${sumEsc(name)}</li>`).join('');
+    } else {
+      compList.innerHTML = nAudits
+        ? '<li style="border:none;color:var(--text-muted);">No competitors named in your audits yet.</li>'
+        : '';
+    }
+
+    // ---- SEARCH OPPORTUNITIES ----
+    const leaks = gscData.filter(d => d.leak);
+    const totalImpr = leaks.reduce((s, d) => s + (d.impressions || 0), 0);
+    $('sum-opps-count').innerText = leaks.length;
+    $('sum-opps-extra').innerText = leaks.length ? `~${totalImpr.toLocaleString()} monthly impressions behind them` : '';
+
+    const barsWrap = $('sum-opps-bars');
+    const topLeaks = leaks.slice().sort((a, b) => (b.impressions || 0) - (a.impressions || 0)).slice(0, 5);
+    if (topLeaks.length) {
+      const maxImpr = topLeaks[0].impressions || 1;
+      barsWrap.innerHTML = topLeaks.map(d => {
+        const w = Math.max(6, Math.round(((d.impressions || 0) / maxImpr) * 100));
+        return `<div class="sum-bar-row">
+          <div class="sum-bar-top"><span>${sumEsc(d.query)}</span><span class="sum-bar-val">${(d.impressions || 0).toLocaleString()}/mo</span></div>
+          <div class="sum-bar-track"><div class="sum-bar-fill" style="width:${w}%"></div></div>
+        </div>`;
+      }).join('');
+    } else {
+      barsWrap.innerHTML = '<div class="sum-empty">No search opportunities detected right now. Connect Search Console to see your real gaps.</div>';
+    }
+
+    // ---- CONTENT PUBLISHED ----
+    const nContent = history.length;
+    const submitted = history.filter(h => /requested|indexed/i.test(h.indexed || '')).length;
+    $('sum-content-count').innerText = nContent;
+    $('sum-content-extra').innerText = nContent ? `${submitted} submitted to Google for listing` : '';
+
+    const contentList = $('sum-content-list');
+    if (nContent) {
+      contentList.innerHTML = history.slice(0, 5).map(h => {
+        const done = /requested|indexed/i.test(h.indexed || '');
+        const badgeColor = done ? 'var(--color-success)' : 'var(--text-muted)';
+        const badgeText = done ? 'Sent to Google' : 'Not yet submitted';
+        return `<div class="sum-content-item">
+          <span class="sum-content-name">${sumEsc(h.title || h.keyword || 'Untitled page')}</span>
+          <span style="font-size:var(--font-xs);color:${badgeColor};white-space:nowrap;">${badgeText}</span>
+        </div>`;
+      }).join('');
+    } else {
+      contentList.innerHTML = '<div class="sum-empty">No pages published through SEO Buddy yet. Create one from a search opportunity to get started.</div>';
+    }
+
+    // ---- MOMENTUM (AI visibility trend over time) ----
+    const trendEl = $('sum-aiviz-trend');
+    if (trendEl) {
+      trendEl.style.display = 'inline-block';
+      if (nAudits >= 2) {
+        const sorted = audits.slice().sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+        const mid = Math.floor(sorted.length / 2);
+        const rrate = arr => arr.length ? (arr.filter(a => a.recommended).length / arr.length) * 100 : 0;
+        const delta = Math.round(rrate(sorted.slice(mid)) - rrate(sorted.slice(0, mid)));
+        if (delta > 0) { trendEl.className = 'sum-trend up'; trendEl.innerText = `▲ ${delta} pts vs earlier`; }
+        else if (delta < 0) { trendEl.className = 'sum-trend down'; trendEl.innerText = `▼ ${Math.abs(delta)} pts vs earlier`; }
+        else { trendEl.className = 'sum-trend flat'; trendEl.innerText = 'No change vs earlier'; }
+      } else {
+        trendEl.className = 'sum-trend flat';
+        trendEl.innerText = 'Run audits over time to track momentum';
+      }
+    }
+
+    // ---- SECONDARY STATS ----
+    const allImpr = gscData.reduce((s, d) => s + (d.impressions || 0), 0);
+    $('sum-impr').innerText = allImpr.toLocaleString();
+    const ranked = gscData.filter(d => (d.position || 0) > 0);
+    const avgRank = ranked.length ? (ranked.reduce((s, d) => s + d.position, 0) / ranked.length) : 0;
+    $('sum-rank').innerText = avgRank ? avgRank.toFixed(1) : '—';
+    $('sum-keywords').innerText = gscData.length;
+    $('sum-indexed').innerText = history.filter(h => /requested|indexed/i.test(h.indexed || '')).length;
+
+    // ---- FINANCIAL ESTIMATES (owner-set assumptions, clearly labeled as estimates) ----
+    const clientValue = parseFloat(localStorage.getItem('seo_client_value')) || 1395;
+    const convRate = (parseFloat(localStorage.getItem('seo_conv_rate')) || 2) / 100;
+    const captureRate = (parseFloat(localStorage.getItem('seo_capture_rate')) || 5) / 100;
+    const valuePerVisit = clientValue * convRate;
+    const money = v => '$' + Math.round(v).toLocaleString();
+
+    const leakImprSum = leaks.reduce((s, d) => s + (d.impressions || 0), 0);
+    const oppVisits = Math.round(leakImprSum * captureRate);
+    const oppClients = oppVisits * convRate;
+    const oppValue = oppVisits * valuePerVisit;
+    const allClicks = gscData.reduce((s, d) => s + (d.clicks || 0), 0);
+    const curValue = allClicks * valuePerVisit;
+
+    $('sum-opp-value').innerText = leaks.length ? money(oppValue) + '/mo' : '$0';
+    $('sum-opp-value-sub').innerText = leaks.length
+      ? `Win your ${leaks.length} search gap${leaks.length > 1 ? 's' : ''}: ~${oppVisits.toLocaleString()} more visits/mo, ~${oppClients.toFixed(1)} new clients/mo.`
+      : 'No open search gaps detected right now.';
+    $('sum-opp-assump').innerText = `Assumes ${Math.round(captureRate * 100)}% of these searches become visits, ${(convRate * 100).toFixed(1)}% convert, at ${money(clientValue)}/client.`;
+
+    $('sum-cur-value').innerText = money(curValue) + '/mo';
+    $('sum-cur-value-sub').innerText = `Your ~${allClicks.toLocaleString()} current search clicks/mo, valued at ${money(valuePerVisit)}/visit.`;
+  }
+
   // Background sync loops
   fetchHistory();
   fetchAutopilotStatus();
+  loadSummary();
+  const sumRefreshBtn = document.getElementById('sum-refresh');
+  if (sumRefreshBtn) sumRefreshBtn.addEventListener('click', loadSummary);
+  const sumEditAssump = document.getElementById('sum-edit-assump');
+  if (sumEditAssump) sumEditAssump.addEventListener('click', () => switchTab('settings-tab'));
 
   setInterval(() => {
     if (state.activeTab === 'publish-tab') {
@@ -822,6 +1014,11 @@ document.addEventListener('DOMContentLoaded', () => {
       fetchHistory();
     }
   }, 12000);
+
+  // Summary auto-refresh (real-time while the tab is open)
+  setInterval(() => {
+    if (state.activeTab === 'summary-tab') loadSummary();
+  }, 30000);
 
   // --- AI SEARCH AUDIT & SCHEMA ASSET ENGINE ---
   aioQuerySelector.addEventListener('change', () => {
@@ -860,17 +1057,20 @@ document.addEventListener('DOMContentLoaded', () => {
       const tr = document.createElement('tr');
       const date = new Date(item.timestamp).toLocaleString();
       
-      const statusText = item.recommended ? 'Recommended' : 'Not Cited';
+      const statusText = item.recommended ? 'Recommended' : 'Not Mentioned';
       const statusClass = item.recommended ? 'clean' : 'leak';
-      
-      const rate = item.recommended ? '100%' : '0%';
+
+      // "Cited as Source?" reflects whether the brand appeared in the REAL cited
+      // sources (item.cited); older records without the flag fall back to recommended.
+      const citedFlag = (typeof item.cited === 'boolean') ? item.cited : item.recommended;
+      const citedText = citedFlag ? 'Yes' : 'No';
       const competitorsStr = item.competitors && item.competitors.length > 0 ? item.competitors.join(', ') : 'None';
 
       tr.innerHTML = `
         <td>${date}</td>
         <td><span class="keyword-tag">${item.query}</span></td>
         <td><span class="status-badge ${statusClass}">${statusText}</span></td>
-        <td class="font-medium">${rate}</td>
+        <td class="font-medium">${citedText}</td>
         <td>${competitorsStr}</td>
       `;
       aioHistoryTableBody.appendChild(tr);
@@ -927,7 +1127,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     btnRunAioAudit.disabled = true;
-    btnRunAioAudit.innerText = 'AI Agent Auditing Platforms...';
+    btnRunAioAudit.innerText = 'Querying Google\'s AI (live search)…';
     aioResultsPanel.style.display = 'none';
 
     try {
@@ -942,29 +1142,45 @@ document.addEventListener('DOMContentLoaded', () => {
         throw new Error(data.error || 'AIO Audit API failed');
       }
 
+      // Honest "no Gemini key" state — never render fabricated results.
+      if (data.unavailable) {
+        alert(data.message || 'Add your Gemini API key in Settings to run a real audit.');
+        renderAioHistory(data.history || []);
+        return;
+      }
+
       const latest = data.latest;
-      
+
       aioResultsPanel.style.display = 'block';
-      
+
       const badgeText = aioStatusBadge.querySelector('.status-text');
       if (latest.recommended) {
         aioStatusBadge.className = 'status-indicator live';
-        badgeText.innerText = 'Recommended / Cited';
+        badgeText.innerText = latest.cited ? 'Recommended + Cited' : 'Mentioned';
       } else {
         aioStatusBadge.className = 'status-indicator mock';
-        badgeText.innerText = 'Not Recommended';
+        badgeText.innerText = 'Not Mentioned';
       }
 
-      aioSnippetText.innerText = latest.responseSnippet;
+      aioSnippetText.innerText = latest.responseSnippet || '(no answer text returned)';
 
+      // Cited sources — real domains from Google's grounding (title = domain, uri = link).
       aioCitedUrls.innerHTML = '';
-      if (!latest.citedUrls || latest.citedUrls.length === 0) {
+      const sources = (latest.citedSources && latest.citedSources.length)
+        ? latest.citedSources
+        : (latest.citedUrls || []).map(u => ({ title: u.replace(/^https?:\/\//, ''), uri: u }));
+      if (!sources.length) {
         aioCitedUrls.innerHTML = `<li style="color: var(--text-muted); padding: 4px 0;">None</li>`;
       } else {
-        latest.citedUrls.forEach(url => {
+        sources.forEach(s => {
           const li = document.createElement('li');
           li.style.marginBottom = '6px';
-          li.innerHTML = `<a href="${url}" target="_blank" class="live-link" style="text-decoration: underline;">${url.replace('https://', '')}</a>`;
+          const label = s.title || (s.uri || '').replace(/^https?:\/\//, '');
+          if (s.uri) {
+            li.innerHTML = `<a href="${s.uri}" target="_blank" class="live-link" style="text-decoration: underline;">${label}</a>`;
+          } else {
+            li.innerText = label;
+          }
           aioCitedUrls.appendChild(li);
         });
       }
@@ -982,6 +1198,28 @@ document.addEventListener('DOMContentLoaded', () => {
         });
       }
 
+      // Real Google Search queries used for grounding.
+      if (aioSearchQueries) {
+        if (latest.searchQueries && latest.searchQueries.length) {
+          aioSearchQueries.style.display = 'block';
+          aioSearchQueries.innerHTML = `<strong style="color: var(--text-muted);">Google searches run:</strong> ${latest.searchQueries.map(q => `<span class="keyword-tag">${q}</span>`).join(' ')}`;
+        } else {
+          aioSearchQueries.style.display = 'none';
+          aioSearchQueries.innerHTML = '';
+        }
+      }
+
+      // Google-required Search Suggestions chip (from grounding metadata).
+      if (aioSearchSuggestions) {
+        if (latest.searchEntryPoint) {
+          aioSearchSuggestions.style.display = 'block';
+          aioSearchSuggestions.innerHTML = latest.searchEntryPoint;
+        } else {
+          aioSearchSuggestions.style.display = 'none';
+          aioSearchSuggestions.innerHTML = '';
+        }
+      }
+
       renderAioHistory(data.history);
       if (data.history.length > 0) {
         const citedCount = data.history.filter(item => item.recommended).length;
@@ -989,13 +1227,11 @@ document.addEventListener('DOMContentLoaded', () => {
         aioSovRate.innerText = `${rate}%`;
       }
 
-      alert('AI Platforms Audited Successfully!');
-
     } catch (err) {
       alert(`AIO Audit Error: ${err.message}`);
     } finally {
       btnRunAioAudit.disabled = false;
-      btnRunAioAudit.innerText = 'Audit AI Platforms Now';
+      btnRunAioAudit.innerText = 'Run Live Google-AI Audit';
     }
   });
 
