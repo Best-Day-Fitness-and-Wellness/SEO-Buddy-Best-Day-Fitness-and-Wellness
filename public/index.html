@@ -70,6 +70,20 @@
           </svg>
           AI Search Audit
         </button>
+        <button class="nav-item" data-tab="citations-tab" id="nav-citations">
+          <svg viewBox="0 0 24 24" class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+          </svg>
+          Citation Targets
+        </button>
+        <button class="nav-item" data-tab="local-tab" id="nav-local">
+          <svg viewBox="0 0 24 24" class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+            <circle cx="12" cy="10" r="3"></circle>
+          </svg>
+          Local SEO
+        </button>
         <button class="nav-item" data-tab="settings-tab" id="nav-settings">
           <svg viewBox="0 0 24 24" class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="3"></circle>
@@ -655,6 +669,160 @@
               </tbody>
             </table>
           </div>
+        </div>
+      </section>
+
+      <!-- TAB: CITATION TARGETS -->
+      <style>
+        #citations-tab .cit-summary{background:var(--bg-card);border:1px solid var(--border-color);border-radius:12px;padding:16px 18px;margin:18px 0;display:flex;gap:24px;flex-wrap:wrap;}
+        #citations-tab .cit-summary .cit-stat{display:flex;flex-direction:column;}
+        #citations-tab .cit-summary .cit-stat b{font-family:var(--font-heading);font-size:1.5rem;color:var(--text-main);line-height:1.1;}
+        #citations-tab .cit-summary .cit-stat span{font-size:var(--font-xs);color:var(--text-muted);margin-top:2px;}
+        #citations-tab .cit-card{background:var(--bg-card);border:1px solid var(--border-color);border-radius:12px;padding:16px 18px;margin-bottom:12px;display:flex;align-items:flex-start;gap:14px;}
+        #citations-tab .cit-rank{width:26px;height:26px;flex-shrink:0;border-radius:8px;background:rgba(99,102,241,.15);color:var(--color-primary);font-weight:700;font-size:13px;display:flex;align-items:center;justify-content:center;font-family:var(--font-heading);}
+        #citations-tab .cit-body{flex:1;min-width:0;}
+        #citations-tab .cit-domain{font-size:var(--font-base);font-weight:600;color:var(--text-main);word-break:break-all;}
+        #citations-tab .cit-domain a{color:var(--text-main);text-decoration:none;}
+        #citations-tab .cit-domain a:hover{color:var(--color-secondary);text-decoration:underline;}
+        #citations-tab .cit-meta{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:6px 0;}
+        #citations-tab .cit-badge{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;padding:2px 8px;border-radius:999px;border:1px solid var(--border-color);color:var(--text-muted);}
+        #citations-tab .cit-badge.type-directory{color:var(--color-secondary);border-color:rgba(6,182,212,.4);}
+        #citations-tab .cit-badge.type-review{color:var(--color-warning);border-color:rgba(245,158,11,.4);}
+        #citations-tab .cit-badge.type-listicle{color:var(--color-primary);border-color:rgba(99,102,241,.4);}
+        #citations-tab .cit-badge.type-forum{color:#a78bfa;border-color:rgba(167,139,250,.4);}
+        #citations-tab .cit-badge.type-competitor{color:var(--color-accent);border-color:rgba(244,63,94,.4);}
+        #citations-tab .cit-cited{font-size:var(--font-xs);color:var(--text-muted);}
+        #citations-tab .cit-listed{font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;}
+        #citations-tab .cit-listed.yes{background:rgba(16,185,129,.15);color:var(--color-success);}
+        #citations-tab .cit-listed.no{background:rgba(244,63,94,.15);color:var(--color-accent);}
+        #citations-tab .cit-listed.unknown{background:rgba(148,163,184,.12);color:var(--text-muted);}
+        #citations-tab .cit-action{font-size:var(--font-sm);color:var(--text-main);margin-top:4px;}
+        #citations-tab .cit-action b{color:var(--color-secondary);}
+        #citations-tab .cit-note{font-size:var(--font-xs);color:var(--text-dark);margin-top:3px;}
+        #citations-tab .cit-empty{color:var(--text-muted);font-size:var(--font-sm);padding:14px 0;line-height:1.5;}
+      </style>
+      <section class="tab-content" id="citations-tab">
+        <div class="content-card">
+          <h2>Citation Target Finder</h2>
+          <p class="text-muted mb-4">AI answer engines cite directories, review sites, and &ldquo;best‑of&rdquo; lists far more than your own pages. This finds the real third‑party sources AI actually pulls from for your searches &mdash; so you know exactly where to get listed to start showing up in AI answers. Uses live Google Search grounding (needs your Gemini key).</p>
+
+          <div class="form-group">
+            <label for="citations-queries">Local searches to analyze (one per line)</label>
+            <textarea id="citations-queries" rows="4" class="form-input" placeholder="senior fitness st petersburg fl&#10;personal trainer st petersburg fl&#10;best gym for seniors near me"></textarea>
+            <small class="text-muted">Add the searches you want to win. A handful (2&ndash;6) is plenty &mdash; each one runs a live AI search.</small>
+          </div>
+
+          <button class="btn btn-primary w-100" id="btn-find-citations">Find Citation Targets</button>
+
+          <div class="cit-summary" id="citations-summary" style="display:none;"></div>
+          <div id="citations-results"></div>
+        </div>
+      </section>
+
+      <!-- TAB: LOCAL SEO -->
+      <style>
+        #local-tab .lr-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px;}
+        @media(max-width:900px){#local-tab .lr-grid{grid-template-columns:1fr;}}
+        #local-tab .lr-out{width:100%;min-height:96px;background:rgba(0,0,0,.2);border:1px solid var(--border-color);border-radius:8px;padding:10px 12px;color:var(--text-main);font-size:var(--font-sm);line-height:1.55;resize:vertical;margin-top:10px;font-family:inherit;}
+        #local-tab .lr-row{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;}
+        #local-tab .nap-canonical{background:rgba(6,182,212,.08);border:1px solid rgba(6,182,212,.3);border-radius:10px;padding:12px 14px;font-size:var(--font-sm);color:var(--text-main);}
+        #local-tab .nap-canonical b{color:var(--color-secondary);}
+        #local-tab table.nap-table{width:100%;border-collapse:collapse;font-size:var(--font-sm);margin-top:12px;}
+        #local-tab .nap-table th,#local-tab .nap-table td{border:1px solid var(--border-color);padding:8px 10px;text-align:left;vertical-align:top;}
+        #local-tab .nap-table thead th{background:rgba(255,255,255,.03);color:var(--text-muted);font-size:var(--font-xs);text-transform:uppercase;letter-spacing:.5px;}
+        #local-tab .nap-ok{color:var(--color-success);}
+        #local-tab .nap-bad{color:var(--color-accent);font-weight:700;}
+        #local-tab .lr-empty{color:var(--text-muted);font-size:var(--font-sm);padding:12px 0;line-height:1.5;}
+        #local-tab .lr-check-group{margin-bottom:16px;}
+        #local-tab .lr-check-group h4{font-size:var(--font-xs);text-transform:uppercase;letter-spacing:.5px;color:var(--color-secondary);margin:0 0 6px;}
+        #local-tab .lr-check-item{display:flex;align-items:flex-start;gap:10px;padding:6px 0;font-size:var(--font-sm);color:var(--text-main);cursor:pointer;}
+        #local-tab .lr-check-item input{margin-top:3px;flex-shrink:0;width:16px;height:16px;cursor:pointer;}
+        #local-tab .lr-check-item.done{color:var(--text-muted);text-decoration:line-through;}
+        #local-tab .lr-score-bar{height:10px;background:rgba(255,255,255,.06);border-radius:999px;overflow:hidden;}
+        #local-tab .lr-score-fill{height:100%;background:var(--gradient-primary);border-radius:999px;transition:width .4s ease;}
+        #local-tab .lr-muted{font-size:var(--font-xs);color:var(--text-muted);}
+      </style>
+      <section class="tab-content" id="local-tab">
+        <!-- NAP Auditor -->
+        <div class="content-card">
+          <h2>NAP Consistency Auditor</h2>
+          <p class="text-muted mb-4">Your business <b>N</b>ame, <b>A</b>ddress &amp; <b>P</b>hone must match everywhere online &mdash; inconsistencies quietly hurt local rankings and confuse AI. This checks the major platforms against your official info and flags mismatches. Uses live Google Search grounding.</p>
+          <button class="btn btn-primary" id="btn-nap-check">Run NAP Check</button>
+          <div id="nap-canonical" style="display:none;margin-top:14px;"></div>
+          <div id="nap-results"></div>
+        </div>
+
+        <div class="lr-grid">
+          <!-- Review Response -->
+          <div class="content-card">
+            <h2>Review Response Writer</h2>
+            <p class="text-muted mb-4">Paste a review and get a warm, on‑brand reply to post on Google.</p>
+            <div class="form-group">
+              <label for="lr-review-text">The review</label>
+              <textarea id="lr-review-text" rows="3" class="form-input" placeholder="Paste the customer's review here..."></textarea>
+            </div>
+            <div class="form-group">
+              <label for="lr-review-rating">Star rating (optional)</label>
+              <select id="lr-review-rating" class="form-input">
+                <option value="">&mdash;</option><option>5</option><option>4</option><option>3</option><option>2</option><option>1</option>
+              </select>
+            </div>
+            <button class="btn btn-primary w-100" id="btn-lr-response">Write Response</button>
+            <textarea class="lr-out" id="lr-response-out" readonly placeholder="Your reply will appear here..."></textarea>
+            <button class="btn btn-secondary btn-xs" id="btn-lr-response-copy" style="margin-top:8px;">Copy</button>
+          </div>
+
+          <!-- Review Request -->
+          <div class="content-card">
+            <h2>Review Request Message</h2>
+            <p class="text-muted mb-4">A friendly, low‑pressure message to ask happy clients for a review.</p>
+            <div class="form-group">
+              <label for="lr-req-name">Client first name (optional)</label>
+              <input type="text" id="lr-req-name" class="form-input" placeholder="e.g. Margaret">
+            </div>
+            <div class="form-group">
+              <label for="lr-req-link">Your Google review link (optional)</label>
+              <input type="text" id="lr-req-link" class="form-input" placeholder="https://g.page/r/...">
+            </div>
+            <button class="btn btn-primary w-100" id="btn-lr-request">Generate Request</button>
+            <textarea class="lr-out" id="lr-request-out" readonly placeholder="Your message will appear here..."></textarea>
+            <button class="btn btn-secondary btn-xs" id="btn-lr-request-copy" style="margin-top:8px;">Copy</button>
+          </div>
+        </div>
+
+        <!-- GBP Post -->
+        <div class="content-card mt-4">
+          <h2>Google Business Profile Post Generator</h2>
+          <p class="text-muted mb-4">Keep your Google profile active (Google rewards it). Generate a post, then paste it into your Business Profile.</p>
+          <div class="lr-row">
+            <div class="form-group" style="flex:2;min-width:240px;">
+              <label for="lr-post-topic">What's the post about?</label>
+              <input type="text" id="lr-post-topic" class="form-input" placeholder="e.g. New fall-prevention class for seniors this month">
+            </div>
+            <div class="form-group" style="flex:1;min-width:150px;">
+              <label for="lr-post-type">Type</label>
+              <select id="lr-post-type" class="form-input">
+                <option value="update">Update</option><option value="offer">Offer</option><option value="event">Event</option><option value="tip">Tip</option>
+              </select>
+            </div>
+          </div>
+          <button class="btn btn-primary" id="btn-lr-post">Generate Post</button>
+          <textarea class="lr-out" id="lr-post-out" readonly placeholder="Your GBP post will appear here..."></textarea>
+          <button class="btn btn-secondary btn-xs" id="btn-lr-post-copy" style="margin-top:8px;">Copy</button>
+        </div>
+
+        <!-- Local Checklist -->
+        <div class="content-card mt-4">
+          <h2>Local SEO Checklist</h2>
+          <p class="text-muted mb-4">Tick off the local‑SEO fundamentals &mdash; your progress saves in this browser.</p>
+          <div style="margin-bottom:18px;">
+            <div style="display:flex;align-items:baseline;gap:12px;">
+              <div style="font-family:var(--font-heading);font-size:1.9rem;font-weight:700;color:var(--text-main);" id="lr-score">0%</div>
+              <div class="lr-muted" id="lr-score-label">0 of 0 complete</div>
+            </div>
+            <div class="lr-score-bar" style="margin-top:8px;"><div class="lr-score-fill" id="lr-score-fill" style="width:0%"></div></div>
+          </div>
+          <div id="lr-checklist"></div>
         </div>
       </section>
 

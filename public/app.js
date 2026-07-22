@@ -185,6 +185,9 @@ document.addEventListener('DOMContentLoaded', () => {
     } else if (tabId === 'citations-tab') {
       pageTitle.innerText = 'Citation Target Finder';
       pageSubtitle.innerText = 'Find the third-party sources AI cites — and where to get listed to win AI answers';
+    } else if (tabId === 'local-tab') {
+      pageTitle.innerText = 'Local SEO';
+      pageSubtitle.innerText = 'NAP consistency, reviews, Google Business Profile, and your local checklist';
     } else if (tabId === 'settings-tab') {
       pageTitle.innerText = 'System Configuration';
       pageSubtitle.innerText = 'Connect live APIs, GHL tokens, and Search Console keys';
@@ -1331,6 +1334,124 @@ document.addEventListener('DOMContentLoaded', () => {
         btnFindCitations.innerText = orig;
       }
     });
+  }
+
+
+  // --- LOCAL SEO TOOLS ---
+  async function lrGenerate(body, outEl, btn) {
+    const orig = btn.innerText;
+    btn.disabled = true; btn.innerText = 'Generating…';
+    try {
+      const res = await authFetch('/api/local-generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'Generation failed');
+      if (data.unavailable) { alert(data.message); return; }
+      outEl.value = data.text || '';
+    } catch (e) { alert('Error: ' + e.message); }
+    finally { btn.disabled = false; btn.innerText = orig; }
+  }
+  function lrCopy(el, btn) {
+    if (!el.value) { alert('Nothing to copy yet.'); return; }
+    navigator.clipboard.writeText(el.value);
+    const o = btn.innerText; btn.innerText = 'Copied!'; setTimeout(() => btn.innerText = o, 1500);
+  }
+
+  // NAP consistency audit
+  const btnNapCheck = document.getElementById('btn-nap-check');
+  if (btnNapCheck) {
+    btnNapCheck.addEventListener('click', async () => {
+      const canonEl = document.getElementById('nap-canonical');
+      const resEl = document.getElementById('nap-results');
+      const orig = btnNapCheck.innerText;
+      btnNapCheck.disabled = true; btnNapCheck.innerText = 'Checking the web… (~20–40s)';
+      resEl.innerHTML = '<div class="lr-empty">Searching the major platforms for your listings…</div>';
+      try {
+        const res = await authFetch('/api/nap-audit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+        const data = await res.json();
+        if (!res.ok || !data.success) throw new Error(data.error || 'NAP audit failed');
+        canonEl.style.display = 'block';
+        canonEl.className = 'nap-canonical';
+        canonEl.innerHTML = `<b>Your official info:</b> ${citEsc(data.canonical.name)} &middot; ${citEsc(data.canonical.address)} &middot; ${citEsc(data.canonical.phone)}`;
+        if (data.unavailable) { alert(data.message); resEl.innerHTML = ''; return; }
+        const rows = data.listings || [];
+        if (!rows.length) { resEl.innerHTML = '<div class="lr-empty">No listings came back — your citations may be sparse, which is itself a signal to build more. Try again in a moment.</div>'; return; }
+        const cell = (val, match) => {
+          const v = citEsc(val || '—');
+          if (match === true) return `<td class="nap-ok">✓ ${v}</td>`;
+          if (match === false) return `<td class="nap-bad">✗ ${v}</td>`;
+          return `<td>${v}</td>`;
+        };
+        const mism = rows.filter(r => r.phoneMatch === false || r.addrMatch === false || r.nameMatch === false).length;
+        resEl.innerHTML = `<p class="lr-muted" style="margin:12px 0 4px;">${mism > 0 ? `<span class="nap-bad">${mism} listing(s) with a mismatch</span> — align these to one consistent NAP.` : 'No mismatches detected in what we found — keep it consistent as you add citations.'}</p>` +
+          `<table class="nap-table"><thead><tr><th>Platform</th><th>Name</th><th>Address</th><th>Phone</th></tr></thead><tbody>` +
+          rows.map(r => `<tr><td>${citEsc(r.platform || '—')}</td>${cell(r.name, r.nameMatch)}${cell(r.address, r.addrMatch)}${cell(r.phone, r.phoneMatch)}</tr>`).join('') +
+          `</tbody></table>`;
+      } catch (e) { alert('NAP audit error: ' + e.message); resEl.innerHTML = ''; }
+      finally { btnNapCheck.disabled = false; btnNapCheck.innerText = orig; }
+    });
+  }
+
+  // Review response
+  const btnLrResponse = document.getElementById('btn-lr-response');
+  if (btnLrResponse) btnLrResponse.addEventListener('click', () => {
+    const review = (document.getElementById('lr-review-text').value || '').trim();
+    if (!review) { alert('Paste the review first.'); return; }
+    lrGenerate({ kind: 'review-response', review, rating: document.getElementById('lr-review-rating').value }, document.getElementById('lr-response-out'), btnLrResponse);
+  });
+  const btnLrRespCopy = document.getElementById('btn-lr-response-copy');
+  if (btnLrRespCopy) btnLrRespCopy.addEventListener('click', () => lrCopy(document.getElementById('lr-response-out'), btnLrRespCopy));
+
+  // Review request
+  const btnLrRequest = document.getElementById('btn-lr-request');
+  if (btnLrRequest) btnLrRequest.addEventListener('click', () => {
+    lrGenerate({ kind: 'review-request', clientName: document.getElementById('lr-req-name').value.trim(), reviewLink: document.getElementById('lr-req-link').value.trim() }, document.getElementById('lr-request-out'), btnLrRequest);
+  });
+  const btnLrReqCopy = document.getElementById('btn-lr-request-copy');
+  if (btnLrReqCopy) btnLrReqCopy.addEventListener('click', () => lrCopy(document.getElementById('lr-request-out'), btnLrReqCopy));
+
+  // GBP post
+  const btnLrPost = document.getElementById('btn-lr-post');
+  if (btnLrPost) btnLrPost.addEventListener('click', () => {
+    const topic = (document.getElementById('lr-post-topic').value || '').trim();
+    if (!topic) { alert('Enter what the post is about.'); return; }
+    lrGenerate({ kind: 'gbp-post', topic, postType: document.getElementById('lr-post-type').value }, document.getElementById('lr-post-out'), btnLrPost);
+  });
+  const btnLrPostCopy = document.getElementById('btn-lr-post-copy');
+  if (btnLrPostCopy) btnLrPostCopy.addEventListener('click', () => lrCopy(document.getElementById('lr-post-out'), btnLrPostCopy));
+
+  // Local SEO checklist (self-audit, saved in this browser)
+  const LR_CHECKLIST = [
+    { group: 'Google Business Profile', items: ['GBP claimed & verified', 'Primary + relevant secondary categories set', 'Complete, accurate hours (including holidays)', '10+ quality photos (interior, exterior, team, clients)', 'Full business description with local keywords', 'Services/products listed on the profile', 'A few Q&As seeded on the profile'] },
+    { group: 'Reviews', items: ['Actively requesting reviews from happy clients', 'Responding to every review (good and bad)', 'Maintaining a 4.5★+ average', 'Earning at least one new review per week'] },
+    { group: 'NAP & Citations', items: ['NAP identical on website, Google, Yelp, Facebook', 'Listed in the top local + industry directories', 'Business name consistent (no keyword stuffing)'] },
+    { group: 'On‑site Local Signals', items: ['City/service in your title tags and H1s', 'LocalBusiness schema on the site', 'Embedded Google Map + NAP in the footer', 'Dedicated location/service pages for key areas'] }
+  ];
+  const lrChecklistEl = document.getElementById('lr-checklist');
+  function lrLoadChecks() { try { return JSON.parse(localStorage.getItem('seo_local_checklist') || '{}'); } catch (e) { return {}; } }
+  function lrSaveChecks(o) { localStorage.setItem('seo_local_checklist', JSON.stringify(o)); }
+  function lrRenderChecklist() {
+    if (!lrChecklistEl) return;
+    const checks = lrLoadChecks();
+    let total = 0, done = 0;
+    lrChecklistEl.innerHTML = LR_CHECKLIST.map((g, gi) =>
+      `<div class="lr-check-group"><h4>${g.group}</h4>` + g.items.map((it, ii) => {
+        const id = `c${gi}_${ii}`; total++; const on = !!checks[id]; if (on) done++;
+        return `<label class="lr-check-item ${on ? 'done' : ''}"><input type="checkbox" data-cid="${id}" ${on ? 'checked' : ''}> <span>${it}</span></label>`;
+      }).join('') + `</div>`
+    ).join('');
+    const pct = total ? Math.round(done / total * 100) : 0;
+    document.getElementById('lr-score').innerText = pct + '%';
+    document.getElementById('lr-score-fill').style.width = pct + '%';
+    document.getElementById('lr-score-label').innerText = `${done} of ${total} complete`;
+  }
+  if (lrChecklistEl) {
+    lrChecklistEl.addEventListener('change', (e) => {
+      const cb = e.target;
+      if (cb && cb.dataset && cb.dataset.cid) {
+        const checks = lrLoadChecks(); checks[cb.dataset.cid] = cb.checked; lrSaveChecks(checks); lrRenderChecklist();
+      }
+    });
+    lrRenderChecklist();
   }
 
 
