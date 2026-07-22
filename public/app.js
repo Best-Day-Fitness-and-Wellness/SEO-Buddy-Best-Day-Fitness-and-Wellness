@@ -1650,37 +1650,55 @@ document.addEventListener('DOMContentLoaded', () => {
       tab: 'summary-tab',
       highlight: '.sum-value-strip',
       title: 'Step 1: Your Dashboard at a Glance',
-      text: 'This is your home base. In plain English it shows whether AI recommends you, the search opportunities you’re missing, the content you’ve published, and your estimated business value — updated live. Everything in the next steps is how you improve these numbers.'
+      text: 'This is your home base — in plain English it shows whether AI recommends you, the search opportunities you’re missing, what you’ve published, and your estimated business value. Everything else in the app is how you improve these numbers.'
+    },
+    {
+      tab: 'performance-tab',
+      highlight: '.perf-kpis',
+      title: 'Step 2: Is It Working?',
+      text: 'The <b>Performance</b> tab proves the payoff: your search impressions, clicks and rank this period vs last, your AI‑visibility trend over time, and your new leads. This is how you know the work is paying off.'
     },
     {
       tab: 'gsc-tab',
       highlight: '#gsc-table',
-      title: 'Step 2: Spot the Content Gaps',
-      text: 'Google is testing your site on searches but you get 0 clicks because you lack a dedicated page. Find a keyword labeled <span class="status-badge leak" style="padding: 1px 4px; font-size: 10px;">Content Gap</span> and click <b>Generate Page</b>.'
+      title: 'Step 3: Spot the Content Gaps',
+      text: 'Google shows your site on searches but you get 0 clicks because you lack a dedicated page. Find a keyword labeled <span class="status-badge leak" style="padding: 1px 4px; font-size: 10px;">Content Gap</span> and click <b>Generate Page</b>.'
     },
     {
       tab: 'ai-tab',
       highlight: '.creator-form-panel',
-      title: 'Step 3: Add Case Studies (E-E-A-T)',
-      text: 'Customize the <b>Information Gain / Case Study</b> box with a real client story. This tells Google’s algorithms your page is unique and highly authoritative, rather than generic AI fluff.'
-    },
-    {
-      tab: 'ai-tab',
-      highlight: '.preview-panel',
-      title: 'Step 4: Copy or Publish the Page',
-      text: 'Check the live generated draft. Toggle between <b>Visual Preview</b> and <b>Source HTML</b>. When you’re happy, <b>Copy HTML</b> into GoHighLevel — or head to <b>Publish &amp; Index</b> to push it live directly.'
+      title: 'Step 4: Write Authoritative Content',
+      text: 'Generate a structured, SEO‑ready page. Add a <b>real client story</b> in the Case Study box for E‑E‑A‑T, then preview it and either <b>Copy the HTML</b> into GoHighLevel or head to <b>Publish &amp; Index</b>.'
     },
     {
       tab: 'publish-tab',
       highlight: '.deploy-controls-card',
-      title: 'Step 5: Same-Day Google Indexing',
-      text: 'Once the page is live in GoHighLevel, paste its URL in the Indexing block and click <b>Submit URL for Indexing</b> to request a Google crawler scan within hours!'
+      title: 'Step 5: Publish & Same‑Day Indexing',
+      text: 'Push the page live to GoHighLevel, then paste its URL in the Indexing block and click <b>Submit URL for Indexing</b> to request a Google crawl within hours.'
     },
     {
       tab: 'aio-tab',
       highlight: '#btn-run-aio-audit',
       title: 'Step 6: Check Your AI Visibility',
-      text: 'Finally, see whether AI actually recommends you. Pick a local search and click <b>Run Live Google-AI Audit</b> — you’ll see if Best Day Fitness is cited by Google’s AI, who’s recommended instead, and the real sources. Re-run it over time to watch your visibility grow.'
+      text: 'See whether AI actually recommends you. Pick a local search and click <b>Run Live Google‑AI Audit</b> — you’ll see if you’re cited by Google’s AI, who’s recommended instead, and the real sources.'
+    },
+    {
+      tab: 'citations-tab',
+      highlight: '#btn-find-citations',
+      title: 'Step 7: Get Listed Where AI Looks',
+      text: 'AI cites directories, review sites and “best‑of” lists more than your own pages. <b>Citation Targets</b> finds the real sources AI pulls from and tells you exactly where to get listed to win AI answers.'
+    },
+    {
+      tab: 'local-tab',
+      highlight: '#btn-nap-check',
+      title: 'Step 8: Win Local SEO',
+      text: 'The <b>Local SEO</b> tab checks that your Name/Address/Phone match everywhere, writes review replies and requests, generates Google Business Profile posts, and scores you on the local fundamentals.'
+    },
+    {
+      tab: 'onsite-tab',
+      highlight: '#btn-os-keywords',
+      title: 'Step 9: Sharpen Your On‑Site SEO',
+      text: 'Finally, <b>On‑Site SEO</b> uncovers new keyword ideas, optimizes your title tags and meta descriptions, suggests internal links, and outputs richer schema — the technical polish that helps you rank.'
     }
   ];
 
