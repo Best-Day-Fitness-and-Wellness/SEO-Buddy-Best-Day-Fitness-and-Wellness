@@ -1239,28 +1239,40 @@ document.addEventListener('DOMContentLoaded', () => {
   // --- INTERACTIVE ONBOARDING WIZARD ---
   const wizardSteps = [
     {
+      tab: 'summary-tab',
+      highlight: '.sum-value-strip',
+      title: 'Step 1: Your Dashboard at a Glance',
+      text: 'This is your home base. In plain English it shows whether AI recommends you, the search opportunities you’re missing, the content you’ve published, and your estimated business value — updated live. Everything in the next steps is how you improve these numbers.'
+    },
+    {
       tab: 'gsc-tab',
       highlight: '#gsc-table',
-      title: 'Step 1: Spot the Content Gaps',
+      title: 'Step 2: Spot the Content Gaps',
       text: 'Google is testing your site on searches but you get 0 clicks because you lack a dedicated page. Find a keyword labeled <span class="status-badge leak" style="padding: 1px 4px; font-size: 10px;">Content Gap</span> and click <b>Generate Page</b>.'
     },
     {
       tab: 'ai-tab',
       highlight: '.creator-form-panel',
-      title: 'Step 2: Add Case Studies (E-E-A-T)',
+      title: 'Step 3: Add Case Studies (E-E-A-T)',
       text: 'Customize the <b>Information Gain / Case Study</b> box with a real client story. This tells Google’s algorithms your page is unique and highly authoritative, rather than generic AI fluff.'
     },
     {
       tab: 'ai-tab',
       highlight: '.preview-panel',
-      title: 'Step 3: Copy or Edit HTML',
-      text: 'Check the live generated draft. Toggle between <b>Visual Preview</b> and <b>Source HTML</b>. When satisfied, click <b>Copy HTML</b> and paste it directly into your GoHighLevel page builder.'
+      title: 'Step 4: Copy or Publish the Page',
+      text: 'Check the live generated draft. Toggle between <b>Visual Preview</b> and <b>Source HTML</b>. When you’re happy, <b>Copy HTML</b> into GoHighLevel — or head to <b>Publish &amp; Index</b> to push it live directly.'
     },
     {
       tab: 'publish-tab',
       highlight: '.deploy-controls-card',
-      title: 'Step 4: Same-Day Google Indexing',
+      title: 'Step 5: Same-Day Google Indexing',
       text: 'Once the page is live in GoHighLevel, paste its URL in the Indexing block and click <b>Submit URL for Indexing</b> to request a Google crawler scan within hours!'
+    },
+    {
+      tab: 'aio-tab',
+      highlight: '#btn-run-aio-audit',
+      title: 'Step 6: Check Your AI Visibility',
+      text: 'Finally, see whether AI actually recommends you. Pick a local search and click <b>Run Live Google-AI Audit</b> — you’ll see if Best Day Fitness is cited by Google’s AI, who’s recommended instead, and the real sources. Re-run it over time to watch your visibility grow.'
     }
   ];
 
