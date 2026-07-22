@@ -21,6 +21,17 @@ const PORT = process.env.PORT || 3000;
 // ID, so every live generation silently failed and fell back to mock output.
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
 
+// Durable data directory. Railway (and most container hosts) wipe the app
+// folder on every redeploy, so the history/logs/audit JSON files must live on a
+// persistent disk. On Railway: attach a Volume and set DATA_DIR to its mount
+// path (e.g. /data). Defaults to the app folder for local development.
+const DATA_DIR = process.env.DATA_DIR || __dirname;
+try {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+} catch (e) {
+  console.error('[Data Dir] Could not create DATA_DIR:', e.message);
+}
+
 // Optional admin password. When set, it locks down the sensitive endpoints
 // (settings, publishing, indexing, autopilot, and any Gemini-spend routes).
 // Leave unset only for trusted local development.
@@ -128,8 +139,8 @@ if (process.env.GEMINI_API_KEY) {
 // ----------------------------------------------------
 // Persistent JSON Database Configuration
 // ----------------------------------------------------
-const HISTORY_FILE = path.join(__dirname, 'history.json');
-const LOGS_FILE = path.join(__dirname, 'autopilot-logs.json');
+const HISTORY_FILE = path.join(DATA_DIR, 'history.json');
+const LOGS_FILE = path.join(DATA_DIR, 'autopilot-logs.json');
 
 let historyDb = [];
 let autopilotLogs = [];
@@ -173,7 +184,7 @@ if (fs.existsSync(LOGS_FILE)) {
 }
 
 // Initialize AIO audits database
-const AIO_AUDITS_FILE = path.join(__dirname, 'aio-audits.json');
+const AIO_AUDITS_FILE = path.join(DATA_DIR, 'aio-audits.json');
 let aioAuditsDb = [];
 
 if (fs.existsSync(AIO_AUDITS_FILE)) {
@@ -1127,6 +1138,7 @@ app.listen(PORT, () => {
   console.log(`🚀 SEO Buddy - Total Rank System Dashboard is running!`);
   console.log(`👉 Access URL: http://localhost:${PORT}`);
   console.log(`🤖 Gemini model: ${GEMINI_MODEL}`);
+  console.log(`💾 Data dir: ${DATA_DIR}${process.env.DATA_DIR ? ' (persistent)' : ' (ephemeral — set DATA_DIR to a Railway volume to persist history)'}`);
   if (ADMIN_PASSWORD) {
     console.log(`🔒 Admin lock: ON (settings/publish/index/autopilot require the password)`);
   } else {
