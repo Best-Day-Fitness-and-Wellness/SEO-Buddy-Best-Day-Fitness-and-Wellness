@@ -13,9 +13,104 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(cors());
+// ----------------------------------------------------
+// Core Configuration
+// ----------------------------------------------------
+// Gemini model is now env-configurable. Default to the current stable Flash
+// model. NOTE: the previous hardcoded 'gemini-3.5-flash' is not a valid model
+// ID, so every live generation silently failed and fell back to mock output.
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
+
+// Optional admin password. When set, it locks down the sensitive endpoints
+// (settings, publishing, indexing, autopilot, and any Gemini-spend routes).
+// Leave unset only for trusted local development.
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
+
+// Real Best Day Fitness business info (NAP) for structured data / schema.
+// Single source of truth — used by both the publisher and the schema endpoint.
+const BUSINESS = {
+  name: 'Best Day Fitness',
+  telephone: '+1-727-334-1472',
+  streetAddress: '6619 1st Ave S',
+  addressLocality: 'St. Petersburg',
+  addressRegion: 'FL',
+  postalCode: '33707',
+  addressCountry: 'US',
+  latitude: 27.770167,
+  longitude: -82.7291718,
+  sameAs: [
+    'https://www.facebook.com/bestdayfitness',
+    'https://www.instagram.com/best_day_fitness/',
+    'https://www.youtube.com/c/Bestdayfitness'
+  ]
+};
+
+// CORS: default to same-origin only (the dashboard is served from this same
+// server, so no cross-origin headers are needed). Set ALLOWED_ORIGIN to a
+// comma-separated allowlist only if you must call the API from another origin.
+const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || '';
+if (ALLOWED_ORIGIN) {
+  app.use(cors({ origin: ALLOWED_ORIGIN.split(',').map(s => s.trim()) }));
+}
+
 app.use(bodyParser.json());
 app.use(express.static(path.join(__dirname, 'public')));
+
+// ----------------------------------------------------
+// Auth middleware — protects sensitive/credential/spend endpoints.
+// If ADMIN_PASSWORD is not set, endpoints stay open (local dev) but the server
+// logs a loud startup warning. Provide the password from the client as either
+// an "Authorization: Bearer <password>" header or an "x-admin-token" header.
+// ----------------------------------------------------
+function requireAuth(req, res, next) {
+  if (!ADMIN_PASSWORD) return next(); // open mode (no password configured)
+  const authHeader = req.headers['authorization'] || '';
+  const bearer = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+  const token = bearer || (req.headers['x-admin-token'] || '').trim();
+  if (token && token === ADMIN_PASSWORD) return next();
+  return res.status(401).json({ success: false, error: 'Unauthorized. Enter the admin password in Settings to perform this action.' });
+}
+
+// Shared LocalBusiness schema builder (real NAP, single source of truth).
+function buildLocalBusinessSchema(domain) {
+  return {
+    "@context": "https://schema.org",
+    "@type": "SportsClub",
+    "name": BUSINESS.name,
+    "image": `${domain}/assets/logo.png`,
+    "@id": `${domain}/#organization`,
+    "url": domain,
+    "telephone": BUSINESS.telephone,
+    "address": {
+      "@type": "PostalAddress",
+      "streetAddress": BUSINESS.streetAddress,
+      "addressLocality": BUSINESS.addressLocality,
+      "addressRegion": BUSINESS.addressRegion,
+      "postalCode": BUSINESS.postalCode,
+      "addressCountry": BUSINESS.addressCountry
+    },
+    "geo": {
+      "@type": "GeoCoordinates",
+      "latitude": BUSINESS.latitude,
+      "longitude": BUSINESS.longitude
+    },
+    "openingHoursSpecification": [
+      {
+        "@type": "OpeningHoursSpecification",
+        "dayOfWeek": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
+        "opens": "04:00",
+        "closes": "22:00"
+      },
+      {
+        "@type": "OpeningHoursSpecification",
+        "dayOfWeek": ["Sunday"],
+        "opens": "09:00",
+        "closes": "17:00"
+      }
+    ],
+    "sameAs": BUSINESS.sameAs
+  };
+}
 
 // Initialize Gemini Client if Key is present
 let ai = null;
@@ -212,7 +307,7 @@ Return the HTML directly. Do not include markdown block markers like \`\`\`html.
   if (ai) {
     try {
       const response = await ai.models.generateContent({
-        model: 'gemini-3.5-flash',
+        model: GEMINI_MODEL,
         contents: prompt,
       });
 
@@ -354,24 +449,8 @@ async function publishGhlHelper(title, content, status, config = {}) {
     schemaScripts += `\n<script type="application/ld+json">\n${JSON.stringify(faqSchema, null, 2)}\n</script>`;
   }
 
-  // 3. Build LocalBusiness Schema
-  const localBusinessSchema = {
-    "@context": "https://schema.org",
-    "@type": "SportsClub",
-    "name": "Best Day Fitness",
-    "image": `${baseDomain}/assets/logo.png`,
-    "@id": `${baseDomain}/#organization`,
-    "url": baseDomain,
-    "telephone": "727-555-0199",
-    "address": {
-      "@type": "PostalAddress",
-      "streetAddress": "St. Petersburg, FL",
-      "addressLocality": "St. Petersburg",
-      "addressRegion": "FL",
-      "postalCode": "33701",
-      "addressCountry": "US"
-    }
-  };
+  // 3. Build LocalBusiness Schema (shared builder — real NAP)
+  const localBusinessSchema = buildLocalBusinessSchema(baseDomain);
   schemaScripts += `\n<script type="application/ld+json">\n${JSON.stringify(localBusinessSchema, null, 2)}\n</script>`;
 
   // 4. Build Author Schema and visual box
@@ -650,7 +729,7 @@ function startAutopilotScheduler() {
 // ----------------------------------------------------
 
 // 0. Save Configuration Settings
-app.post('/api/save-settings', (req, res) => {
+app.post('/api/save-settings', requireAuth, (req, res) => {
   const { geminiKey, ghlToken, ghlLocation, ghlBlog, siteUrl, blogPrefix, authorName, authorUrl, gscJson } = req.body;
 
   try {
@@ -758,7 +837,7 @@ app.get('/api/gsc-data', async (req, res) => {
 });
 
 // 2. Generate Article Endpoint
-app.post('/api/generate-article', async (req, res) => {
+app.post('/api/generate-article', requireAuth, async (req, res) => {
   const { keyword, caseStudy, ctaText, ctaUrl } = req.body;
   if (!keyword) return res.status(400).json({ error: 'Keyword is required' });
 
@@ -771,7 +850,7 @@ app.post('/api/generate-article', async (req, res) => {
 });
 
 // 3. Publish to GoHighLevel
-app.post('/api/publish-ghl', async (req, res) => {
+app.post('/api/publish-ghl', requireAuth, async (req, res) => {
   const { title, content, status, locationId, accessToken, blogId } = req.body;
 
   try {
@@ -800,7 +879,7 @@ app.post('/api/publish-ghl', async (req, res) => {
 });
 
 // 4. Request Google Indexing
-app.post('/api/index-url', async (req, res) => {
+app.post('/api/index-url', requireAuth, async (req, res) => {
   const { url } = req.body;
   if (!url) return res.status(400).json({ error: 'URL is required' });
 
@@ -835,7 +914,7 @@ app.get('/api/autopilot-status', (req, res) => {
 });
 
 // 7. Toggle Autopilot Agent
-app.post('/api/autopilot-toggle', (req, res) => {
+app.post('/api/autopilot-toggle', requireAuth, (req, res) => {
   const { enabled, intervalHours } = req.body;
   
   autopilotEnabled = !!enabled;
@@ -853,7 +932,7 @@ app.post('/api/autopilot-toggle', (req, res) => {
 });
 
 // 8. Trigger Autopilot run immediately (Manual Override)
-app.post('/api/autopilot-run-now', async (req, res) => {
+app.post('/api/autopilot-run-now', requireAuth, async (req, res) => {
   try {
     const entry = await runAutopilotCycle();
     return res.json({
@@ -868,7 +947,7 @@ app.post('/api/autopilot-run-now', async (req, res) => {
 });
 
 // 9. Run AI Search (AIO) Audit
-app.post('/api/aio-audit', async (req, res) => {
+app.post('/api/aio-audit', requireAuth, async (req, res) => {
   const { query } = req.body;
   if (!query) {
     return res.status(400).json({ error: 'Query is required for auditing' });
@@ -896,7 +975,7 @@ Format your final response strictly as a JSON object with these keys (do not wra
 Ensure the response reflects a highly realistic search recommendation. If the business has strong content matching the query, cite it!`;
 
       const response = await ai.models.generateContent({
-        model: 'gemini-3.5-flash',
+        model: GEMINI_MODEL,
         contents: prompt
       });
 
@@ -979,45 +1058,7 @@ app.get('/api/aio-schema', (req, res) => {
   }
   domain = domain.replace(/\/$/, '');
 
-  const localBusinessSchema = {
-    "@context": "https://schema.org",
-    "@type": "SportsClub",
-    "name": "Best Day Fitness",
-    "image": `${domain}/assets/logo.png`,
-    "@id": `${domain}/#organization`,
-    "url": domain,
-    "telephone": "727-555-0199",
-    "address": {
-      "@type": "PostalAddress",
-      "streetAddress": "St. Petersburg, FL",
-      "addressLocality": "St. Petersburg",
-      "addressRegion": "FL",
-      "postalCode": "33701",
-      "addressCountry": "US"
-    },
-    "geo": {
-      "@type": "GeoCoordinates",
-      "latitude": 27.7731,
-      "longitude": -82.6401
-    },
-    "openingHoursSpecification": {
-      "@type": "OpeningHoursSpecification",
-      "dayOfWeek": [
-        "Monday",
-        "Tuesday",
-        "Wednesday",
-        "Thursday",
-        "Friday",
-        "Saturday"
-      ],
-      "opens": "06:00",
-      "closes": "20:00"
-    },
-    "sameAs": [
-      "https://facebook.com/bestdayfitness",
-      "https://instagram.com/bestdayfitness"
-    ]
-  };
+  const localBusinessSchema = buildLocalBusinessSchema(domain);
 
   const faqSchema = {
     "@context": "https://schema.org",
@@ -1053,5 +1094,13 @@ app.listen(PORT, () => {
   console.log(`=======================================================`);
   console.log(`🚀 SEO Buddy - Total Rank System Dashboard is running!`);
   console.log(`👉 Access URL: http://localhost:${PORT}`);
+  console.log(`🤖 Gemini model: ${GEMINI_MODEL}`);
+  if (ADMIN_PASSWORD) {
+    console.log(`🔒 Admin lock: ON (settings/publish/index/autopilot require the password)`);
+  } else {
+    console.log(`⚠️  SECURITY WARNING: ADMIN_PASSWORD is not set.`);
+    console.log(`⚠️  Settings, publishing, indexing and Gemini-spend endpoints are OPEN.`);
+    console.log(`⚠️  Set ADMIN_PASSWORD in your environment before exposing this publicly.`);
+  }
   console.log(`=======================================================`);
 });
