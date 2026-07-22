@@ -1232,6 +1232,82 @@ app.post('/api/citation-targets', requireAuth, async (req, res) => {
   }
 });
 
+// 13. Local SEO — NAP (Name/Address/Phone) consistency audit
+app.post('/api/nap-audit', requireAuth, async (req, res) => {
+  const geminiKey = process.env.GEMINI_API_KEY;
+  const canonical = {
+    name: BUSINESS.name,
+    address: `${BUSINESS.streetAddress}, ${BUSINESS.addressLocality}, ${BUSINESS.addressRegion} ${BUSINESS.postalCode}`,
+    phone: BUSINESS.telephone
+  };
+  if (!geminiKey) {
+    return res.json({ success: true, unavailable: true, message: 'Add your Gemini API key in Settings to run a NAP audit (uses live Google Search grounding).', canonical, listings: [] });
+  }
+
+  const client = new GoogleGenAI({ apiKey: geminiKey });
+  const digits = s => String(s || '').replace(/\D/g, '');
+  const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const canonPhone = digits(canonical.phone);
+
+  try {
+    const prompt = `Find the current online business listings for "${BUSINESS.name}" located in ${BUSINESS.addressLocality}, ${BUSINESS.addressRegion}. For each major platform where it appears (for example Google Business Profile, Yelp, Facebook, Apple Maps, Bing Places, BBB, and local fitness directories), report the EXACT business name, full street address, and phone number shown there, based on current web information. Reply with ONLY raw JSON, no markdown fences: {"listings":[{"platform":"","name":"","address":"","phone":""}]}. If a field isn't shown on a platform, use an empty string.`;
+    const r = await client.models.generateContent({ model: GEMINI_MODEL, contents: prompt, config: { tools: [{ googleSearch: {} }] } });
+    let raw = (r.text || '').trim().replace(/^```json/i, '').replace(/^```/, '').replace(/```$/, '').trim();
+    const m = raw.match(/\{[\s\S]*\}/);
+    if (m) raw = m[0];
+    let parsed = { listings: [] };
+    try { parsed = JSON.parse(raw); } catch (e) { parsed = { listings: [] }; }
+
+    const listings = (parsed.listings || []).map(l => ({
+      platform: l.platform || '',
+      name: l.name || '',
+      address: l.address || '',
+      phone: l.phone || '',
+      nameMatch: l.name ? (norm(l.name).includes(norm(BUSINESS.name)) || norm(BUSINESS.name).includes(norm(l.name))) : null,
+      phoneMatch: l.phone ? (digits(l.phone).slice(-10) === canonPhone.slice(-10)) : null,
+      addrMatch: l.address ? norm(l.address).includes(norm(BUSINESS.streetAddress)) : null
+    }));
+
+    return res.json({ success: true, canonical, listings });
+  } catch (err) {
+    console.error('[NAP Audit] failed:', err.message);
+    return res.status(502).json({ success: false, error: err.message });
+  }
+});
+
+// 14. Local SEO — content generation (review responses/requests, GBP posts)
+app.post('/api/local-generate', requireAuth, async (req, res) => {
+  const { kind, review, rating, clientName, reviewLink, topic, postType } = req.body || {};
+  const geminiKey = process.env.GEMINI_API_KEY;
+  if (!geminiKey) {
+    return res.json({ success: true, unavailable: true, message: 'Add your Gemini API key in Settings to generate local content.', text: '' });
+  }
+  const client = new GoogleGenAI({ apiKey: geminiKey });
+
+  const brand = `Best Day Fitness is a holistic health & wellness studio in St. Petersburg, FL for adults 50+, seniors, and people recovering from injury. Voice: warm, encouraging, professional, and human — never salesy or generic. Core idea: Energy = Mobility + Posture + Strength; longevity, not quick fixes.`;
+
+  let prompt;
+  if (kind === 'review-response') {
+    if (!review) return res.status(400).json({ error: 'Paste the review to respond to.' });
+    prompt = `${brand}\nWrite a warm, personal, professional reply from the business to this Google review${rating ? ` (${rating} stars)` : ''}:\n"""${review}"""\nRules: reference something specific they mentioned; keep it 2–4 sentences; sound human, never templated; if it's negative, be gracious, take responsibility, and invite them to connect offline. Return only the reply text.`;
+  } else if (kind === 'review-request') {
+    prompt = `${brand}\nWrite a short, friendly message asking a happy client${clientName ? ` named ${clientName}` : ''} to leave a Google review. Warm and low‑pressure, 2–3 sentences, thank them for training with us, and include this review link: ${reviewLink || '[YOUR GOOGLE REVIEW LINK]'}. Return only the message text.`;
+  } else if (kind === 'gbp-post') {
+    if (!topic) return res.status(400).json({ error: 'Enter a topic for the post.' });
+    prompt = `${brand}\nWrite a Google Business Profile post of type "${postType || 'update'}" about: "${topic}". Under 1500 characters, engaging and locally relevant to St. Petersburg, with a clear call to action at the end (book a consultation / call us / visit). Return only the post text.`;
+  } else {
+    return res.status(400).json({ error: 'Unknown generation kind.' });
+  }
+
+  try {
+    const r = await client.models.generateContent({ model: GEMINI_MODEL, contents: prompt });
+    return res.json({ success: true, text: (r.text || '').trim() });
+  } catch (err) {
+    console.error('[Local Generate] failed:', err.message);
+    return res.status(502).json({ success: false, error: err.message });
+  }
+});
+
 // Start the Express Server
 app.listen(PORT, () => {
   console.log(`=======================================================`);
