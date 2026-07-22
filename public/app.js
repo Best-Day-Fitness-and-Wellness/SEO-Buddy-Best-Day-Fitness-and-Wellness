@@ -182,6 +182,9 @@ document.addEventListener('DOMContentLoaded', () => {
       pageSubtitle.innerText = 'See whether Google\'s live AI recommends and cites Best Day Fitness, and build schema graphs';
       fetchAioHistory();
       fetchAioSchemas();
+    } else if (tabId === 'citations-tab') {
+      pageTitle.innerText = 'Citation Target Finder';
+      pageSubtitle.innerText = 'Find the third-party sources AI cites — and where to get listed to win AI answers';
     } else if (tabId === 'settings-tab') {
       pageTitle.innerText = 'System Configuration';
       pageSubtitle.innerText = 'Connect live APIs, GHL tokens, and Search Console keys';
@@ -1234,6 +1237,101 @@ document.addEventListener('DOMContentLoaded', () => {
       btnRunAioAudit.innerText = 'Run Live Google-AI Audit';
     }
   });
+
+
+  // --- CITATION TARGET FINDER ---
+  const citationsQueries = document.getElementById('citations-queries');
+  const btnFindCitations = document.getElementById('btn-find-citations');
+  const citationsSummary = document.getElementById('citations-summary');
+  const citationsResults = document.getElementById('citations-results');
+
+  // Prefill with sensible defaults so the owner can just click Find.
+  if (citationsQueries && !citationsQueries.value.trim()) {
+    citationsQueries.value = 'senior fitness st petersburg fl\npersonal trainer st petersburg fl\nbest gym for seniors near me';
+  }
+
+  function citEsc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  }
+
+  function citAction(t) {
+    if (t.listed === true) return { label: "You're listed", text: 'Keep it strong — complete your info and respond to reviews.' };
+    switch (t.type) {
+      case 'directory': return { label: 'Get listed', text: '<b>Claim or submit</b> your business listing here.' };
+      case 'review': return { label: 'Get listed + reviews', text: '<b>Create/claim your profile</b> and drive genuine reviews.' };
+      case 'listicle': return { label: 'Pitch for inclusion', text: '<b>Contact the author/editor</b> to be added to this list.' };
+      case 'forum': return { label: 'Earn a mention', text: '<b>Engage authentically</b> or earn organic mentions here.' };
+      case 'competitor': return { label: 'Competitor', text: "Their own site — study their positioning; you can't list here." };
+      case 'news': return { label: 'Seek a feature', text: '<b>Local PR</b> — pursue a mention or feature.' };
+      default: return { label: 'Investigate', text: 'Check how this source is cited and whether you can appear.' };
+    }
+  }
+
+  if (btnFindCitations) {
+    btnFindCitations.addEventListener('click', async () => {
+      const queries = (citationsQueries.value || '').split('\n').map(s => s.trim()).filter(Boolean);
+      if (!queries.length) { alert('Add at least one search query (one per line).'); return; }
+
+      btnFindCitations.disabled = true;
+      const orig = btnFindCitations.innerText;
+      btnFindCitations.innerText = 'Analyzing live AI answers… (this can take ~30–60s)';
+      citationsSummary.style.display = 'none';
+      citationsResults.innerHTML = '<div class="cit-empty">Running live Google‑grounded searches and classifying the sources AI cites… please wait.</div>';
+
+      try {
+        const res = await authFetch('/api/citation-targets', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ queries })
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) throw new Error(data.error || 'Citation analysis failed');
+        if (data.unavailable) { alert(data.message); citationsResults.innerHTML = ''; return; }
+
+        const targets = data.targets || [];
+        const listedCount = targets.filter(t => t.listed === true).length;
+        const total = data.totalQueries || queries.length;
+
+        citationsSummary.style.display = 'flex';
+        citationsSummary.innerHTML =
+          `<div class="cit-stat"><b>${data.sourcesFound || targets.length}</b><span>third‑party sources AI cites</span></div>` +
+          `<div class="cit-stat"><b>${total}</b><span>searches analyzed</span></div>` +
+          `<div class="cit-stat"><b>${listedCount}</b><span>you already appear on</span></div>` +
+          `<div class="cit-stat"><b style="color:${data.brandCited ? 'var(--color-success)' : 'var(--color-accent)'};">${data.brandCited ? 'Yes' : 'No'}</b><span>your site cited by AI</span></div>`;
+
+        if (!targets.length) {
+          citationsResults.innerHTML = '<div class="cit-empty">No third‑party sources came back. Try different or more specific local searches.</div>';
+          return;
+        }
+
+        citationsResults.innerHTML = targets.map((t, i) => {
+          const a = citAction(t);
+          const listedTxt = t.listed === true ? 'You appear here' : (t.listed === false ? 'Not listed' : 'Unknown');
+          const listedCls = t.listed === true ? 'yes' : (t.listed === false ? 'no' : 'unknown');
+          const typeCls = ['directory', 'review', 'listicle', 'forum', 'competitor'].includes(t.type) ? ('type-' + t.type) : '';
+          return `<div class="cit-card">
+            <div class="cit-rank">${i + 1}</div>
+            <div class="cit-body">
+              <div class="cit-domain"><a href="https://${citEsc(t.domain)}" target="_blank" rel="noopener">${citEsc(t.domain)}</a></div>
+              <div class="cit-meta">
+                <span class="cit-badge ${typeCls}">${citEsc(t.type)}</span>
+                <span class="cit-listed ${listedCls}">${listedTxt}</span>
+                <span class="cit-cited">cited in ${t.citedFor} of ${total} searches</span>
+              </div>
+              <div class="cit-action"><b>${citEsc(a.label)}:</b> ${a.text}</div>
+              ${t.note ? `<div class="cit-note">${citEsc(t.note)}</div>` : ''}
+            </div>
+          </div>`;
+        }).join('');
+      } catch (err) {
+        alert('Citation Finder error: ' + err.message);
+        citationsResults.innerHTML = '<div class="cit-empty">Something went wrong. ' + citEsc(err.message) + '</div>';
+      } finally {
+        btnFindCitations.disabled = false;
+        btnFindCitations.innerText = orig;
+      }
+    });
+  }
 
 
   // --- INTERACTIVE ONBOARDING WIZARD ---
