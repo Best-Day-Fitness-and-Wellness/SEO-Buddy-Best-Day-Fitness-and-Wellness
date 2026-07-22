@@ -168,6 +168,10 @@ document.addEventListener('DOMContentLoaded', () => {
       pageTitle.innerText = 'Your SEO Summary';
       pageSubtitle.innerText = 'A plain-English snapshot of what SEO Buddy is doing for you, updated live';
       loadSummary();
+    } else if (tabId === 'performance-tab') {
+      pageTitle.innerText = 'Performance';
+      pageSubtitle.innerText = 'Is it working? Search trends, AI visibility over time, and leads';
+      loadPerformance();
     } else if (tabId === 'gsc-tab') {
       pageTitle.innerText = 'GSC Content Gaps';
       pageSubtitle.innerText = 'Analyze Search Console impressions and find low-click authority loops';
@@ -1453,6 +1457,98 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     lrRenderChecklist();
   }
+
+
+  // --- PERFORMANCE (measurement / ROI) ---
+  function perfLineChart(points, opts) {
+    opts = opts || {};
+    if (!points || !points.length) return '<div class="perf-empty">Not enough data yet — this fills in over time.</div>';
+    const w = 560, h = 150, pad = 26;
+    const vals = points.map(p => p.value);
+    let min = opts.min != null ? opts.min : Math.min(...vals);
+    let max = opts.max != null ? opts.max : Math.max(...vals);
+    if (min === max) { min -= 1; max += 1; }
+    const n = points.length;
+    const x = i => pad + (n === 1 ? (w - 2 * pad) / 2 : (i / (n - 1)) * (w - 2 * pad));
+    const y = v => h - pad - ((v - min) / (max - min)) * (h - 2 * pad);
+    const color = opts.color || 'var(--color-secondary)';
+    const path = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(p.value).toFixed(1)}`).join(' ');
+    const dots = points.map((p, i) => `<circle cx="${x(i).toFixed(1)}" cy="${y(p.value).toFixed(1)}" r="3" fill="${color}"/>`).join('');
+    const step = Math.max(1, Math.ceil(n / 8));
+    const labels = points.map((p, i) => (i % step === 0 || i === n - 1) ? `<text x="${x(i).toFixed(1)}" y="${h - 6}" font-size="9" fill="var(--text-dark)" text-anchor="middle">${p.label}</text>` : '').join('');
+    return `<svg viewBox="0 0 ${w} ${h}" width="100%" style="max-height:${h}px;"><path d="${path}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linejoin="round"/>${dots}${labels}</svg>`;
+  }
+
+  function perfDelta(el, cur, prev, opts) {
+    opts = opts || {};
+    if (cur == null || prev == null) { el.className = 'perf-delta flat'; el.innerText = ''; return; }
+    const diff = cur - prev;
+    if (Math.abs(diff) < (opts.eps || 0.0001)) { el.className = 'perf-delta flat'; el.innerText = 'no change'; return; }
+    const improved = opts.lowerBetter ? diff < 0 : diff > 0;
+    el.className = 'perf-delta ' + (improved ? 'up' : 'down');
+    const arrow = improved ? '▲' : '▼';
+    if (opts.lowerBetter) {
+      el.innerText = `${arrow} ${Math.abs(diff).toFixed(1)} ${improved ? 'better' : 'worse'} (was ${prev})`;
+    } else {
+      const pct = prev ? Math.round(Math.abs(diff) / prev * 100) : null;
+      el.innerText = `${arrow} ${pct != null ? pct + '% ' : ''}${improved ? 'up' : 'down'} (was ${Number(prev).toLocaleString()})`;
+    }
+  }
+
+  async function loadPerformance() {
+    const $ = id => document.getElementById(id);
+    if (!$('perf-updated')) return;
+    try {
+      const res = await fetch('/api/performance');
+      const d = await res.json();
+      $('perf-updated').innerText = new Date().toLocaleTimeString();
+      const badge = $('perf-badge');
+      if (d.source === 'live_gsc') { badge.className = 'perf-badge live'; badge.innerText = 'Live Search Console'; }
+      else { badge.className = 'perf-badge demo'; badge.innerText = 'Search Console not connected'; }
+
+      const cur = d.current, prev = d.previous;
+      if (cur && prev) {
+        $('perf-impr').innerText = cur.impressions.toLocaleString(); perfDelta($('perf-impr-d'), cur.impressions, prev.impressions, {});
+        $('perf-clicks').innerText = cur.clicks.toLocaleString(); perfDelta($('perf-clicks-d'), cur.clicks, prev.clicks, {});
+        $('perf-rank').innerText = cur.avgPosition; perfDelta($('perf-rank-d'), cur.avgPosition, prev.avgPosition, { lowerBetter: true, eps: 0.05 });
+      } else {
+        $('perf-impr').innerText = '—'; $('perf-clicks').innerText = '—'; $('perf-rank').innerText = '—';
+      }
+
+      const leads = d.leads;
+      if (leads && leads.available) {
+        $('perf-leads').innerText = leads.current; perfDelta($('perf-leads-d'), leads.current, leads.previous, {});
+        $('perf-leads-note').innerText = 'new GHL leads' + (leads.approx ? ' (approx.)' : '');
+      } else {
+        $('perf-leads').innerText = '—'; $('perf-leads-d').innerText = ''; $('perf-leads-d').className = 'perf-delta flat';
+        $('perf-leads-note').innerText = (leads && leads.reason) ? leads.reason : 'GoHighLevel not connected';
+      }
+
+      const g = (d.movers && d.movers.gainers) || [], l = (d.movers && d.movers.losers) || [];
+      $('perf-gainers').innerHTML = g.length ? g.map(m => `<div class="perf-mover"><span>${citEsc(m.query)}</span><span class="up">▲ ${m.posChange} (now #${m.position})</span></div>`).join('') : '<div class="perf-empty">No clear gainers this period yet.</div>';
+      $('perf-losers').innerHTML = l.length ? l.map(m => `<div class="perf-mover"><span>${citEsc(m.query)}</span><span class="down">▼ ${Math.abs(m.posChange)} (now #${m.position})</span></div>`).join('') : '<div class="perf-empty">No clear drops this period. 👍</div>';
+
+      const aio = d.aioTrend || [];
+      $('perf-aio-chart').innerHTML = aio.length
+        ? perfLineChart(aio.map(p => ({ label: p.date.slice(5), value: p.rate })), { min: 0, max: 100, color: 'var(--color-secondary)' }) + `<div class="perf-kpi-note" style="text-align:right;">latest: ${aio[aio.length - 1].rate}% recommended</div>`
+        : '<div class="perf-empty">Run AI Search Audits over time to build this trend.</div>';
+
+      const snaps = d.snapshots || [];
+      if (snaps.length >= 2) {
+        $('perf-snap-chart').innerHTML = perfLineChart(snaps.map(s => ({ label: s.date.slice(5), value: s.impressions })), { color: 'var(--color-primary)' }) + `<div class="perf-kpi-note" style="text-align:right;">${snaps.length} days recorded · impressions/day</div>`;
+      } else if (snaps.length === 1) {
+        $('perf-snap-chart').innerHTML = `<div class="perf-empty">First snapshot captured (${snaps[0].date}). The trend line appears once there are at least two days of data — check back tomorrow.</div>`;
+      } else {
+        $('perf-snap-chart').innerHTML = '<div class="perf-empty">No snapshots yet. Connect Search Console, then this records automatically each day.</div>';
+      }
+    } catch (e) { /* silent */ }
+  }
+
+  const perfRefreshBtn = document.getElementById('perf-refresh');
+  if (perfRefreshBtn) perfRefreshBtn.addEventListener('click', loadPerformance);
+  // Load once on startup too, so the daily snapshot is captured even if the
+  // user stays on other tabs.
+  loadPerformance();
 
 
   // --- INTERACTIVE ONBOARDING WIZARD ---
