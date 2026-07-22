@@ -92,6 +92,13 @@
           </svg>
           Local SEO
         </button>
+        <button class="nav-item" data-tab="onsite-tab" id="nav-onsite">
+          <svg viewBox="0 0 24 24" class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="16 18 22 12 16 6"></polyline>
+            <polyline points="8 6 2 12 8 18"></polyline>
+          </svg>
+          On-Site SEO
+        </button>
         <button class="nav-item" data-tab="settings-tab" id="nav-settings">
           <svg viewBox="0 0 24 24" class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="3"></circle>
@@ -898,6 +905,77 @@
             <div class="lr-score-bar" style="margin-top:8px;"><div class="lr-score-fill" id="lr-score-fill" style="width:0%"></div></div>
           </div>
           <div id="lr-checklist"></div>
+        </div>
+      </section>
+
+      <!-- TAB: ON-SITE SEO -->
+      <style>
+        #onsite-tab .os-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px;}
+        @media(max-width:900px){#onsite-tab .os-grid{grid-template-columns:1fr;}}
+        #onsite-tab .os-row{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;}
+        #onsite-tab .os-cluster{background:var(--bg-card);border:1px solid var(--border-color);border-radius:12px;padding:14px 16px;margin-bottom:12px;}
+        #onsite-tab .os-cluster h4{margin:0 0 6px;font-size:var(--font-base);color:var(--color-secondary);}
+        #onsite-tab .os-chips{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0;}
+        #onsite-tab .os-chip{font-size:var(--font-xs);background:rgba(99,102,241,.12);color:var(--text-main);border:1px solid var(--border-color);border-radius:999px;padding:3px 9px;}
+        #onsite-tab .os-q{font-size:var(--font-sm);color:var(--text-muted);padding:2px 0;}
+        #onsite-tab .os-idea{font-size:var(--font-sm);color:var(--text-main);margin-top:8px;padding:8px 10px;background:rgba(6,182,212,.06);border-left:3px solid var(--color-secondary);border-radius:6px;}
+        #onsite-tab .os-opt{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;padding:8px 10px;border:1px solid var(--border-color);border-radius:8px;margin-bottom:8px;font-size:var(--font-sm);color:var(--text-main);}
+        #onsite-tab .os-count{font-size:var(--font-xs);color:var(--text-muted);white-space:nowrap;}
+        #onsite-tab .os-count.over{color:var(--color-accent);font-weight:700;}
+        #onsite-tab .os-copybtn{cursor:pointer;background:none;border:1px solid var(--border-color);color:var(--text-muted);border-radius:6px;padding:2px 8px;font-size:11px;flex-shrink:0;}
+        #onsite-tab .os-link{padding:10px 0;border-bottom:1px solid var(--border-color);font-size:var(--font-sm);color:var(--text-main);}
+        #onsite-tab .os-link:last-child{border-bottom:none;}
+        #onsite-tab .os-anchor{color:var(--color-secondary);font-weight:600;}
+        #onsite-tab .os-why{color:var(--text-muted);font-size:var(--font-xs);margin-top:2px;}
+        #onsite-tab .os-empty{color:var(--text-muted);font-size:var(--font-sm);padding:10px 0;line-height:1.5;}
+        #onsite-tab .os-sub{font-size:var(--font-xs);color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;font-weight:600;margin:0 0 6px;}
+        #onsite-tab .os-schema-box{width:100%;height:240px;background:rgba(0,0,0,.25);border:1px solid var(--border-color);border-radius:8px;padding:12px;color:#8ab4f8;font-family:monospace;font-size:11px;line-height:1.5;resize:vertical;margin-top:10px;outline:none;}
+      </style>
+      <section class="tab-content" id="onsite-tab">
+        <div class="content-card">
+          <h2>Keyword &amp; Topic Ideas</h2>
+          <p class="text-muted mb-4">Find NEW opportunities beyond what you already rank for. Enter a seed keyword and get topic clusters, the questions people ask, and content ideas. Uses live Google Search.</p>
+          <div class="os-row">
+            <div class="form-group" style="flex:2;min-width:240px;">
+              <label for="os-seed">Seed keyword</label>
+              <input type="text" id="os-seed" class="form-input" placeholder="e.g. senior fitness">
+            </div>
+            <div class="form-group"><button class="btn btn-primary" id="btn-os-keywords">Get Ideas</button></div>
+          </div>
+          <div id="os-keywords-out"></div>
+        </div>
+
+        <div class="os-grid">
+          <div class="content-card">
+            <h2>Title &amp; Meta Optimizer</h2>
+            <p class="text-muted mb-4">Your title tag and meta description are the biggest click drivers in search. Generate optimized options.</p>
+            <div class="form-group"><label for="os-kw">Target keyword</label>
+              <input type="text" id="os-kw" class="form-input" placeholder="e.g. personal trainer st petersburg fl"></div>
+            <div class="form-group"><label for="os-title">Current title (optional)</label>
+              <input type="text" id="os-title" class="form-input" placeholder="Paste your current page title to improve it"></div>
+            <button class="btn btn-primary w-100" id="btn-os-titlemeta">Optimize Title &amp; Meta</button>
+            <div id="os-titlemeta-out" style="margin-top:12px;"></div>
+          </div>
+
+          <div class="content-card">
+            <h2>Internal Link Suggestions</h2>
+            <p class="text-muted mb-4">Internal links spread ranking power between your pages. This reviews what you've published and suggests links to add.</p>
+            <button class="btn btn-primary w-100" id="btn-os-links">Analyze My Content</button>
+            <div id="os-links-out" style="margin-top:12px;"><div class="os-empty">Click to review your published pages and get internal‑link suggestions.</div></div>
+          </div>
+        </div>
+
+        <div class="content-card mt-4">
+          <h2>Extended Schema Pack</h2>
+          <p class="text-muted mb-4">Richer JSON‑LD beyond your LocalBusiness/FAQ, to help Google and AI understand your pages. Pick a type, then paste it into the relevant page's settings.</p>
+          <div class="os-row" style="gap:8px;">
+            <button class="btn btn-secondary btn-xs" id="btn-os-service">Service</button>
+            <button class="btn btn-secondary btn-xs" id="btn-os-review">Review / Rating</button>
+            <button class="btn btn-secondary btn-xs" id="btn-os-breadcrumb">Breadcrumb</button>
+            <button class="btn btn-secondary btn-xs" id="btn-os-schema-copy" style="margin-left:auto;">Copy</button>
+          </div>
+          <textarea id="os-schema-out" class="os-schema-box" readonly placeholder="Pick a schema type above..."></textarea>
+          <p class="text-muted" style="font-size:var(--font-xs);margin-top:8px;">&#9888;&#65039; For Review/Rating: replace the placeholders with your REAL Google rating and review count. Never invent ratings &mdash; Google penalizes fake review markup.</p>
         </div>
       </section>
 

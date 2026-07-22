@@ -192,6 +192,9 @@ document.addEventListener('DOMContentLoaded', () => {
     } else if (tabId === 'local-tab') {
       pageTitle.innerText = 'Local SEO';
       pageSubtitle.innerText = 'NAP consistency, reviews, Google Business Profile, and your local checklist';
+    } else if (tabId === 'onsite-tab') {
+      pageTitle.innerText = 'On-Site & Technical SEO';
+      pageSubtitle.innerText = 'Keyword ideas, title/meta optimization, internal links, and schema';
     } else if (tabId === 'settings-tab') {
       pageTitle.innerText = 'System Configuration';
       pageSubtitle.innerText = 'Connect live APIs, GHL tokens, and Search Console keys';
@@ -1549,6 +1552,96 @@ document.addEventListener('DOMContentLoaded', () => {
   // Load once on startup too, so the daily snapshot is captured even if the
   // user stays on other tabs.
   loadPerformance();
+
+
+  // --- ON-SITE & TECHNICAL SEO ---
+  async function osPost(body, btn) {
+    const orig = btn.innerText;
+    btn.disabled = true; btn.innerText = 'Working…';
+    try {
+      const res = await authFetch('/api/onsite', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const d = await res.json();
+      if (!res.ok || !d.success) throw new Error(d.error || 'Request failed');
+      if (d.unavailable) { alert(d.message); return null; }
+      return d.data;
+    } catch (e) { alert('Error: ' + e.message); return null; }
+    finally { btn.disabled = false; btn.innerText = orig; }
+  }
+
+  // Keyword & topic ideas
+  const btnOsKeywords = document.getElementById('btn-os-keywords');
+  if (btnOsKeywords) btnOsKeywords.addEventListener('click', async () => {
+    const seed = (document.getElementById('os-seed').value || '').trim();
+    if (!seed) { alert('Enter a seed keyword.'); return; }
+    const out = document.getElementById('os-keywords-out');
+    out.innerHTML = '<div class="os-empty">Searching and building topic clusters…</div>';
+    const data = await osPost({ tool: 'keywords', seed }, btnOsKeywords);
+    if (!data || !data.clusters || !data.clusters.length) { out.innerHTML = '<div class="os-empty">No ideas came back — try a different seed keyword.</div>'; return; }
+    out.innerHTML = data.clusters.map(c => `<div class="os-cluster">
+      <h4>${citEsc(c.theme || 'Cluster')}</h4>
+      <div class="os-chips">${(c.keywords || []).map(k => `<span class="os-chip">${citEsc(k)}</span>`).join('')}</div>
+      ${(c.questions || []).map(q => `<div class="os-q">• ${citEsc(q)}</div>`).join('')}
+      ${c.contentIdea ? `<div class="os-idea"><b>Content idea:</b> ${citEsc(c.contentIdea)}</div>` : ''}
+    </div>`).join('');
+  });
+
+  // Title & meta optimizer
+  let osTM = { titles: [], metas: [] };
+  const osTMOut = document.getElementById('os-titlemeta-out');
+  const btnOsTM = document.getElementById('btn-os-titlemeta');
+  if (btnOsTM) btnOsTM.addEventListener('click', async () => {
+    const keyword = (document.getElementById('os-kw').value || '').trim();
+    if (!keyword) { alert('Enter a target keyword.'); return; }
+    const currentTitle = (document.getElementById('os-title').value || '').trim();
+    osTMOut.innerHTML = '<div class="os-empty">Writing optimized options…</div>';
+    const data = await osPost({ tool: 'titlemeta', keyword, currentTitle }, btnOsTM);
+    if (!data) { osTMOut.innerHTML = ''; return; }
+    osTM = { titles: data.titles || [], metas: data.metas || [] };
+    const row = (text, limit, type, i) => `<div class="os-opt"><span>${citEsc(text)}</span><span style="display:flex;gap:8px;align-items:center;"><span class="os-count ${text.length > limit ? 'over' : ''}">${text.length}/${limit}</span><button class="os-copybtn" data-t="${type}" data-i="${i}">copy</button></span></div>`;
+    osTMOut.innerHTML = `<div class="os-sub">Title tags</div>` + osTM.titles.map((t, i) => row(t, 60, 'titles', i)).join('') +
+      `<div class="os-sub" style="margin-top:12px;">Meta descriptions</div>` + osTM.metas.map((m, i) => row(m, 155, 'metas', i)).join('');
+  });
+  if (osTMOut) osTMOut.addEventListener('click', e => {
+    const b = e.target.closest('.os-copybtn'); if (!b) return;
+    const v = (osTM[b.dataset.t] || [])[+b.dataset.i]; if (v == null) return;
+    navigator.clipboard.writeText(v); b.innerText = '✓'; setTimeout(() => b.innerText = 'copy', 1200);
+  });
+
+  // Internal link suggestions
+  const btnOsLinks = document.getElementById('btn-os-links');
+  if (btnOsLinks) btnOsLinks.addEventListener('click', async () => {
+    const out = document.getElementById('os-links-out');
+    out.innerHTML = '<div class="os-empty">Reviewing your published pages…</div>';
+    const data = await osPost({ tool: 'links' }, btnOsLinks);
+    if (!data) { out.innerHTML = ''; return; }
+    const sug = data.suggestions || [];
+    if (!sug.length) { out.innerHTML = `<div class="os-empty">${citEsc(data.note || 'No suggestions yet.')}</div>`; return; }
+    out.innerHTML = sug.map(s => `<div class="os-link"><div><b>${citEsc(s.from)}</b> &rarr; <span class="os-anchor">&ldquo;${citEsc(s.anchor)}&rdquo;</span> &rarr; <b>${citEsc(s.to)}</b></div><div class="os-why">${citEsc(s.why)}</div></div>`).join('');
+  });
+
+  // Extended schema pack
+  let osSchemas = null;
+  const osSchemaOut = document.getElementById('os-schema-out');
+  async function osLoadSchema() {
+    if (osSchemas) return true;
+    try { const res = await fetch('/api/onsite-schema'); osSchemas = await res.json(); return true; }
+    catch (e) { alert('Could not load schema: ' + e.message); return false; }
+  }
+  function osShowSchema(type, btn) {
+    osLoadSchema().then(ok => { if (ok && osSchemaOut) osSchemaOut.value = osSchemas[type] || ''; });
+  }
+  const btnOsService = document.getElementById('btn-os-service');
+  const btnOsReview = document.getElementById('btn-os-review');
+  const btnOsBreadcrumb = document.getElementById('btn-os-breadcrumb');
+  if (btnOsService) btnOsService.addEventListener('click', () => osShowSchema('service'));
+  if (btnOsReview) btnOsReview.addEventListener('click', () => osShowSchema('review'));
+  if (btnOsBreadcrumb) btnOsBreadcrumb.addEventListener('click', () => osShowSchema('breadcrumb'));
+  const btnOsSchemaCopy = document.getElementById('btn-os-schema-copy');
+  if (btnOsSchemaCopy) btnOsSchemaCopy.addEventListener('click', () => {
+    if (!osSchemaOut.value) { alert('Pick a schema type first.'); return; }
+    navigator.clipboard.writeText(osSchemaOut.value);
+    btnOsSchemaCopy.innerText = 'Copied!'; setTimeout(() => btnOsSchemaCopy.innerText = 'Copy', 1500);
+  });
 
 
   // --- INTERACTIVE ONBOARDING WIZARD ---
