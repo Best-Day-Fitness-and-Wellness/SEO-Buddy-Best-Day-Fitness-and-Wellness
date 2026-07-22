@@ -1132,6 +1132,106 @@ app.get('/api/aio-schema', (req, res) => {
   });
 });
 
+// 12. Citation Target Finder — the real third-party sources AI cites for your
+// searches (where you need to get listed to show up in AI answers).
+app.post('/api/citation-targets', requireAuth, async (req, res) => {
+  const { queries } = req.body;
+  if (!Array.isArray(queries) || queries.length === 0) {
+    return res.status(400).json({ error: 'At least one search query is required.' });
+  }
+
+  const geminiKey = process.env.GEMINI_API_KEY;
+  if (!geminiKey) {
+    return res.json({
+      success: true,
+      unavailable: true,
+      message: 'Add your Gemini API key in Settings to find citation targets (this uses live Google Search grounding).',
+      targets: []
+    });
+  }
+
+  const brandName = BUSINESS.name;
+  const brandRoot = 'bestdayfitness';
+  const client = new GoogleGenAI({ apiKey: geminiKey });
+  const cleanQueries = queries.map(q => String(q || '').trim()).filter(Boolean).slice(0, 8);
+
+  try {
+    // 1. For each query, run a grounded search and collect the REAL domains
+    //    Google's AI cited (groundingChunks[].web.title is the source domain).
+    const domainInfo = {}; // domain -> { count, queries: [] }
+    let brandCited = false;
+
+    await Promise.all(cleanQueries.map(async (q) => {
+      try {
+        const prompt = `A person searching online asks: "${q}". Acting as a helpful AI answer engine, recommend the best specific local businesses that fit this search in and around St. Petersburg, Florida, based on current web information.`;
+        const resp = await client.models.generateContent({
+          model: GEMINI_MODEL,
+          contents: prompt,
+          config: { tools: [{ googleSearch: {} }] }
+        });
+        const gm = (resp.candidates && resp.candidates[0] && resp.candidates[0].groundingMetadata) || {};
+        const chunks = gm.groundingChunks || [];
+        const seen = new Set();
+        for (const c of chunks) {
+          const dom = ((c.web && c.web.title) || '').trim().toLowerCase();
+          if (!dom || seen.has(dom)) continue;
+          seen.add(dom);
+          if (dom.includes(brandRoot) || dom.includes(brandName.toLowerCase())) { brandCited = true; continue; }
+          if (!domainInfo[dom]) domainInfo[dom] = { count: 0, queries: [] };
+          domainInfo[dom].count++;
+          if (!domainInfo[dom].queries.includes(q)) domainInfo[dom].queries.push(q);
+        }
+      } catch (e) {
+        console.error(`[Citation Targets] query failed "${q}":`, e.message);
+      }
+    }));
+
+    // Rank by how often AI cited each domain; classify the top ones.
+    const rankedDomains = Object.keys(domainInfo)
+      .sort((a, b) => domainInfo[b].count - domainInfo[a].count)
+      .slice(0, 12);
+
+    // 2. For each domain, a grounded check: what kind of site is it, and is
+    //    Best Day Fitness already listed/mentioned there?
+    const targets = await Promise.all(rankedDomains.map(async (dom) => {
+      const base = { domain: dom, citedFor: domainInfo[dom].count, queries: domainInfo[dom].queries };
+      try {
+        const p = `On the website "${dom}", is the St. Petersburg, Florida fitness studio "Best Day Fitness" listed or mentioned? Also classify what kind of site "${dom}" is. Reply with ONLY raw JSON, no markdown fences: {"listed": true or false, "type": "directory" | "review" | "listicle" | "forum" | "competitor" | "news" | "other", "note": "one short line describing the site"}`;
+        const r = await client.models.generateContent({
+          model: GEMINI_MODEL,
+          contents: p,
+          config: { tools: [{ googleSearch: {} }] }
+        });
+        let raw = (r.text || '').trim().replace(/^```json/i, '').replace(/^```/, '').replace(/```$/, '').trim();
+        const m = raw.match(/\{[\s\S]*\}/);
+        if (m) raw = m[0];
+        const parsed = JSON.parse(raw);
+        return {
+          ...base,
+          type: parsed.type || 'other',
+          listed: (typeof parsed.listed === 'boolean' ? parsed.listed : null),
+          note: parsed.note || ''
+        };
+      } catch (e) {
+        return { ...base, type: 'other', listed: null, note: '' };
+      }
+    }));
+
+    targets.sort((a, b) => b.citedFor - a.citedFor);
+
+    return res.json({
+      success: true,
+      brandCited,
+      totalQueries: cleanQueries.length,
+      sourcesFound: Object.keys(domainInfo).length,
+      targets
+    });
+  } catch (err) {
+    console.error('[Citation Targets] failed:', err.message);
+    return res.status(502).json({ success: false, error: `Could not complete citation analysis: ${err.message}` });
+  }
+});
+
 // Start the Express Server
 app.listen(PORT, () => {
   console.log(`=======================================================`);
