@@ -1308,6 +1308,133 @@ app.post('/api/local-generate', requireAuth, async (req, res) => {
   }
 });
 
+// 15. Performance — period-over-period trends, durable snapshots, and leads
+const PERF_FILE = path.join(DATA_DIR, 'performance.json');
+let perfSnapshots = [];
+if (fs.existsSync(PERF_FILE)) {
+  try { perfSnapshots = JSON.parse(fs.readFileSync(PERF_FILE, 'utf8')); } catch (e) { perfSnapshots = []; }
+}
+function savePerf() {
+  try { fs.writeFileSync(PERF_FILE, JSON.stringify(perfSnapshots, null, 2)); } catch (e) { console.error('[Performance] save failed:', e.message); }
+}
+
+async function queryGscRange(auth, siteUrl, startDate, endDate) {
+  const webmasters = google.webmasters({ version: 'v3', auth });
+  const resp = await webmasters.searchanalytics.query({
+    siteUrl,
+    requestBody: { startDate, endDate, dimensions: ['query'], rowLimit: 250 }
+  });
+  const rows = resp.data.rows || [];
+  let impressions = 0, clicks = 0, posWeighted = 0;
+  const byQuery = {};
+  rows.forEach(r => {
+    const q = r.keys ? r.keys[0] : '';
+    impressions += r.impressions || 0;
+    clicks += r.clicks || 0;
+    posWeighted += (r.position || 0) * (r.impressions || 0);
+    if (q) byQuery[q] = { impressions: r.impressions || 0, clicks: r.clicks || 0, position: r.position || 0 };
+  });
+  return { impressions, clicks, avgPosition: impressions ? posWeighted / impressions : 0, ctr: impressions ? clicks / impressions : 0, byQuery };
+}
+
+app.get('/api/performance', async (req, res) => {
+  const day = 24 * 3600 * 1000;
+  const fmt = ms => new Date(ms).toISOString().split('T')[0];
+  const out = { source: 'mock', current: null, previous: null, movers: { gainers: [], losers: [] }, snapshots: perfSnapshots, aioTrend: [], leads: null };
+
+  const auth = getGoogleAuth();
+  const siteUrl = process.env.GSC_SITE_URL;
+
+  // GSC data lags ~2–3 days, so end the "current" window a few days back.
+  const endCur = Date.now() - 3 * day;
+  const startCur = endCur - 27 * day;
+  const endPrev = startCur - 1 * day;
+  const startPrev = endPrev - 27 * day;
+
+  if (auth && siteUrl) {
+    try {
+      const cur = await queryGscRange(auth, siteUrl, fmt(startCur), fmt(endCur));
+      const prev = await queryGscRange(auth, siteUrl, fmt(startPrev), fmt(endPrev));
+      out.source = 'live_gsc';
+      out.current = { impressions: cur.impressions, clicks: cur.clicks, avgPosition: +cur.avgPosition.toFixed(1), ctr: +(cur.ctr * 100).toFixed(2) };
+      out.previous = { impressions: prev.impressions, clicks: prev.clicks, avgPosition: +prev.avgPosition.toFixed(1), ctr: +(prev.ctr * 100).toFixed(2) };
+
+      const moves = [];
+      Object.keys(cur.byQuery).forEach(q => {
+        const c = cur.byQuery[q], p = prev.byQuery[q];
+        if (p && p.position && c.position) {
+          // positive posChange = rank improved (position number went down)
+          moves.push({ query: q, posChange: +(p.position - c.position).toFixed(1), position: +c.position.toFixed(1), clicks: c.clicks });
+        }
+      });
+      out.movers.gainers = moves.filter(m => m.posChange > 0.3).sort((a, b) => b.posChange - a.posChange).slice(0, 5);
+      out.movers.losers = moves.filter(m => m.posChange < -0.3).sort((a, b) => a.posChange - b.posChange).slice(0, 5);
+
+      // Daily snapshot (idempotent per day) — durable trend history.
+      const today = fmt(Date.now());
+      const recRate = aioAuditsDb.length ? Math.round(aioAuditsDb.filter(a => a.recommended).length / aioAuditsDb.length * 100) : null;
+      const snap = {
+        date: today,
+        impressions: cur.impressions,
+        clicks: cur.clicks,
+        avgPosition: +cur.avgPosition.toFixed(1),
+        leaks: Object.values(cur.byQuery).filter(x => x.clicks === 0 && x.impressions > 10).length,
+        recommendedRate: recRate
+      };
+      const idx = perfSnapshots.findIndex(s => s.date === today);
+      if (idx >= 0) perfSnapshots[idx] = snap; else perfSnapshots.push(snap);
+      if (perfSnapshots.length > 180) perfSnapshots = perfSnapshots.slice(-180);
+      savePerf();
+      out.snapshots = perfSnapshots;
+    } catch (e) {
+      console.error('[Performance] GSC failed:', e.message);
+    }
+  }
+
+  // AI visibility trend from audit history (bucketed by day).
+  try {
+    const byDay = {};
+    aioAuditsDb.forEach(a => {
+      const d = (a.timestamp || '').split('T')[0];
+      if (!d) return;
+      if (!byDay[d]) byDay[d] = { n: 0, rec: 0 };
+      byDay[d].n++; if (a.recommended) byDay[d].rec++;
+    });
+    out.aioTrend = Object.keys(byDay).sort().map(d => ({ date: d, rate: Math.round(byDay[d].rec / byDay[d].n * 100), n: byDay[d].n }));
+  } catch (e) { /* ignore */ }
+
+  // GHL leads (best-effort, directional). Separate windows ending now.
+  const ghlToken = process.env.GHL_ACCESS_TOKEN;
+  const ghlLoc = process.env.GHL_LOCATION_ID;
+  const lCurStart = Date.now() - 28 * day, lPrevStart = Date.now() - 56 * day, lPrevEnd = Date.now() - 28 * day;
+  if (ghlToken && ghlLoc) {
+    try {
+      const r = await fetch(`https://services.leadconnectorhq.com/contacts/?locationId=${encodeURIComponent(ghlLoc)}&limit=100`, {
+        headers: { 'Authorization': `Bearer ${ghlToken}`, 'Version': '2021-07-28' }
+      });
+      if (r.ok) {
+        const d = await r.json();
+        const contacts = d.contacts || [];
+        let curN = 0, prevN = 0;
+        contacts.forEach(c => {
+          const t = new Date(c.dateAdded || c.dateUpdated || 0).getTime();
+          if (t >= lCurStart) curN++;
+          else if (t >= lPrevStart && t < lPrevEnd) prevN++;
+        });
+        out.leads = { available: true, current: curN, previous: prevN, approx: contacts.length >= 100 };
+      } else {
+        out.leads = { available: false, reason: `GoHighLevel contacts API returned ${r.status} — the token may not have contacts access.` };
+      }
+    } catch (e) {
+      out.leads = { available: false, reason: 'Could not reach GoHighLevel: ' + e.message };
+    }
+  } else {
+    out.leads = { available: false, reason: 'GoHighLevel token/location not configured in Settings.' };
+  }
+
+  return res.json(out);
+});
+
 // Start the Express Server
 app.listen(PORT, () => {
   console.log(`=======================================================`);
