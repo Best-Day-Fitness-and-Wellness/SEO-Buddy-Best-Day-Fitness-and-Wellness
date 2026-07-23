@@ -1364,7 +1364,7 @@ async function queryGscRange(auth, siteUrl, startDate, endDate) {
   return { impressions, clicks, avgPosition: impressions ? posWeighted / impressions : 0, ctr: impressions ? clicks / impressions : 0, byQuery };
 }
 
-app.get('/api/performance', async (req, res) => {
+async function computePerformance() {
   const day = 24 * 3600 * 1000;
   const fmt = ms => new Date(ms).toISOString().split('T')[0];
   const out = { source: 'mock', current: null, previous: null, movers: { gainers: [], losers: [] }, snapshots: perfSnapshots, aioTrend: [], leads: null };
@@ -1459,7 +1459,11 @@ app.get('/api/performance', async (req, res) => {
     out.leads = { available: false, reason: 'GoHighLevel token/location not configured in Settings.' };
   }
 
-  return res.json(out);
+  return out;
+}
+app.get('/api/performance', async (req, res) => {
+  try { res.json(await computePerformance()); }
+  catch (e) { res.status(500).json({ success: false, error: e.message }); }
 });
 
 // 16. On-Site & Technical SEO tools
@@ -2211,25 +2215,32 @@ app.get('/api/gmail-status', (req, res) => {
   res.json({ configured: !!gmailClient(), from: process.env.GMAIL_SENDER || '' });
 });
 
+// Shared Gmail sender (used by pitch send + the performance digest email).
+async function sendGmail(to, subject, body) {
+  const gmail = gmailClient();
+  if (!gmail) throw new Error('Gmail is not connected.');
+  const headers = [
+    `To: ${String(to).trim()}`,
+    process.env.GMAIL_SENDER ? `From: ${process.env.GMAIL_SENDER}` : null,
+    `Subject: ${subject || ''}`,
+    'MIME-Version: 1.0',
+    'Content-Type: text/plain; charset=UTF-8'
+  ].filter(Boolean).join('\r\n');
+  const raw = Buffer.from(`${headers}\r\n\r\n${body || ''}`).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const r = await gmail.users.messages.send({ userId: 'me', requestBody: { raw } });
+  return r.data && r.data.id;
+}
+
 // Send a pitch email directly through the owner's Gmail (silent send).
 app.post('/api/send-pitch', requireAuth, async (req, res) => {
   const { to, subject, body } = req.body || {};
-  const gmail = gmailClient();
-  if (!gmail) return res.json({ success: true, needsSetup: true, message: 'Gmail direct-send isn’t connected yet — use the compose window. Add GMAIL_CLIENT_ID / GMAIL_CLIENT_SECRET / GMAIL_REFRESH_TOKEN in Railway to enable one-click send.' });
+  if (!gmailClient()) return res.json({ success: true, needsSetup: true, message: 'Gmail direct-send isn’t connected yet — use the compose window. Add GMAIL_CLIENT_ID / GMAIL_CLIENT_SECRET / GMAIL_REFRESH_TOKEN in Railway to enable one-click send.' });
   if (!to || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(to).trim())) {
     return res.status(400).json({ success: false, error: 'Enter a valid recipient email address to send.' });
   }
   try {
-    const headers = [
-      `To: ${String(to).trim()}`,
-      process.env.GMAIL_SENDER ? `From: ${process.env.GMAIL_SENDER}` : null,
-      `Subject: ${subject || ''}`,
-      'MIME-Version: 1.0',
-      'Content-Type: text/plain; charset=UTF-8'
-    ].filter(Boolean).join('\r\n');
-    const raw = Buffer.from(`${headers}\r\n\r\n${body || ''}`).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-    const r = await gmail.users.messages.send({ userId: 'me', requestBody: { raw } });
-    return res.json({ success: true, sent: true, id: r.data && r.data.id });
+    const id = await sendGmail(to, subject, body);
+    return res.json({ success: true, sent: true, id });
   } catch (err) {
     console.error('[Gmail send] failed:', err.message);
     return res.status(502).json({ success: false, error: `Gmail send failed: ${err.message}` });
@@ -2289,6 +2300,120 @@ app.post('/api/gbp-post', requireAuth, async (req, res) => {
   }
 });
 
+// ============================================================
+// 19. Performance weekly digest — a scheduled snapshot of search performance
+// (clicks/impressions/rank vs last period, top movers, AI visibility, leads),
+// saved for the Performance tab and auto-emailed via Gmail when connected.
+// ============================================================
+const PERF_DIGEST_FILE = path.join(DATA_DIR, 'performance-digest.json');
+let perfDigestDb = { enabled: true, intervalDays: 7, autoEmail: false, lastRun: null, digest: null };
+try {
+  if (fs.existsSync(PERF_DIGEST_FILE)) perfDigestDb = Object.assign(perfDigestDb, JSON.parse(fs.readFileSync(PERF_DIGEST_FILE, 'utf8')));
+} catch (e) { console.error('[Perf Digest] load failed:', e.message); }
+function savePerfDigest() {
+  try { fs.writeFileSync(PERF_DIGEST_FILE, JSON.stringify(perfDigestDb, null, 2)); }
+  catch (e) { console.error('[Perf Digest] save failed:', e.message); }
+}
+function perfPct(cur, prev) { if (prev == null || prev === 0) return null; return Math.round((cur - prev) / prev * 100); }
+function perfDigestText(d) {
+  const sign = n => (n >= 0 ? '+' : '') + n;
+  const lines = ['Best Day Fitness — Weekly SEO Performance', ''];
+  if (d.clicks) lines.push(`Clicks: ${d.clicks.cur}${d.clicks.pct != null ? ` (${sign(d.clicks.pct)}% vs the previous 4 weeks)` : ''}`);
+  if (d.impressions) lines.push(`Impressions: ${d.impressions.cur}${d.impressions.pct != null ? ` (${sign(d.impressions.pct)}%)` : ''}`);
+  if (d.avgPosition) lines.push(`Average Google rank: ${d.avgPosition.cur}${d.avgPosition.prev != null ? ` (was ${d.avgPosition.prev})` : ''}`);
+  if (d.aiVisibility != null) lines.push(`AI visibility: ${d.aiVisibility}% of audits recommend you`);
+  if (d.leads) lines.push(`New leads: ${d.leads.current}${d.leads.previous != null ? ` (was ${d.leads.previous})` : ''}`);
+  if (d.gainers && d.gainers.length) { lines.push('', 'Top rising keywords:'); d.gainers.forEach(g => lines.push(`  • ${g.query} — up ${g.posChange} spots, now #${g.position}`)); }
+  if (d.losers && d.losers.length) { lines.push('', 'Slipping keywords (worth a look):'); d.losers.forEach(g => lines.push(`  • ${g.query} — down ${Math.abs(g.posChange)} spots, now #${g.position}`)); }
+  if (d.source !== 'live_gsc') lines.push('', '(Sample data — connect Search Console for live numbers.)');
+  lines.push('', '— SEO Buddy');
+  return lines.join('\n');
+}
+async function buildPerfDigest() {
+  const p = await computePerformance();
+  const cur = p.current, prev = p.previous;
+  const d = {
+    generatedAt: new Date().toISOString(),
+    source: p.source,
+    clicks: cur ? { cur: cur.clicks, prev: prev ? prev.clicks : null, pct: prev ? perfPct(cur.clicks, prev.clicks) : null } : null,
+    impressions: cur ? { cur: cur.impressions, prev: prev ? prev.impressions : null, pct: prev ? perfPct(cur.impressions, prev.impressions) : null } : null,
+    avgPosition: cur ? { cur: cur.avgPosition, prev: prev ? prev.avgPosition : null } : null,
+    gainers: ((p.movers && p.movers.gainers) || []).slice(0, 3),
+    losers: ((p.movers && p.movers.losers) || []).slice(0, 3),
+    aiVisibility: (p.aioTrend && p.aioTrend.length) ? p.aioTrend[p.aioTrend.length - 1].rate : null,
+    leads: (p.leads && p.leads.available) ? { current: p.leads.current, previous: p.leads.previous } : null
+  };
+  d.text = perfDigestText(d);
+  return d;
+}
+let perfDigestRunning = false;
+async function maybeRunPerfDigest(force) {
+  if (perfDigestRunning) return;
+  if (!force && !perfDigestDb.enabled) return;
+  if (!force && daysSince(perfDigestDb.lastRun) < (perfDigestDb.intervalDays || 7)) return;
+  perfDigestRunning = true;
+  try {
+    const d = await buildPerfDigest();
+    perfDigestDb.digest = { ...d, isNew: true };
+    perfDigestDb.lastRun = new Date().toISOString();
+    savePerfDigest();
+    if (perfDigestDb.autoEmail) {
+      const to = process.env.DIGEST_EMAIL || process.env.GMAIL_SENDER;
+      if (to && gmailClient()) {
+        try { await sendGmail(to, 'Your weekly SEO performance — Best Day Fitness', d.text); perfDigestDb.digest.emailedAt = new Date().toISOString(); savePerfDigest(); }
+        catch (e) { console.error('[Perf Digest] auto-email failed:', e.message); }
+      }
+    }
+  } catch (e) { console.error('[Perf Digest] build failed:', e.message); }
+  finally { perfDigestRunning = false; }
+}
+function perfDigestState() {
+  return {
+    success: true,
+    enabled: perfDigestDb.enabled,
+    autoEmail: perfDigestDb.autoEmail,
+    intervalDays: perfDigestDb.intervalDays,
+    lastRun: perfDigestDb.lastRun,
+    digest: perfDigestDb.digest,
+    busy: perfDigestRunning,
+    gmailConfigured: !!gmailClient(),
+    emailTo: process.env.DIGEST_EMAIL || process.env.GMAIL_SENDER || ''
+  };
+}
+app.get('/api/performance-digest', (req, res) => {
+  maybeRunPerfDigest(false).catch(() => {});
+  res.json(perfDigestState());
+});
+app.post('/api/performance-digest/toggle', requireAuth, (req, res) => {
+  const b = req.body || {};
+  if (typeof b.enabled === 'boolean') perfDigestDb.enabled = b.enabled;
+  if (typeof b.autoEmail === 'boolean') perfDigestDb.autoEmail = b.autoEmail;
+  savePerfDigest();
+  res.json({ success: true, enabled: perfDigestDb.enabled, autoEmail: perfDigestDb.autoEmail });
+});
+app.post('/api/performance-digest/run', requireAuth, (req, res) => {
+  maybeRunPerfDigest(true).catch(() => {});
+  res.json({ success: true, started: true });
+});
+app.post('/api/performance-digest/seen', requireAuth, (req, res) => {
+  if (perfDigestDb.digest) perfDigestDb.digest.isNew = false;
+  savePerfDigest();
+  res.json({ success: true });
+});
+app.post('/api/performance-digest/send', requireAuth, async (req, res) => {
+  const to = ((req.body && req.body.to) || process.env.DIGEST_EMAIL || process.env.GMAIL_SENDER || '').trim();
+  if (!gmailClient()) return res.json({ success: true, needsSetup: true, message: 'Connect Gmail (see the OAuth setup guide) to email the digest.' });
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) return res.status(400).json({ success: false, error: 'No recipient email. Set GMAIL_SENDER or DIGEST_EMAIL in Railway, or enter one.' });
+  try {
+    let d = perfDigestDb.digest;
+    if (!d) { d = await buildPerfDigest(); perfDigestDb.digest = { ...d, isNew: true }; perfDigestDb.lastRun = new Date().toISOString(); savePerfDigest(); }
+    const id = await sendGmail(to, 'Your weekly SEO performance — Best Day Fitness', d.text);
+    res.json({ success: true, sent: true, id, to });
+  } catch (e) { res.status(502).json({ success: false, error: e.message }); }
+});
+setTimeout(() => { maybeRunPerfDigest(false).catch(() => {}); }, 75000);
+setInterval(() => { maybeRunPerfDigest(false).catch(() => {}); }, 12 * 60 * 60 * 1000);
+
 // Consolidated autopilot digest for the Summary dashboard — one glance at
 // what every autopilot produced, with links back to each tab.
 app.get('/api/autopilot-digest', (req, res) => {
@@ -2316,6 +2441,12 @@ app.get('/api/autopilot-digest', (req, res) => {
     const newN = (citationsDb.newDomains || []).length;
     const text = newN ? `${newN} new source${newN > 1 ? 's' : ''} AI now cites` : (notDone ? `${notDone} source${notDone > 1 ? 's' : ''} to get listed on` : `${total} sources tracked`);
     items.push({ key: 'citations', tab: 'citations-tab', icon: '🎯', label: 'Citation targets', text, isNew: newN > 0, tone: 'info' });
+  }
+  if (perfDigestDb && perfDigestDb.digest) {
+    const dg = perfDigestDb.digest;
+    const cl = dg.clicks;
+    const text = cl ? `${cl.cur} clicks this week${cl.pct != null ? ` (${cl.pct >= 0 ? '+' : ''}${cl.pct}%)` : ''}` : 'Weekly digest ready';
+    items.push({ key: 'perf', tab: 'performance-tab', icon: '📈', label: 'Weekly digest', text, isNew: !!dg.isNew, tone: 'info' });
   }
   res.json({ success: true, items, newCount: items.filter(i => i.isNew).length, generatedAt: new Date().toISOString() });
 });
