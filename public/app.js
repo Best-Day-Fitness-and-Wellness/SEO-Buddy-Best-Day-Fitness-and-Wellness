@@ -200,9 +200,11 @@ document.addEventListener('DOMContentLoaded', () => {
       if (window.loadGrow) window.loadGrow();
     } else if (tabId === 'performance-tab') {
       pageTitle.innerText = 'Reports';
-      pageSubtitle.innerText = 'Is it working? Search trends, AI visibility, leads, and your weekly digest';
+      pageSubtitle.innerText = 'Is it working? Your weekly digest, what we automated, search trends, and leads';
       loadPerformance();
       if (window.loadPerfDigest) window.loadPerfDigest();
+      loadAutopilotDigest();
+      loadSummary(); // refresh the KPI / stats / AI-standing / opportunities / content widgets that now live on Reports
     } else if (tabId === 'gsc-tab') {
       pageTitle.innerText = 'Searches You’re Missing';
       pageSubtitle.innerText = 'Search queries where you show up but get no clicks — your biggest quick wins';
@@ -1073,7 +1075,6 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!$('sum-updated')) return; // summary DOM not present
 
     loadHome();
-    loadAutopilotDigest();
     $('sum-updated').innerText = new Date().toLocaleTimeString();
 
     // Data-source badge (the search numbers are the ones that can be demo data)
