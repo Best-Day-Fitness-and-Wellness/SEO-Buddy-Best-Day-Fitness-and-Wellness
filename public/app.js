@@ -1269,6 +1269,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   let citLastData = { targets: [], brandCited: false };
   const CIT_TOTAL = { t: 0 };
+  let citGmailConfigured = false;
 
   if (citationsQueries && !citationsQueries.value.trim()) {
     citationsQueries.value = 'senior fitness st petersburg fl\npersonal trainer st petersburg fl\nbest gym for seniors near me';
@@ -1435,21 +1436,43 @@ document.addEventListener('DOMContentLoaded', () => {
         if (data.unavailable) { panel.innerHTML = `<div class="cit-hint">${citEsc(data.message)}</div>`; return; }
         const url = gmailComposeUrl(data.to, data.subject, data.body);
         const emailText = `Subject: ${data.subject}\n\n${data.body}`;
+        const emailPrefill = (data.to && data.to.indexOf('@') > -1) ? data.to : '';
+        // When Gmail direct-send is connected, offer an editable recipient + one-click Send now.
+        const toCell = citGmailConfigured
+          ? `<span style="flex:1;"><input class="cit-to-input" type="email" value="${citEsc(emailPrefill)}" placeholder="editor@publication.com" style="width:100%;background:rgba(0,0,0,.3);border:1px solid var(--border-color);color:var(--text-main);border-radius:6px;padding:5px 8px;font-family:inherit;font-size:13px;"></span>`
+          : `<span>${citEsc(data.to)}</span>`;
+        const sendControl = citGmailConfigured
+          ? `<button class="cit-pa send cit-send-now" type="button">✉ Send now</button>`
+          : `<a class="cit-pa send" href="${citEsc(url)}" target="_blank" rel="noopener">✉ Send via Gmail</a>`;
         panel.innerHTML =
           `<div class="cit-panel-tag">✦ AI-drafted outreach — personalized to this source</div>` +
           `<div class="cit-eml">` +
-            `<div class="row"><span class="k">To</span><span>${citEsc(data.to)}</span></div>` +
+            `<div class="row"><span class="k">To</span>${toCell}</div>` +
             `<div class="row"><span class="k">Subject</span><span>${citEsc(data.subject)}</span></div>` +
           `</div>` +
           `<div class="cit-body-txt">${citEsc(data.body)}</div>` +
-          `<div class="cit-hint">Finding the recipient: ${citEsc(data.howToFind)}</div>` +
+          `<div class="cit-hint">${citGmailConfigured ? 'Sends straight from your Gmail. ' : ''}Finding the recipient: ${citEsc(data.howToFind)}</div>` +
           `<div class="cit-panel-actions">` +
-            `<a class="cit-pa send" href="${citEsc(url)}" target="_blank" rel="noopener">✉ Send via Gmail</a>` +
+            sendControl +
             `<button class="cit-pa" type="button" onclick="window._citCopy(${citAttr(emailText)}, this)">Copy email</button>` +
             `<button class="cit-pa cit-regen" type="button">↻ Regenerate</button>` +
           `</div>`;
         const rg = panel.querySelector('.cit-regen');
         if (rg) rg.addEventListener('click', () => { panel.dataset.loaded = ''; citDoAction(btn); });
+        const sn = panel.querySelector('.cit-send-now');
+        if (sn) sn.addEventListener('click', async () => {
+          const toVal = ((panel.querySelector('.cit-to-input') || {}).value || '').trim();
+          if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(toVal)) { alert('Enter the recipient’s email address to send.'); return; }
+          sn.disabled = true; sn.innerText = 'Sending…';
+          try {
+            const r = await authFetch('/api/send-pitch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ to: toVal, subject: data.subject, body: data.body }) });
+            const dd = await r.json();
+            if (dd.needsSetup) { alert(dd.message); sn.disabled = false; sn.innerText = '✉ Send now'; return; }
+            if (!r.ok || !dd.success) throw new Error(dd.error || 'Send failed');
+            sn.innerText = 'Sent ✓';
+            const sel = card.querySelector('.cit-status'); if (sel) { sel.value = 'pitched'; citSetStatus(domain, 'pitched', sel); }
+          } catch (e) { alert('Send error: ' + e.message); sn.disabled = false; sn.innerText = '✉ Send now'; }
+        });
         return;
       }
       panel.innerHTML = `<div class="cit-hint">Nothing to prepare for this source.</div>`;
@@ -1506,6 +1529,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   async function loadCitationWorklist() {
+    fetch('/api/gmail-status').then(r => r.json()).then(g => { citGmailConfigured = !!g.configured; }).catch(() => {});
     try {
       const res = await fetch('/api/citation-worklist');
       const data = await res.json();
@@ -1587,6 +1611,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const laRunNote = document.getElementById('la-run-note');
   const laReplies = document.getElementById('la-replies');
   let laPollTimer = null;
+  let laGbpConfigured = false;
 
   function laAgo(iso) {
     if (!iso) return 'never';
@@ -1620,11 +1645,30 @@ document.addEventListener('DOMContentLoaded', () => {
   function laRenderGbp(draft) {
     if (!laGbpBody) return;
     if (!draft) { laGbpBadge.innerHTML = ''; laGbpBody.innerHTML = '<span class="lr-muted">No post yet — one is written each week, or click Run now.</span>'; return; }
-    laGbpBadge.innerHTML = draft.isNew ? '<span class="la-badge new">NEW</span>' : '';
+    laGbpBadge.innerHTML = draft.posted ? '<span class="la-badge ok">POSTED</span>' : (draft.isNew ? '<span class="la-badge new">NEW</span>' : '');
+    const postedNote = draft.posted ? `<span class="lr-muted" style="color:var(--color-success)">Posted to Google ${laAgo(draft.postedAt)} ✓</span>`
+      : (draft.postError ? `<span class="nap-bad">Auto-post failed: ${citEsc(draft.postError)}</span>` : '');
+    const postBtn = (laGbpConfigured && !draft.posted) ? `<button class="btn btn-primary btn-xs" id="la-gbp-post" type="button">Post to Google now</button>` : '';
     laGbpBody.innerHTML = `<div class="la-gbp-text">${citEsc(draft.text)}</div>`
-      + `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;"><button class="btn btn-secondary btn-xs" id="la-gbp-copy" type="button">Copy post</button><span class="lr-muted">Topic: ${citEsc(draft.topic || '—')} · written ${laAgo(draft.createdAt)}</span></div>`;
+      + `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">`
+      + `<button class="btn btn-secondary btn-xs" id="la-gbp-copy" type="button">Copy post</button>`
+      + postBtn
+      + `<span class="lr-muted">Topic: ${citEsc(draft.topic || '—')} · written ${laAgo(draft.createdAt)}</span>`
+      + `</div>`
+      + (postedNote ? `<div style="margin-top:6px;">${postedNote}</div>` : '');
     const cp = document.getElementById('la-gbp-copy');
     if (cp) cp.onclick = () => { navigator.clipboard.writeText(draft.text); cp.innerText = 'Copied ✓'; setTimeout(() => cp.innerText = 'Copy post', 1200); };
+    const pb = document.getElementById('la-gbp-post');
+    if (pb) pb.onclick = async () => {
+      pb.disabled = true; pb.innerText = 'Posting…';
+      try {
+        const r = await authFetch('/api/gbp-post', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: draft.text }) });
+        const dd = await r.json();
+        if (dd.needsSetup) { alert(dd.message); pb.disabled = false; pb.innerText = 'Post to Google now'; return; }
+        if (!r.ok || !dd.success) throw new Error(dd.error || 'Post failed');
+        draft.posted = true; draft.postedAt = new Date().toISOString(); laRenderGbp(draft);
+      } catch (e) { alert('Post error: ' + e.message); pb.disabled = false; pb.innerText = 'Post to Google now'; }
+    };
   }
 
   function laRenderReplies(list) {
@@ -1650,6 +1694,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   async function loadLocalAutopilot() {
+    try { const g = await (await fetch('/api/gbp-status')).json(); laGbpConfigured = !!g.configured; } catch (e) { /* default off */ }
     try {
       const res = await fetch('/api/local-autopilot');
       const s = await res.json();
