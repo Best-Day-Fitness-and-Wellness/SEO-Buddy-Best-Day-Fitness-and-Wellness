@@ -952,14 +952,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const hl = document.getElementById('home-headline'), sub = document.getElementById('home-sub');
     if (hs.overall == null) {
       sc.innerText = '—';
-      g.style.background = 'conic-gradient(var(--text-dark) 0% 0%, rgba(255,255,255,.07) 0% 100%)';
+      g.style.background = 'conic-gradient(var(--text-dark) 0% 0%, var(--gauge-track) 0% 100%)';
       hl.innerHTML = 'Let’s measure your SEO &amp; AEO';
       sub.innerText = 'Complete the quick setup and the moves below to light up your score.';
       return;
     }
     const pct = hs.overall;
     const color = pct >= 75 ? 'var(--color-success)' : (pct >= 50 ? 'var(--color-warning)' : 'var(--color-accent)');
-    g.style.background = `conic-gradient(${color} 0% ${pct}%, rgba(255,255,255,.07) ${pct}% 100%)`;
+    g.style.background = `conic-gradient(${color} 0% ${pct}%, var(--gauge-track) ${pct}% 100%)`;
     sc.innerText = pct;
     const trend = (hs.delta != null && hs.delta !== 0) ? `<span class="home-trend ${hs.delta > 0 ? 'up' : 'flat'}">${hs.delta > 0 ? '+' : ''}${hs.delta} this month</span>` : '';
     hl.innerHTML = `Your SEO &amp; AEO is <em>${pct}% maximized</em>${trend}`;
@@ -1063,7 +1063,7 @@ document.addEventListener('DOMContentLoaded', () => {
       : 'Run an AI Search Audit to start measuring this.';
 
     const donut = $('sum-donut');
-    donut.style.background = `conic-gradient(${vColor} 0 ${rate}%, rgba(255,255,255,.07) ${rate}% 100%)`;
+    donut.style.background = `conic-gradient(${vColor} 0 ${rate}%, var(--gauge-track) ${rate}% 100%)`;
     $('sum-donut-num').innerText = nAudits ? rate + '%' : '—';
 
     const standing = $('sum-standing-text');
