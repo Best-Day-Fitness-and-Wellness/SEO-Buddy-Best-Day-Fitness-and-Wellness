@@ -1559,7 +1559,8 @@ app.get('/api/onsite-schema', (req, res) => {
 const CITATIONS_FILE = path.join(DATA_DIR, 'citations.json');
 let citationsDb = {
   lastScanned: null, brandCited: false, totalQueries: 0, sourcesFound: 0,
-  queries: [], targets: [], statuses: {}, kit: null
+  queries: [], targets: [], statuses: {}, kit: null,
+  autoEnabled: true, intervalDays: 7, newDomains: []
 };
 try {
   if (fs.existsSync(CITATIONS_FILE)) {
@@ -1694,6 +1695,7 @@ function worklistPayload() {
     inProgress: targets.filter(t => ['submitted', 'pitched'].includes(t.status)).length,
     live: targets.filter(t => t.status === 'live' || t.listed === true).length
   };
+  const newDomains = citationsDb.newDomains || [];
   return {
     success: true,
     lastScanned: citationsDb.lastScanned,
@@ -1701,12 +1703,57 @@ function worklistPayload() {
     totalQueries: citationsDb.totalQueries,
     sourcesFound: citationsDb.sourcesFound,
     queries: citationsDb.queries || [],
-    kit, counts, targets
+    autoEnabled: !!citationsDb.autoEnabled,
+    intervalDays: citationsDb.intervalDays || 7,
+    newDomains,
+    kit, counts,
+    targets: targets.map(t => ({ ...t, isNew: newDomains.includes(t.domain) }))
   };
 }
 
-// GET the cached worklist (read-only — the tab shows this instantly on load).
+// Shared scan core — runs the grounded discovery, preserves statuses, and
+// flags which domains are NEW since the previous scan. Used by the manual
+// endpoint and the weekly auto-scan.
+async function performCitationScan(queries) {
+  const client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  const { brandCited, sourcesFound, targets } = await discoverCitationTargets(client, queries);
+  const prevDomains = new Set((citationsDb.targets || []).map(t => t.domain));
+  const liveDomains = new Set(targets.map(t => t.domain));
+  const keptStatuses = {};
+  for (const d of Object.keys(citationsDb.statuses || {})) {
+    if (liveDomains.has(d)) keptStatuses[d] = citationsDb.statuses[d];
+  }
+  citationsDb.statuses = keptStatuses;
+  // Don't flag everything "new" on the very first scan.
+  citationsDb.newDomains = prevDomains.size ? targets.filter(t => !prevDomains.has(t.domain)).map(t => t.domain) : [];
+  citationsDb.targets = targets;
+  citationsDb.brandCited = brandCited;
+  citationsDb.sourcesFound = sourcesFound;
+  citationsDb.totalQueries = queries.length;
+  citationsDb.queries = queries;
+  citationsDb.lastScanned = new Date().toISOString();
+  saveCitations();
+}
+
+// Weekly auto-scan (same restart-safe pattern as the Local/On-Site autopilots).
+let citScanRunning = false;
+async function maybeRunCitationScan(force) {
+  if (citScanRunning) return;
+  if (!force && !citationsDb.autoEnabled) return;
+  if (!process.env.GEMINI_API_KEY) return;
+  const queries = (citationsDb.queries || []).map(q => String(q || '').trim()).filter(Boolean).slice(0, 8);
+  if (!queries.length) return; // nothing saved to scan yet — needs a first manual scan
+  if (!force && daysSince(citationsDb.lastScanned) < (citationsDb.intervalDays || 7)) return;
+  citScanRunning = true;
+  try { await performCitationScan(queries); }
+  catch (e) { console.error('[Citation Autopilot] auto-scan failed:', e.message); }
+  finally { citScanRunning = false; }
+}
+
+// GET the cached worklist (read-only). Fire-and-forget a due-check so opening
+// the tab nudges the weekly schedule, but never block on a live scan.
 app.get('/api/citation-worklist', (req, res) => {
+  maybeRunCitationScan(false).catch(() => {});
   res.json(worklistPayload());
 });
 
@@ -1721,28 +1768,31 @@ app.post('/api/citation-scan', requireAuth, async (req, res) => {
   queries = queries.map(q => String(q || '').trim()).filter(Boolean).slice(0, 8);
   if (!queries.length) return res.status(400).json({ success: false, error: 'At least one search query is required.' });
   try {
-    const client = new GoogleGenAI({ apiKey: geminiKey });
-    const { brandCited, sourcesFound, targets } = await discoverCitationTargets(client, queries);
-    // Prune statuses for domains that no longer appear.
-    const liveDomains = new Set(targets.map(t => t.domain));
-    const keptStatuses = {};
-    for (const d of Object.keys(citationsDb.statuses || {})) {
-      if (liveDomains.has(d)) keptStatuses[d] = citationsDb.statuses[d];
-    }
-    citationsDb.statuses = keptStatuses;
-    citationsDb.targets = targets;
-    citationsDb.brandCited = brandCited;
-    citationsDb.sourcesFound = sourcesFound;
-    citationsDb.totalQueries = queries.length;
-    citationsDb.queries = queries;
-    citationsDb.lastScanned = new Date().toISOString();
-    saveCitations();
+    await performCitationScan(queries);
     res.json(worklistPayload());
   } catch (err) {
     console.error('[Citation Scan] failed:', err.message);
     res.status(502).json({ success: false, error: `Could not complete the scan: ${err.message}` });
   }
 });
+
+// Toggle the weekly auto-scan on/off.
+app.post('/api/citation-autopilot/toggle', requireAuth, (req, res) => {
+  citationsDb.autoEnabled = !!(req.body && req.body.enabled);
+  saveCitations();
+  res.json({ success: true, enabled: citationsDb.autoEnabled });
+});
+// Clear the NEW-target flags once the worklist has been viewed.
+app.post('/api/citation-autopilot/seen', requireAuth, (req, res) => {
+  citationsDb.newDomains = [];
+  saveCitations();
+  res.json({ success: true });
+});
+
+// Background scheduler for the weekly citation auto-scan (staggered from the
+// Local/On-Site autopilots so they don't all fire grounded calls at once).
+setTimeout(() => { maybeRunCitationScan(false).catch(() => {}); }, 60000);
+setInterval(() => { maybeRunCitationScan(false).catch(() => {}); }, 12 * 60 * 60 * 1000);
 
 // POST update one target's status in the tracker (auth).
 app.post('/api/citation-status', requireAuth, (req, res) => {
@@ -2263,7 +2313,9 @@ app.get('/api/autopilot-digest', (req, res) => {
     const total = citationsDb.targets.length;
     const statuses = citationsDb.statuses || {};
     const notDone = citationsDb.targets.filter(t => t.listed !== true && ((statuses[t.domain] && statuses[t.domain].status) || 'todo') === 'todo').length;
-    items.push({ key: 'citations', tab: 'citations-tab', icon: '🎯', label: 'Citation targets', text: notDone ? `${notDone} source${notDone > 1 ? 's' : ''} to get listed on` : `${total} sources tracked`, isNew: false, tone: 'info' });
+    const newN = (citationsDb.newDomains || []).length;
+    const text = newN ? `${newN} new source${newN > 1 ? 's' : ''} AI now cites` : (notDone ? `${notDone} source${notDone > 1 ? 's' : ''} to get listed on` : `${total} sources tracked`);
+    items.push({ key: 'citations', tab: 'citations-tab', icon: '🎯', label: 'Citation targets', text, isNew: newN > 0, tone: 'info' });
   }
   res.json({ success: true, items, newCount: items.filter(i => i.isNew).length, generatedAt: new Date().toISOString() });
 });
