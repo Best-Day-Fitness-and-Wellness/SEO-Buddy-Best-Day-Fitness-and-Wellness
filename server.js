@@ -2239,6 +2239,35 @@ app.post('/api/gbp-post', requireAuth, async (req, res) => {
   }
 });
 
+// Consolidated autopilot digest for the Summary dashboard — one glance at
+// what every autopilot produced, with links back to each tab.
+app.get('/api/autopilot-digest', (req, res) => {
+  const items = [];
+  if (onsiteDb && onsiteDb.ideas && onsiteDb.ideas.clusters && onsiteDb.ideas.clusters.length) {
+    const n = onsiteDb.ideas.clusters.length;
+    items.push({ key: 'onsite', tab: 'onsite-tab', icon: '💡', label: 'Content ideas', text: `${n} fresh topic cluster${n > 1 ? 's' : ''} to write about`, isNew: !!onsiteDb.ideas.isNew, tone: 'info' });
+  }
+  if (onsiteDb && onsiteDb.links && onsiteDb.links.suggestions && onsiteDb.links.suggestions.length) {
+    const n = onsiteDb.links.suggestions.length;
+    items.push({ key: 'onsite-links', tab: 'onsite-tab', icon: '🔗', label: 'Internal links', text: `${n} link suggestion${n > 1 ? 's' : ''} to add`, isNew: !!onsiteDb.links.isNew, tone: 'info' });
+  }
+  if (localDb && localDb.nap) {
+    const mm = localDb.nap.mismatchCount || 0;
+    items.push({ key: 'local-nap', tab: 'local-tab', icon: '📍', label: 'NAP monitor', text: mm ? `${mm} listing${mm > 1 ? 's' : ''} to fix` : 'All listings consistent', isNew: !!localDb.napNewMismatch, tone: mm ? 'warn' : 'info' });
+  }
+  if (localDb && localDb.gbpDraft) {
+    const g = localDb.gbpDraft;
+    items.push({ key: 'local-gbp', tab: 'local-tab', icon: '📝', label: 'Weekly GBP post', text: g.posted ? 'Posted to Google ✓' : 'Ready to post', isNew: !!g.isNew, tone: 'info' });
+  }
+  if (citationsDb && citationsDb.targets && citationsDb.targets.length) {
+    const total = citationsDb.targets.length;
+    const statuses = citationsDb.statuses || {};
+    const notDone = citationsDb.targets.filter(t => t.listed !== true && ((statuses[t.domain] && statuses[t.domain].status) || 'todo') === 'todo').length;
+    items.push({ key: 'citations', tab: 'citations-tab', icon: '🎯', label: 'Citation targets', text: notDone ? `${notDone} source${notDone > 1 ? 's' : ''} to get listed on` : `${total} sources tracked`, isNew: false, tone: 'info' });
+  }
+  res.json({ success: true, items, newCount: items.filter(i => i.isNew).length, generatedAt: new Date().toISOString() });
+});
+
 // Start the Express Server
 app.listen(PORT, () => {
   console.log(`=======================================================`);
