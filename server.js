@@ -56,6 +56,55 @@ const BUSINESS = {
   ]
 };
 
+// ----------------------------------------------------
+// Editable, LOCATION-STAMPED business profile (franchise seed).
+// A saved profile overrides the hardcoded defaults above, so business
+// identity is configurable per location instead of baked into code.
+// Loading merges saved identity INTO the BUSINESS object, so every existing
+// BUSINESS.xxx reference automatically uses the saved values — no refactor.
+// ----------------------------------------------------
+const BUSINESS_PROFILE_FILE = path.join(DATA_DIR, 'business-profile.json');
+let businessProfileSaved = false;
+let businessLocationId = 'loc-bestday-stpete';
+let businessWebsite = 'https://bestdayfitness.com';
+(function loadBusinessProfile() {
+  try {
+    if (fs.existsSync(BUSINESS_PROFILE_FILE)) {
+      const s = JSON.parse(fs.readFileSync(BUSINESS_PROFILE_FILE, 'utf8'));
+      if (s.locationId) businessLocationId = s.locationId;
+      if (s.website) businessWebsite = s.website;
+      const map = { name: 'name', phone: 'telephone', streetAddress: 'streetAddress', addressLocality: 'addressLocality', addressRegion: 'addressRegion', postalCode: 'postalCode' };
+      Object.keys(map).forEach(k => { if (s[k]) BUSINESS[map[k]] = s[k]; });
+      if (Array.isArray(s.socials)) BUSINESS.sameAs = s.socials;
+      businessProfileSaved = true;
+    }
+  } catch (e) { console.error('[Business Profile] load failed:', e.message); }
+})();
+function businessProfile() {
+  return {
+    locationId: businessLocationId,
+    configured: businessProfileSaved,
+    name: BUSINESS.name,
+    phone: BUSINESS.telephone,
+    streetAddress: BUSINESS.streetAddress,
+    addressLocality: BUSINESS.addressLocality,
+    addressRegion: BUSINESS.addressRegion,
+    postalCode: BUSINESS.postalCode,
+    website: businessWebsite,
+    socials: BUSINESS.sameAs || []
+  };
+}
+function saveBusinessProfileFromBody(b) {
+  const set = (k, v) => { if (typeof v === 'string' && v.trim()) BUSINESS[k] = v.trim(); };
+  set('name', b.name); set('telephone', b.phone); set('streetAddress', b.streetAddress);
+  set('addressLocality', b.addressLocality); set('addressRegion', b.addressRegion); set('postalCode', b.postalCode);
+  if (typeof b.website === 'string' && b.website.trim()) businessWebsite = b.website.trim();
+  if (Array.isArray(b.socials)) BUSINESS.sameAs = b.socials.filter(s => typeof s === 'string' && s.trim());
+  if (typeof b.locationId === 'string' && b.locationId.trim()) businessLocationId = b.locationId.trim();
+  businessProfileSaved = true;
+  fs.writeFileSync(BUSINESS_PROFILE_FILE, JSON.stringify(businessProfile(), null, 2));
+}
+
 // CORS: default to same-origin only (the dashboard is served from this same
 // server, so no cross-origin headers are needed). Set ALLOWED_ORIGIN to a
 // comma-separated allowlist only if you must call the API from another origin.
@@ -66,6 +115,13 @@ if (ALLOWED_ORIGIN) {
 
 app.use(bodyParser.json());
 app.use(express.static(path.join(__dirname, 'public')));
+
+// Business profile endpoints (registered after body parsing so req.body is available).
+app.get('/api/business-profile', (req, res) => res.json({ success: true, profile: businessProfile() }));
+app.post('/api/business-profile', requireAuth, (req, res) => {
+  try { saveBusinessProfileFromBody(req.body || {}); res.json({ success: true, profile: businessProfile() }); }
+  catch (e) { console.error('[Business Profile] save failed:', e.message); res.status(500).json({ success: false, error: e.message }); }
+});
 
 // ----------------------------------------------------
 // Auth middleware — protects sensitive/credential/spend endpoints.
