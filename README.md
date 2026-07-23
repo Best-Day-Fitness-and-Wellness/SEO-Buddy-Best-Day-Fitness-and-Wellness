@@ -14,7 +14,7 @@ It finds Google Search Console content gaps, writes authoritative E‑E‑A‑T 
 4. **AI Article Creator** — Gemini writes a structured HTML article (H1–H3 outline, step‑by‑step lists, comparison table, case‑study block, CTA, internal‑link placeholders, FAQ).
 5. **Publish & Index** — publishes to the GoHighLevel Blogs module, injects **JSON‑LD schema** (LocalBusiness, FAQPage, Author), resolves internal links, and submits the URL to Google's Indexing API.
 6. **AI Search (AIO) Audit** — asks Gemini your query **with live Google Search grounding** and reads back whether you're actually recommended/cited, the real source URLs, and the competitors named. Real answer‑engine data, not a simulation.
-7. **Citation Targets** — finds the real third‑party sources AI cites for your searches (directories, review sites, "best‑of" lists), flags whether you're already listed, and gives a prioritized **"get listed here"** worklist with a tailored action per source.
+7. **Citation Targets (Outreach Engine)** — a background scan finds the real third‑party sources AI cites (directories, review sites, "best‑of" lists) and turns them into an **action worklist**: a canonical **Listing Kit** (one consistent identity for every site), one‑click **AI‑drafted pitch emails** (open pre‑filled in Gmail) for editorial lists and local news, **copy‑paste listing payloads + claim links** for directories and review sites, and a **status tracker** (To‑do → Submitted/Pitched → Live) that survives redeploys. The finder runs server‑side and is cached, so the tab shows what to *do*, not a raw list of domains.
 8. **Local SEO** — a **NAP consistency auditor** (Name/Address/Phone across the web, with mismatch flags), a **review response writer** and **review‑request** generator, a **Google Business Profile post generator**, and a scored **local SEO checklist**.
 9. **On‑Site SEO** — a **keyword & topic idea generator** (grounded), a **title & meta optimizer** with live character counts, an **internal‑link suggester** from your published content, and an **extended schema pack** (Service, Review template, Breadcrumb).
 10. **Settings** — API keys, dashboard password, and the business‑value assumptions that drive the Summary/Performance estimates.
@@ -150,7 +150,13 @@ Tune these to your real numbers. They're clearly labeled as estimates in the UI.
 | POST | `/api/aio-audit` | 🔒 | Run a live, Google‑grounded AI‑search audit. |
 | GET | `/api/aio-history` | — | Past AIO audits. |
 | GET | `/api/aio-schema` | — | LocalBusiness + FAQ JSON‑LD. |
-| POST | `/api/citation-targets` | 🔒 | Find + classify the third‑party sources AI cites. |
+| POST | `/api/citation-targets` | 🔒 | Find + classify the third‑party sources AI cites (one‑shot). |
+| GET | `/api/citation-worklist` | — | Cached worklist: targets + tracker statuses + listing kit. |
+| POST | `/api/citation-scan` | 🔒 | Re‑run the grounded scan and refresh the cached worklist. |
+| POST | `/api/citation-status` | 🔒 | Update one target's tracker status (todo/submitted/pitched/live). |
+| POST | `/api/citation-outreach` | 🔒 | Draft a pitch email, or build a listing payload + claim link, for a target. |
+| GET | `/api/listing-kit` | — | Canonical listing kit (NAP, categories, descriptions, photo checklist). |
+| POST | `/api/listing-kit` | 🔒 | Regenerate the kit's descriptions with Gemini. |
 | POST | `/api/nap-audit` | 🔒 | Check NAP consistency across the web. |
 | POST | `/api/local-generate` | 🔒 | Review responses/requests + GBP posts. |
 | POST | `/api/onsite` | 🔒 | Keyword ideas / title‑meta / internal links. |
@@ -166,7 +172,7 @@ Tune these to your real numbers. They're clearly labeled as estimates in the UI.
 
 ## Data & persistence
 
-State is stored as flat JSON in `DATA_DIR`: `history.json`, `autopilot-logs.json`, `aio-audits.json`, and `performance.json` (daily snapshots). Point `DATA_DIR` at a persistent volume in production so this data survives redeploys.
+State is stored as flat JSON in `DATA_DIR`: `history.json`, `autopilot-logs.json`, `aio-audits.json`, `performance.json` (daily snapshots), and `citations.json` (the Citation Outreach worklist, tracker statuses, and cached listing kit). Point `DATA_DIR` at a persistent volume in production so this data survives redeploys.
 
 ---
 

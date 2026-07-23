@@ -1522,6 +1522,276 @@ app.get('/api/onsite-schema', (req, res) => {
   });
 });
 
+// ============================================================
+// 15. Citation Outreach Engine — turns the citation audit into an
+// ACTION worklist. The finder runs server-side and is cached; the tab
+// shows only what to do. Pieces: a cached scan, a canonical Listing Kit,
+// per-target outreach assets (pitch email or listing payload), and a
+// persistent status tracker that survives redeploys.
+// ============================================================
+const CITATIONS_FILE = path.join(DATA_DIR, 'citations.json');
+let citationsDb = {
+  lastScanned: null, brandCited: false, totalQueries: 0, sourcesFound: 0,
+  queries: [], targets: [], statuses: {}, kit: null
+};
+try {
+  if (fs.existsSync(CITATIONS_FILE)) {
+    citationsDb = Object.assign(citationsDb, JSON.parse(fs.readFileSync(CITATIONS_FILE, 'utf8')));
+  }
+} catch (e) { console.error('[Citations] load failed:', e.message); }
+function saveCitations() {
+  try { fs.writeFileSync(CITATIONS_FILE, JSON.stringify(citationsDb, null, 2)); }
+  catch (e) { console.error('[Citations] save failed:', e.message); }
+}
+
+const CITATION_STATUSES = ['todo', 'submitted', 'pitched', 'live'];
+// Which target types are "pitch" (outreach email) vs "listing" (claim/submit).
+const PITCH_TYPES = ['listicle', 'news', 'forum', 'other'];
+const LISTING_TYPES = ['directory', 'review'];
+
+// Canonical facts pasted onto every listing + used in every pitch.
+function siteDomain() {
+  let domain = (process.env.GSC_SITE_URL || 'https://bestdayfitness.com').trim();
+  if (domain.startsWith('sc-domain:')) domain = 'https://' + domain.substring(10);
+  return domain.replace(/\/$/, '');
+}
+function phoneDisplay() {
+  const d = (BUSINESS.telephone || '').replace(/[^0-9]/g, '').replace(/^1/, '');
+  return d.length === 10 ? `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}` : BUSINESS.telephone;
+}
+const KIT_STATIC = {
+  tagline: 'Coach-led fitness in St. Petersburg for active adults 50+.',
+  shortDesc: 'Best Day Fitness offers coach-led personal training, mobility and strength work in St. Petersburg for adults 50+, seniors, and injury recovery — longevity, not quick fixes.',
+  longDesc: 'Best Day Fitness is a holistic health & wellness studio in St. Petersburg, FL, built for adults 50+, seniors, and people recovering from injury. Our method — Energy = Mobility + Posture + Strength — pairs personalized coaching with integrated physical-therapy principles so you move better, feel stronger, and stay independent for the long run. Small-group and one-on-one training in a welcoming, no-intimidation studio.'
+};
+function listingKit() {
+  const cached = citationsDb.kit || {};
+  return {
+    name: BUSINESS.name,
+    addressOneLine: `${BUSINESS.streetAddress}, ${BUSINESS.addressLocality}, ${BUSINESS.addressRegion} ${BUSINESS.postalCode}`,
+    phone: phoneDisplay(),
+    website: siteDomain(),
+    socials: BUSINESS.sameAs || [],
+    categories: cached.categories || ['Personal Trainer', 'Fitness Center', 'Physical Therapy', 'Senior Fitness'],
+    tagline: cached.tagline || KIT_STATIC.tagline,
+    shortDesc: cached.shortDesc || KIT_STATIC.shortDesc,
+    longDesc: cached.longDesc || KIT_STATIC.longDesc,
+    photoChecklist: ['Square logo', 'Storefront / exterior', '3+ class or training shots', 'Trainer headshots', 'Interior of the studio'],
+    generatedAt: cached.generatedAt || null
+  };
+}
+
+// GET the canonical Listing Kit (read-only, no auth so the tab loads).
+app.get('/api/listing-kit', (req, res) => {
+  res.json({ success: true, kit: listingKit() });
+});
+
+// POST regenerate the kit's descriptions with Gemini (auth — spends a call).
+app.post('/api/listing-kit', requireAuth, async (req, res) => {
+  const geminiKey = process.env.GEMINI_API_KEY;
+  if (!geminiKey) return res.json({ success: true, kit: listingKit(), note: 'Add a Gemini key to regenerate descriptions; using the built-in defaults for now.' });
+  try {
+    const client = new GoogleGenAI({ apiKey: geminiKey });
+    const prompt = `Best Day Fitness is a holistic health & wellness studio in St. Petersburg, FL for adults 50+, seniors, and people recovering from injury. Method: Energy = Mobility + Posture + Strength; longevity over quick fixes. Write listing copy for business directories. Return ONLY raw JSON, no markdown: {"tagline":"under 70 chars","shortDesc":"<=160 chars, keyword-aware","longDesc":"2-3 sentence paragraph","categories":["4 short business categories"]}`;
+    const r = await client.models.generateContent({ model: GEMINI_MODEL, contents: prompt });
+    const parsed = parseGeminiJson(r.text);
+    if (parsed) {
+      citationsDb.kit = {
+        tagline: parsed.tagline || KIT_STATIC.tagline,
+        shortDesc: parsed.shortDesc || KIT_STATIC.shortDesc,
+        longDesc: parsed.longDesc || KIT_STATIC.longDesc,
+        categories: Array.isArray(parsed.categories) && parsed.categories.length ? parsed.categories.slice(0, 6) : undefined,
+        generatedAt: new Date().toISOString()
+      };
+      saveCitations();
+    }
+    res.json({ success: true, kit: listingKit() });
+  } catch (err) {
+    console.error('[Listing Kit] regenerate failed:', err.message);
+    res.status(502).json({ success: false, error: err.message });
+  }
+});
+
+// Shared finder: grounded discovery + classification of the sources AI cites.
+async function discoverCitationTargets(client, cleanQueries) {
+  const brandName = BUSINESS.name;
+  const brandRoot = 'bestdayfitness';
+  const domainInfo = {};
+  let brandCited = false;
+  await Promise.all(cleanQueries.map(async (q) => {
+    try {
+      const prompt = `A person searching online asks: "${q}". Acting as a helpful AI answer engine, recommend the best specific local businesses that fit this search in and around St. Petersburg, Florida, based on current web information.`;
+      const resp = await client.models.generateContent({ model: GEMINI_MODEL, contents: prompt, config: { tools: [{ googleSearch: {} }] } });
+      const gm = (resp.candidates && resp.candidates[0] && resp.candidates[0].groundingMetadata) || {};
+      const chunks = gm.groundingChunks || [];
+      const seen = new Set();
+      for (const c of chunks) {
+        const dom = ((c.web && c.web.title) || '').trim().toLowerCase();
+        if (!dom || seen.has(dom)) continue;
+        seen.add(dom);
+        if (dom.includes(brandRoot) || dom.includes(brandName.toLowerCase())) { brandCited = true; continue; }
+        if (!domainInfo[dom]) domainInfo[dom] = { count: 0, queries: [] };
+        domainInfo[dom].count++;
+        if (!domainInfo[dom].queries.includes(q)) domainInfo[dom].queries.push(q);
+      }
+    } catch (e) { console.error(`[Citation Scan] query failed "${q}":`, e.message); }
+  }));
+  const rankedDomains = Object.keys(domainInfo).sort((a, b) => domainInfo[b].count - domainInfo[a].count).slice(0, 12);
+  const targets = await Promise.all(rankedDomains.map(async (dom) => {
+    const base = { domain: dom, citedFor: domainInfo[dom].count, queries: domainInfo[dom].queries };
+    try {
+      const p = `On the website "${dom}", is the St. Petersburg, Florida fitness studio "Best Day Fitness" listed or mentioned? Also classify what kind of site "${dom}" is. Reply with ONLY raw JSON, no markdown fences: {"listed": true or false, "type": "directory" | "review" | "listicle" | "forum" | "competitor" | "news" | "other", "note": "one short line describing the site"}`;
+      const r = await client.models.generateContent({ model: GEMINI_MODEL, contents: p, config: { tools: [{ googleSearch: {} }] } });
+      const parsed = parseGeminiJson(r.text) || {};
+      return { ...base, type: parsed.type || 'other', listed: (typeof parsed.listed === 'boolean' ? parsed.listed : null), note: parsed.note || '' };
+    } catch (e) { return { ...base, type: 'other', listed: null, note: '' }; }
+  }));
+  targets.sort((a, b) => b.citedFor - a.citedFor);
+  return { brandCited, sourcesFound: Object.keys(domainInfo).length, targets };
+}
+
+// Merge cached targets with saved statuses + derive the action for each.
+function worklistPayload() {
+  const kit = listingKit();
+  const targets = (citationsDb.targets || []).map((t) => {
+    const st = (citationsDb.statuses && citationsDb.statuses[t.domain]) || {};
+    const mode = t.listed === true ? 'maintain'
+      : LISTING_TYPES.includes(t.type) ? 'listing'
+      : t.type === 'competitor' ? 'skip'
+      : 'pitch';
+    return { ...t, status: st.status || 'todo', statusUpdatedAt: st.updatedAt || null, mode };
+  });
+  const counts = {
+    total: targets.length,
+    listed: targets.filter(t => t.listed === true).length,
+    inProgress: targets.filter(t => ['submitted', 'pitched'].includes(t.status)).length,
+    live: targets.filter(t => t.status === 'live' || t.listed === true).length
+  };
+  return {
+    success: true,
+    lastScanned: citationsDb.lastScanned,
+    brandCited: citationsDb.brandCited,
+    totalQueries: citationsDb.totalQueries,
+    sourcesFound: citationsDb.sourcesFound,
+    queries: citationsDb.queries || [],
+    kit, counts, targets
+  };
+}
+
+// GET the cached worklist (read-only — the tab shows this instantly on load).
+app.get('/api/citation-worklist', (req, res) => {
+  res.json(worklistPayload());
+});
+
+// POST run a fresh scan (auth — spends grounded searches). Preserves the
+// status of any domain that is still present so progress is never lost.
+app.post('/api/citation-scan', requireAuth, async (req, res) => {
+  const geminiKey = process.env.GEMINI_API_KEY;
+  if (!geminiKey) {
+    return res.json({ success: true, unavailable: true, message: 'Add your Gemini API key in Settings to scan for citation targets (this uses live Google Search grounding).' });
+  }
+  let queries = Array.isArray(req.body && req.body.queries) ? req.body.queries : (citationsDb.queries || []);
+  queries = queries.map(q => String(q || '').trim()).filter(Boolean).slice(0, 8);
+  if (!queries.length) return res.status(400).json({ success: false, error: 'At least one search query is required.' });
+  try {
+    const client = new GoogleGenAI({ apiKey: geminiKey });
+    const { brandCited, sourcesFound, targets } = await discoverCitationTargets(client, queries);
+    // Prune statuses for domains that no longer appear.
+    const liveDomains = new Set(targets.map(t => t.domain));
+    const keptStatuses = {};
+    for (const d of Object.keys(citationsDb.statuses || {})) {
+      if (liveDomains.has(d)) keptStatuses[d] = citationsDb.statuses[d];
+    }
+    citationsDb.statuses = keptStatuses;
+    citationsDb.targets = targets;
+    citationsDb.brandCited = brandCited;
+    citationsDb.sourcesFound = sourcesFound;
+    citationsDb.totalQueries = queries.length;
+    citationsDb.queries = queries;
+    citationsDb.lastScanned = new Date().toISOString();
+    saveCitations();
+    res.json(worklistPayload());
+  } catch (err) {
+    console.error('[Citation Scan] failed:', err.message);
+    res.status(502).json({ success: false, error: `Could not complete the scan: ${err.message}` });
+  }
+});
+
+// POST update one target's status in the tracker (auth).
+app.post('/api/citation-status', requireAuth, (req, res) => {
+  const { domain, status } = req.body || {};
+  if (!domain || !CITATION_STATUSES.includes(status)) {
+    return res.status(400).json({ success: false, error: `Provide a domain and a status of: ${CITATION_STATUSES.join(', ')}.` });
+  }
+  if (!citationsDb.statuses) citationsDb.statuses = {};
+  citationsDb.statuses[domain] = { status, updatedAt: new Date().toISOString() };
+  saveCitations();
+  res.json({ success: true, domain, status });
+});
+
+// POST generate the action asset for one target — a pitch email (listicle/
+// news/forum) or a copy-paste listing payload + claim link (directory/review).
+app.post('/api/citation-outreach', requireAuth, async (req, res) => {
+  const { domain, type, queries } = req.body || {};
+  if (!domain) return res.status(400).json({ success: false, error: 'A target domain is required.' });
+  const geminiKey = process.env.GEMINI_API_KEY;
+  const t = String(type || 'other').toLowerCase();
+  const qList = Array.isArray(queries) ? queries.filter(Boolean) : [];
+  const kit = listingKit();
+
+  if (t === 'competitor') {
+    return res.json({ success: true, kind: 'skip', message: "This is a competitor's own site — study their positioning, but you can't get listed here." });
+  }
+
+  // Listing payload (directories + review sites): built from the canonical kit.
+  if (LISTING_TYPES.includes(t)) {
+    let claimUrl = `https://${domain}`;
+    let howTo = 'Look for a "Claim this business", "Add your business", or "For businesses" link, then paste the fields below.';
+    if (geminiKey) {
+      try {
+        const client = new GoogleGenAI({ apiKey: geminiKey });
+        const p = `Best Day Fitness wants to claim or create a free business listing on "${domain}" (a ${t} site). Using current web information, find the exact URL where a business owner adds or claims a listing on ${domain}. Return ONLY raw JSON, no markdown: {"claimUrl":"the direct add/claim/for-business URL","howTo":"one short line on the steps"}`;
+        const r = await client.models.generateContent({ model: GEMINI_MODEL, contents: p, config: { tools: [{ googleSearch: {} }] } });
+        const parsed = parseGeminiJson(r.text);
+        if (parsed && parsed.claimUrl) claimUrl = parsed.claimUrl;
+        if (parsed && parsed.howTo) howTo = parsed.howTo;
+      } catch (e) { console.error('[Outreach listing] grounding failed:', e.message); }
+    }
+    return res.json({
+      success: true, kind: 'listing', domain, claimUrl, howTo,
+      fields: {
+        name: kit.name, address: kit.addressOneLine, phone: kit.phone, website: kit.website,
+        categories: kit.categories.join(' · '), description: kit.shortDesc
+      }
+    });
+  }
+
+  // Pitch email (editorial listicles, local news, forums): grounded + personalized.
+  if (!geminiKey) {
+    return res.json({ success: true, kind: 'pitch', domain, unavailable: true, message: 'Add a Gemini key in Settings to auto-draft a personalized pitch for this source.' });
+  }
+  try {
+    const client = new GoogleGenAI({ apiKey: geminiKey });
+    const p = `You are drafting a short outreach email to get a local business included in a third-party ${t}.
+Business: Best Day Fitness — a holistic health & wellness studio in St. Petersburg, FL for adults 50+, seniors, and injury recovery. Phone ${kit.phone}. Owner's first name: Chris.
+Target site: "${domain}". It shows up in AI answers for searches like: ${qList.join('; ') || 'best gyms / senior fitness in St. Petersburg'}.
+Using current web information about "${domain}", write a warm, specific pitch for inclusion. Reference what the site or article actually covers so it's clearly not a template. Under 130 words, one clear ask, friendly sign-off from Chris.
+Return ONLY raw JSON, no markdown: {"to":"who to contact, e.g. 'Features editor' or a real email if found","subject":"","body":"","howToFind":"one line on how to find the real recipient (byline, contact page)"}`;
+    const r = await client.models.generateContent({ model: GEMINI_MODEL, contents: p, config: { tools: [{ googleSearch: {} }] } });
+    const parsed = parseGeminiJson(r.text) || {};
+    return res.json({
+      success: true, kind: 'pitch', domain,
+      to: parsed.to || 'Editor',
+      subject: parsed.subject || `Best Day Fitness — a senior-focused studio for ${domain}`,
+      body: parsed.body || '',
+      howToFind: parsed.howToFind || 'Check the article byline or the site’s contact/about page for the right person.'
+    });
+  } catch (err) {
+    console.error('[Outreach pitch] failed:', err.message);
+    return res.status(502).json({ success: false, error: err.message });
+  }
+});
+
 // Start the Express Server
 app.listen(PORT, () => {
   console.log(`=======================================================`);
