@@ -142,6 +142,17 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
+  // Advanced Tools collapsible group in the sidebar
+  (function () {
+    const at = document.getElementById('nav-adv-toggle');
+    const ag = document.getElementById('nav-adv-group');
+    if (at && ag) at.addEventListener('click', () => {
+      const open = !ag.classList.contains('open');
+      ag.classList.toggle('open', open);
+      at.classList.toggle('open', open);
+    });
+  })();
+
   function switchTab(tabId) {
     state.activeTab = tabId;
     
@@ -163,45 +174,55 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
 
+    // Auto-expand the Advanced Tools group when landing on one of its tools.
+    if (['gsc-tab', 'ai-tab', 'publish-tab', 'aio-tab', 'citations-tab', 'local-tab', 'onsite-tab'].includes(tabId)) {
+      const ag = document.getElementById('nav-adv-group'); const at = document.getElementById('nav-adv-toggle');
+      if (ag) ag.classList.add('open'); if (at) at.classList.add('open');
+    }
+
     // Update Header Text dynamically
     if (tabId === 'summary-tab') {
-      pageTitle.innerText = 'Your SEO Summary';
-      pageSubtitle.innerText = 'A plain-English snapshot of what SEO Buddy is doing for you, updated live';
+      pageTitle.innerText = 'Home';
+      pageSubtitle.innerText = 'Your SEO & AEO at a glance — score, what we did, and what to do next';
       loadSummary();
+    } else if (tabId === 'grow-tab') {
+      pageTitle.innerText = 'Grow';
+      pageSubtitle.innerText = 'Your prioritized to-do list, plus quick access to every tool';
+      if (window.loadGrow) window.loadGrow();
     } else if (tabId === 'performance-tab') {
-      pageTitle.innerText = 'Performance';
-      pageSubtitle.innerText = 'Is it working? Search trends, AI visibility over time, and leads';
+      pageTitle.innerText = 'Reports';
+      pageSubtitle.innerText = 'Is it working? Search trends, AI visibility, leads, and your weekly digest';
       loadPerformance();
       if (window.loadPerfDigest) window.loadPerfDigest();
     } else if (tabId === 'gsc-tab') {
-      pageTitle.innerText = 'GSC Content Gaps';
-      pageSubtitle.innerText = 'Analyze Search Console impressions and find low-click authority loops';
+      pageTitle.innerText = 'Searches You’re Missing';
+      pageSubtitle.innerText = 'Search queries where you show up but get no clicks — your biggest quick wins';
     } else if (tabId === 'ai-tab') {
-      pageTitle.innerText = 'AI Article Creator';
-      pageSubtitle.innerText = 'Generate highly authoritative, structural SEO pages targeting search leaks';
+      pageTitle.innerText = 'Create a Post';
+      pageSubtitle.innerText = 'Have AI write an authoritative, SEO-optimized article for you';
     } else if (tabId === 'publish-tab') {
-      pageTitle.innerText = 'Publish & Index Hub';
-      pageSubtitle.innerText = 'Deploy formatted pages to GoHighLevel and request Google indexing';
+      pageTitle.innerText = 'Publish';
+      pageSubtitle.innerText = 'Publish to your site, request Google indexing, and run the content autopilot';
     } else if (tabId === 'aio-tab') {
-      pageTitle.innerText = 'AI Search (AIO) Audit';
-      pageSubtitle.innerText = 'See whether Google\'s live AI recommends and cites Best Day Fitness, and build schema graphs';
+      pageTitle.innerText = 'AI Visibility Check';
+      pageSubtitle.innerText = 'See whether AI assistants recommend and cite you, and build schema';
       fetchAioHistory();
       fetchAioSchemas();
     } else if (tabId === 'citations-tab') {
-      pageTitle.innerText = 'Citation Outreach — Get Listed Where AI Looks';
-      pageSubtitle.innerText = 'Your worklist for AI citations: find sources, prep listings, send pitches, track progress';
+      pageTitle.innerText = 'Where to Get Listed';
+      pageSubtitle.innerText = 'The sites AI pulls from — find them, prep listings, send pitches, track progress';
       if (window.loadCitationWorklist) window.loadCitationWorklist();
     } else if (tabId === 'local-tab') {
-      pageTitle.innerText = 'Local SEO';
-      pageSubtitle.innerText = 'Autopilot NAP monitoring + weekly GBP posts, reviews, and your local checklist';
+      pageTitle.innerText = 'Local Presence';
+      pageSubtitle.innerText = 'NAP monitoring, weekly Google posts, reviews, and your local checklist';
       if (window.loadLocalAutopilot) window.loadLocalAutopilot();
     } else if (tabId === 'onsite-tab') {
-      pageTitle.innerText = 'On-Site & Technical SEO';
-      pageSubtitle.innerText = 'Autopilot content ideas, title/meta & internal links — plus manual tools and schema';
+      pageTitle.innerText = 'Site Optimization';
+      pageSubtitle.innerText = 'Content ideas, title/meta & internal links — plus manual tools and schema';
       if (window.loadOnsiteAutopilot) window.loadOnsiteAutopilot();
     } else if (tabId === 'settings-tab') {
-      pageTitle.innerText = 'System Configuration';
-      pageSubtitle.innerText = 'Connect live APIs, GHL tokens, and Search Console keys';
+      pageTitle.innerText = 'Settings';
+      pageSubtitle.innerText = 'Connect your accounts, business info, and automation preferences';
     }
   }
 
@@ -979,6 +1000,25 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (e) { /* leave hidden */ }
   }
   window.loadHome = loadHome;
+
+  // --- GROW: full prioritized action list + tool shortcuts ---
+  async function loadGrow() {
+    const el = document.getElementById('grow-moves');
+    if (!el) return;
+    try {
+      const nm = await (await fetch('/api/next-moves')).json();
+      const moves = (nm && nm.moves) || [];
+      const tagLabel = { high: 'High impact', med: 'Quick win', opportunity: 'Opportunity' };
+      if (!moves.length) { el.innerHTML = '<div class="text-muted" style="font-size:var(--font-sm);">You’re all caught up — nothing needs your attention right now. 🎉</div>'; return; }
+      el.innerHTML = moves.map(m => `<div class="gmove ${m.impact === 'high' ? 'high' : ''}">
+        <div><div class="gmove-t">${sumEsc(m.title)}</div><div class="gmove-w">${sumEsc(m.why)}</div></div>
+        <div class="gmove-r"><span class="gmtag ${m.impact}">${tagLabel[m.impact] || ''}</span><button class="btn btn-primary" data-tab="${sumEsc(m.tab)}" type="button">${sumEsc(m.cta)}</button></div>
+      </div>`).join('');
+      el.querySelectorAll('.btn[data-tab]').forEach(b => b.addEventListener('click', () => homeGoTab(b.dataset.tab)));
+    } catch (e) { el.innerHTML = '<div class="text-muted" style="font-size:var(--font-sm);">Couldn’t load your action list.</div>'; }
+  }
+  window.loadGrow = loadGrow;
+  document.querySelectorAll('#grow-tab .grow-tool').forEach(c => c.addEventListener('click', () => homeGoTab(c.dataset.tab)));
 
   async function loadSummary() {
     const [aioRes, gscRes, histRes] = await Promise.allSettled([

@@ -28,15 +28,30 @@
         <span class="logo-text">SEO Buddy</span>
       </div>
       
+      <style>
+        .nav-group-label{font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--text-dark);font-weight:600;padding:14px 14px 6px;}
+        .nav-adv-toggle{display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none;border-radius:8px;transition:.15s;margin-top:6px;}
+        .nav-adv-toggle:hover{color:var(--text-muted);background:rgba(255,255,255,.03);}
+        .nav-adv-caret{transition:transform .2s;font-size:10px;}
+        .nav-adv-toggle.open .nav-adv-caret{transform:rotate(90deg);}
+        .nav-adv-group{display:none;}
+        .nav-adv-group.open{display:block;}
+      </style>
       <nav class="nav-menu">
+        <div class="nav-group-label">Main</div>
         <button class="nav-item active" data-tab="summary-tab" id="nav-summary">
           <svg viewBox="0 0 24 24" class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="3" y="3" width="7" height="9" rx="1"></rect>
-            <rect x="14" y="3" width="7" height="5" rx="1"></rect>
-            <rect x="14" y="12" width="7" height="9" rx="1"></rect>
-            <rect x="3" y="16" width="7" height="5" rx="1"></rect>
+            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+            <polyline points="9 22 9 12 15 12 15 22"></polyline>
           </svg>
-          Summary
+          Home
+        </button>
+        <button class="nav-item" data-tab="grow-tab" id="nav-grow">
+          <svg viewBox="0 0 24 24" class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline>
+            <polyline points="17 6 23 6 23 12"></polyline>
+          </svg>
+          Grow
         </button>
         <button class="nav-item" data-tab="performance-tab" id="nav-performance">
           <svg viewBox="0 0 24 24" class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -44,68 +59,66 @@
             <line x1="12" y1="20" x2="12" y2="4"></line>
             <line x1="6" y1="20" x2="6" y2="14"></line>
           </svg>
-          Performance
-        </button>
-        <button class="nav-item" data-tab="gsc-tab" id="nav-gsc">
-          <svg viewBox="0 0 24 24" class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-            <line x1="9" y1="3" x2="9" y2="21"></line>
-            <line x1="15" y1="3" x2="15" y2="21"></line>
-            <line x1="3" y1="9" x2="21" y2="9"></line>
-            <line x1="3" y1="15" x2="21" y2="15"></line>
-          </svg>
-          GSC Content Gaps
-        </button>
-        <button class="nav-item" data-tab="ai-tab" id="nav-ai">
-          <svg viewBox="0 0 24 24" class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
-          </svg>
-          AI Article Creator
-        </button>
-        <button class="nav-item" data-tab="publish-tab" id="nav-publish">
-          <svg viewBox="0 0 24 24" class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path>
-            <polyline points="16 6 12 2 8 6"></polyline>
-            <line x1="12" y1="2" x2="12" y2="15"></line>
-          </svg>
-          Publish & Index
-        </button>
-        <button class="nav-item" data-tab="aio-tab" id="nav-aio">
-          <svg viewBox="0 0 24 24" class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="10"></circle>
-            <line x1="2" y1="12" x2="22" y2="12"></line>
-            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
-          </svg>
-          AI Search Audit
-        </button>
-        <button class="nav-item" data-tab="citations-tab" id="nav-citations">
-          <svg viewBox="0 0 24 24" class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
-            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
-          </svg>
-          Citation Targets
-        </button>
-        <button class="nav-item" data-tab="local-tab" id="nav-local">
-          <svg viewBox="0 0 24 24" class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
-            <circle cx="12" cy="10" r="3"></circle>
-          </svg>
-          Local SEO
-        </button>
-        <button class="nav-item" data-tab="onsite-tab" id="nav-onsite">
-          <svg viewBox="0 0 24 24" class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="16 18 22 12 16 6"></polyline>
-            <polyline points="8 6 2 12 8 18"></polyline>
-          </svg>
-          On-Site SEO
+          Reports
         </button>
         <button class="nav-item" data-tab="settings-tab" id="nav-settings">
           <svg viewBox="0 0 24 24" class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="3"></circle>
             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
           </svg>
-          API Settings
+          Settings
         </button>
+
+        <div class="nav-group-label nav-adv-toggle" id="nav-adv-toggle">Advanced Tools <span class="nav-adv-caret">&#9656;</span></div>
+        <div class="nav-adv-group" id="nav-adv-group">
+          <button class="nav-item" data-tab="gsc-tab" id="nav-gsc">
+            <svg viewBox="0 0 24 24" class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+              <line x1="9" y1="3" x2="9" y2="21"></line><line x1="15" y1="3" x2="15" y2="21"></line>
+              <line x1="3" y1="9" x2="21" y2="9"></line><line x1="3" y1="15" x2="21" y2="15"></line>
+            </svg>
+            Searches You&rsquo;re Missing
+          </button>
+          <button class="nav-item" data-tab="ai-tab" id="nav-ai">
+            <svg viewBox="0 0 24 24" class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+            </svg>
+            Create a Post
+          </button>
+          <button class="nav-item" data-tab="publish-tab" id="nav-publish">
+            <svg viewBox="0 0 24 24" class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path>
+              <polyline points="16 6 12 2 8 6"></polyline><line x1="12" y1="2" x2="12" y2="15"></line>
+            </svg>
+            Publish
+          </button>
+          <button class="nav-item" data-tab="aio-tab" id="nav-aio">
+            <svg viewBox="0 0 24 24" class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line>
+              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+            </svg>
+            AI Visibility Check
+          </button>
+          <button class="nav-item" data-tab="citations-tab" id="nav-citations">
+            <svg viewBox="0 0 24 24" class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+            </svg>
+            Where to Get Listed
+          </button>
+          <button class="nav-item" data-tab="local-tab" id="nav-local">
+            <svg viewBox="0 0 24 24" class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle>
+            </svg>
+            Local Presence
+          </button>
+          <button class="nav-item" data-tab="onsite-tab" id="nav-onsite">
+            <svg viewBox="0 0 24 24" class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline>
+            </svg>
+            Site Optimization
+          </button>
+        </div>
       </nav>
       
       <div class="sidebar-footer">
@@ -120,8 +133,8 @@
     <main class="main-content">
       <header class="app-header">
         <div class="header-title-section">
-          <h1 id="page-title">Your SEO Summary</h1>
-          <p id="page-subtitle" class="text-muted">A plain-English snapshot of what SEO Buddy is doing for you, updated live</p>
+          <h1 id="page-title">Home</h1>
+          <p id="page-subtitle" class="text-muted">Your SEO &amp; AEO at a glance — score, what we did, and what to do next</p>
         </div>
         <div class="header-actions">
           <div class="status-indicator mock" id="mode-status">
@@ -262,6 +275,11 @@
         </div>
         <div class="home-pillars" id="home-pillars" style="display:none;"></div>
 
+        <div class="home-moves-wrap" id="home-moves-wrap" style="display:none;">
+          <div class="home-sec-h">&#9989; Your next moves <span style="font-size:12px;color:var(--text-dark);font-weight:400;">&mdash; ranked by impact</span></div>
+          <div id="home-moves"></div>
+        </div>
+
         <div class="sum-value-strip">
           <div class="sum-value opp">
             <div class="sum-value-label">Opportunity Value <span class="sum-est-tag">ESTIMATE</span></div>
@@ -283,11 +301,6 @@
             <span class="sum-ap-sub" id="sum-ap-sub"></span>
           </div>
           <div class="sum-ap-grid" id="sum-ap-grid"></div>
-        </div>
-
-        <div class="home-moves-wrap" id="home-moves-wrap" style="display:none;">
-          <div class="home-sec-h">&#9989; Your next moves <span style="font-size:12px;color:var(--text-dark);font-weight:400;">&mdash; ranked by impact</span></div>
-          <div id="home-moves"></div>
         </div>
 
         <div class="sum-kpis">
@@ -1273,6 +1286,44 @@
           </div>
           <textarea id="os-schema-out" class="os-schema-box" readonly placeholder="Pick a schema type above..."></textarea>
           <p class="text-muted" style="font-size:var(--font-xs);margin-top:8px;">&#9888;&#65039; For Review/Rating: replace the placeholders with your REAL Google rating and review count. Never invent ratings &mdash; Google penalizes fake review markup.</p>
+        </div>
+      </section>
+
+      <!-- TAB: GROW -->
+      <style>
+        #grow-tab .grow-tools{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:6px;}
+        @media(max-width:900px){#grow-tab .grow-tools{grid-template-columns:1fr 1fr;}}
+        @media(max-width:560px){#grow-tab .grow-tools{grid-template-columns:1fr;}}
+        #grow-tab .grow-tool{background:rgba(0,0,0,.18);border:1px solid var(--border-color);border-radius:12px;padding:16px;cursor:pointer;transition:.15s;}
+        #grow-tab .grow-tool:hover{transform:translateY(-2px);border-color:var(--color-primary);}
+        #grow-tab .grow-tool b{font-family:var(--font-heading);font-size:14.5px;display:block;margin-bottom:4px;}
+        #grow-tab .grow-tool span{font-size:12.5px;color:var(--text-muted);line-height:1.45;}
+        #grow-tab .gmove{background:rgba(0,0,0,.18);border:1px solid var(--border-color);border-radius:12px;padding:14px 16px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:12px;}
+        #grow-tab .gmove.high{border-color:rgba(244,63,94,.4);}
+        #grow-tab .gmove-t{font-size:14px;font-weight:600;color:var(--text-main);}
+        #grow-tab .gmove-w{font-size:12px;color:var(--text-muted);margin-top:3px;line-height:1.45;}
+        #grow-tab .gmtag{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;padding:3px 8px;border-radius:999px;white-space:nowrap;}
+        #grow-tab .gmtag.high{background:rgba(244,63,94,.15);color:#fda4af;} #grow-tab .gmtag.med{background:rgba(245,158,11,.15);color:#fcd34d;} #grow-tab .gmtag.opportunity{background:rgba(16,185,129,.15);color:#6ee7b7;}
+        #grow-tab .gmove .btn{width:auto;padding:7px 14px;font-size:13px;white-space:nowrap;}
+        #grow-tab .gmove-r{display:flex;align-items:center;gap:12px;flex-shrink:0;}
+      </style>
+      <section class="tab-content" id="grow-tab">
+        <div class="content-card">
+          <h2>Grow your visibility</h2>
+          <p class="text-muted mb-4">Your prioritized to&#8209;do list &mdash; everything worth doing right now, ranked by impact. Knock these out and your score climbs.</p>
+          <div id="grow-moves"><div class="text-muted" style="font-size:var(--font-sm);">Loading your action list&hellip;</div></div>
+        </div>
+        <div class="content-card mt-4">
+          <h2>Jump into a tool</h2>
+          <p class="text-muted mb-4">Want to do something specific? Go straight to the tool.</p>
+          <div class="grow-tools">
+            <div class="grow-tool" data-tab="ai-tab"><b>&#9997;&#65039; Create a Post</b><span>Have AI write an SEO article for you.</span></div>
+            <div class="grow-tool" data-tab="citations-tab"><b>&#127919; Where to Get Listed</b><span>Find &amp; pitch the sites AI recommends.</span></div>
+            <div class="grow-tool" data-tab="local-tab"><b>&#128205; Local Presence</b><span>Fix your listings, reviews &amp; Google posts.</span></div>
+            <div class="grow-tool" data-tab="aio-tab"><b>&#129302; AI Visibility Check</b><span>See if AI assistants recommend you.</span></div>
+            <div class="grow-tool" data-tab="onsite-tab"><b>&#128421;&#65039; Site Optimization</b><span>Keyword ideas, titles &amp; internal links.</span></div>
+            <div class="grow-tool" data-tab="gsc-tab"><b>&#128269; Searches You&rsquo;re Missing</b><span>Queries where you show up but get no clicks.</span></div>
+          </div>
         </div>
       </section>
 
