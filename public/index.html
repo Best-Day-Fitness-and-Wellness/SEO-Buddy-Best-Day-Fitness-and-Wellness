@@ -153,6 +153,7 @@
       </nav>
       
       <div class="sidebar-footer">
+        <button class="theme-toggle" id="btn-open-setup" type="button" title="Business info & setup"><span class="ti">🚀</span><span>Setup &amp; business info</span></button>
         <button class="theme-toggle" id="theme-toggle" type="button" title="Switch light / dark">
           <span class="ti" id="theme-ic">🌙</span><span id="theme-label">Dark mode</span>
         </button>
@@ -1487,6 +1488,38 @@
     <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
     <span>Quick Guide</span>
   </button>
+
+  <!-- Onboarding Setup Wizard -->
+  <style>
+    .setup-overlay{position:fixed;inset:0;z-index:1000;background:rgba(5,8,14,0.72);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;padding:20px;}
+    body.light .setup-overlay{background:rgba(15,23,42,0.4);}
+    .setup-card{background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:18px;width:100%;max-width:560px;max-height:92vh;overflow:auto;box-shadow:var(--shadow-lg);}
+    .setup-head{display:flex;justify-content:space-between;align-items:center;padding:20px 24px 0;}
+    .setup-dots{display:flex;gap:7px;}
+    .setup-dot{width:8px;height:8px;border-radius:50%;background:var(--border-color);transition:.25s;}
+    .setup-dot.on{background:var(--color-primary);width:22px;border-radius:5px;}
+    .setup-close{background:none;border:none;color:var(--text-muted);font-size:26px;cursor:pointer;line-height:1;padding:0 4px;}
+    .setup-body{padding:16px 24px 6px;}
+    .setup-body h2{font-family:var(--font-heading);font-size:1.5rem;margin-bottom:8px;color:var(--text-main);}
+    .setup-body p.lead{color:var(--text-muted);font-size:var(--font-sm);margin-bottom:18px;line-height:1.55;}
+    .setup-emoji{font-size:2.6rem;margin-bottom:6px;}
+    .setup-field{margin-bottom:13px;}
+    .setup-field label{display:block;font-size:var(--font-xs);color:var(--text-muted);font-weight:600;margin-bottom:5px;}
+    .setup-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+    .setup-connect-item{display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid var(--border-color);}
+    .setup-connect-item:last-of-type{border-bottom:none;}
+    .setup-connect-item .ci{width:36px;height:36px;border-radius:9px;background:var(--panel);display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0;}
+    .setup-connect-item b{font-size:14px;color:var(--text-main);} .setup-connect-item span{font-size:12px;color:var(--text-muted);display:block;margin-top:1px;}
+    .setup-foot{display:flex;justify-content:space-between;gap:10px;padding:14px 24px 22px;}
+    .setup-foot .btn{width:auto;}
+  </style>
+  <div class="setup-overlay" id="setup-overlay" style="display:none;">
+    <div class="setup-card">
+      <div class="setup-head"><div class="setup-dots" id="setup-dots"></div><button class="setup-close" id="setup-close" type="button" aria-label="Close">&times;</button></div>
+      <div class="setup-body" id="setup-body"></div>
+      <div class="setup-foot"><button class="btn btn-secondary" id="setup-back" type="button">Back</button><button class="btn btn-primary" id="setup-next" type="button">Next</button></div>
+    </div>
+  </div>
 
   <script src="mock-data.js"></script>
   <script src="app.js"></script>

@@ -2539,4 +2539,85 @@ document.addEventListener('DOMContentLoaded', () => {
       el.classList.remove('wizard-highlight');
     });
   }
+
+  // --- ONBOARDING SETUP WIZARD ---
+  (function () {
+    const overlay = document.getElementById('setup-overlay');
+    if (!overlay) return;
+    const bodyEl = document.getElementById('setup-body');
+    const dotsEl = document.getElementById('setup-dots');
+    const backBtn = document.getElementById('setup-back');
+    const nextBtn = document.getElementById('setup-next');
+    const closeBtn = document.getElementById('setup-close');
+    let step = 0, profile = {};
+    const TOTAL = 4;
+    const sEsc = s => String(s == null ? '' : s).replace(/"/g, '&quot;');
+    const gv = id => { const e = document.getElementById(id); return e ? e.value.trim() : ''; };
+
+    function stepHTML(i) {
+      if (i === 0) return `<div class="setup-emoji">👋</div><h2>Welcome to SEO Buddy</h2><p class="lead">Let’s get you set up in about a minute — confirm your business details, your numbers, and connect the accounts that bring your data to life. Then you’re off to the races.</p>`;
+      if (i === 1) return `<h2>Your business</h2><p class="lead">This is the identity we keep consistent everywhere — Google, directories, and every AI answer. Getting it exactly right matters.</p>
+        <div class="setup-field"><label>Business name</label><input class="form-input" id="setup-name" value="${sEsc(profile.name)}"></div>
+        <div class="setup-field"><label>Street address</label><input class="form-input" id="setup-street" value="${sEsc(profile.streetAddress)}"></div>
+        <div class="setup-row"><div class="setup-field"><label>City</label><input class="form-input" id="setup-city" value="${sEsc(profile.addressLocality)}"></div><div class="setup-field"><label>State</label><input class="form-input" id="setup-state" value="${sEsc(profile.addressRegion)}"></div></div>
+        <div class="setup-row"><div class="setup-field"><label>ZIP</label><input class="form-input" id="setup-zip" value="${sEsc(profile.postalCode)}"></div><div class="setup-field"><label>Phone</label><input class="form-input" id="setup-phone" value="${sEsc(profile.phone)}"></div></div>
+        <div class="setup-field"><label>Website</label><input class="form-input" id="setup-website" value="${sEsc(profile.website)}"></div>`;
+      if (i === 2) {
+        const cv = localStorage.getItem('seo_client_value') || '1395', cr = localStorage.getItem('seo_conv_rate') || '2', cap = localStorage.getItem('seo_capture_rate') || '5';
+        return `<h2>Your numbers</h2><p class="lead">These power your value estimates on Home — “worth X new clients.” Use your real figures; you can change them anytime in Settings.</p>
+        <div class="setup-field"><label>Value of a new client ($)</label><input type="number" class="form-input" id="setup-clientvalue" value="${sEsc(cv)}"></div>
+        <div class="setup-row"><div class="setup-field"><label>Visitor → client conversion (%)</label><input type="number" class="form-input" id="setup-conv" value="${sEsc(cr)}"></div><div class="setup-field"><label>Search capture (%)</label><input type="number" class="form-input" id="setup-capture" value="${sEsc(cap)}"></div></div>`;
+      }
+      return `<h2>Connect your accounts</h2><p class="lead">These unlock your live data. Do it now in Settings, or later — SEO Buddy runs in demo mode until then.</p>
+        <div class="setup-connect-item"><div class="ci">🔑</div><div><b>Google Gemini</b><span>Powers AI content, audits, and citation finding.</span></div></div>
+        <div class="setup-connect-item"><div class="ci">🔍</div><div><b>Google Search Console</b><span>Your real rankings, clicks, and content gaps.</span></div></div>
+        <div class="setup-connect-item"><div class="ci">📇</div><div><b>GoHighLevel</b><span>Publish content and pull in your leads.</span></div></div>
+        <div style="margin-top:16px;"><button class="btn btn-secondary" id="setup-open-settings" type="button" style="width:auto;">Open Settings to connect →</button></div>`;
+    }
+    function render() {
+      bodyEl.innerHTML = stepHTML(step);
+      dotsEl.innerHTML = Array.from({ length: TOTAL }, (_, i) => `<span class="setup-dot ${i === step ? 'on' : ''}"></span>`).join('');
+      backBtn.style.visibility = step === 0 ? 'hidden' : 'visible';
+      nextBtn.innerText = step === TOTAL - 1 ? 'Finish' : (step === 0 ? "Let’s go" : 'Next');
+      const os = document.getElementById('setup-open-settings');
+      if (os) os.addEventListener('click', () => { closeWiz(); const n = document.querySelector('.nav-item[data-tab="settings-tab"]'); if (n) n.click(); });
+    }
+    function collect() {
+      if (step === 1) {
+        profile.name = gv('setup-name') || profile.name;
+        profile.streetAddress = gv('setup-street'); profile.addressLocality = gv('setup-city'); profile.addressRegion = gv('setup-state');
+        profile.postalCode = gv('setup-zip'); profile.phone = gv('setup-phone'); profile.website = gv('setup-website');
+      } else if (step === 2) {
+        if (gv('setup-clientvalue')) localStorage.setItem('seo_client_value', gv('setup-clientvalue'));
+        if (gv('setup-conv')) localStorage.setItem('seo_conv_rate', gv('setup-conv'));
+        if (gv('setup-capture')) localStorage.setItem('seo_capture_rate', gv('setup-capture'));
+      }
+    }
+    async function finish() {
+      try {
+        await authFetch('/api/business-profile', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: profile.name, phone: profile.phone, streetAddress: profile.streetAddress, addressLocality: profile.addressLocality, addressRegion: profile.addressRegion, postalCode: profile.postalCode, website: profile.website }) });
+      } catch (e) { /* non-fatal */ }
+      try { localStorage.setItem('seo_wizard_seen', '1'); } catch (e) {}
+      closeWiz();
+      if (window.loadSummary) window.loadSummary();
+    }
+    function openWiz() {
+      fetch('/api/business-profile').then(r => r.json()).then(d => { profile = Object.assign({}, (d && d.profile) || {}); step = 0; render(); overlay.style.display = 'flex'; })
+        .catch(() => { profile = {}; step = 0; render(); overlay.style.display = 'flex'; });
+    }
+    function closeWiz() { overlay.style.display = 'none'; try { localStorage.setItem('seo_wizard_seen', '1'); } catch (e) {} }
+    window.openSetupWizard = openWiz;
+    const btnOpen = document.getElementById('btn-open-setup');
+    if (btnOpen) btnOpen.addEventListener('click', openWiz);
+
+    nextBtn.addEventListener('click', () => { collect(); if (step < TOTAL - 1) { step++; render(); } else { finish(); } });
+    backBtn.addEventListener('click', () => { collect(); if (step > 0) { step--; render(); } });
+    closeBtn.addEventListener('click', closeWiz);
+
+    // First-run: auto-open once if the business profile hasn't been set up.
+    fetch('/api/business-profile').then(r => r.json()).then(d => {
+      let seen = '0'; try { seen = localStorage.getItem('seo_wizard_seen') || '0'; } catch (e) {}
+      if (d && d.profile && !d.profile.configured && seen !== '1') setTimeout(openWiz, 900);
+    }).catch(() => {});
+  })();
 });
