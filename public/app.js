@@ -192,7 +192,8 @@ document.addEventListener('DOMContentLoaded', () => {
       if (window.loadCitationWorklist) window.loadCitationWorklist();
     } else if (tabId === 'local-tab') {
       pageTitle.innerText = 'Local SEO';
-      pageSubtitle.innerText = 'NAP consistency, reviews, Google Business Profile, and your local checklist';
+      pageSubtitle.innerText = 'Autopilot NAP monitoring + weekly GBP posts, reviews, and your local checklist';
+      if (window.loadLocalAutopilot) window.loadLocalAutopilot();
     } else if (tabId === 'onsite-tab') {
       pageTitle.innerText = 'On-Site & Technical SEO';
       pageSubtitle.innerText = 'Keyword ideas, title/meta optimization, internal links, and schema';
@@ -1574,6 +1575,123 @@ document.addEventListener('DOMContentLoaded', () => {
     const o = btn.innerText; btn.innerText = 'Copied!'; setTimeout(() => btn.innerText = o, 1500);
   }
 
+  // --- LOCAL SEO AUTOPILOT ---
+  const laToggle = document.getElementById('la-toggle');
+  const laMeta = document.getElementById('la-meta');
+  const laNapBadge = document.getElementById('la-nap-badge');
+  const laNapBody = document.getElementById('la-nap-body');
+  const laGbpBadge = document.getElementById('la-gbp-badge');
+  const laGbpBody = document.getElementById('la-gbp-body');
+  const laRun = document.getElementById('la-run');
+  const laRunNote = document.getElementById('la-run-note');
+  const laReplies = document.getElementById('la-replies');
+  let laPollTimer = null;
+
+  function laAgo(iso) {
+    if (!iso) return 'never';
+    const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return mins + 'm ago';
+    const h = Math.round(mins / 60);
+    if (h < 24) return h + 'h ago';
+    return Math.round(h / 24) + 'd ago';
+  }
+  function laDue(iso, days) {
+    if (!iso) return 'due now';
+    const rem = (days || 7) - ((Date.now() - new Date(iso).getTime()) / 86400000);
+    return rem <= 0 ? 'due now' : ('in ' + Math.ceil(rem) + 'd');
+  }
+
+  function laRenderNap(nap, isNew) {
+    if (!laNapBody) return;
+    if (!nap) { laNapBadge.innerHTML = ''; laNapBody.innerHTML = '<span class="lr-muted">Not checked yet — turn on the autopilot or click Run now.</span>'; return; }
+    const bad = (nap.listings || []).filter(l => l.phoneMatch === false || l.addrMatch === false || l.nameMatch === false);
+    laNapBadge.innerHTML = bad.length
+      ? `<span class="la-badge new">${isNew ? 'NEW · ' : ''}${bad.length} mismatch${bad.length > 1 ? 'es' : ''}</span>`
+      : `<span class="la-badge ok">consistent</span>`;
+    if (!bad.length) { laNapBody.innerHTML = `<span class="lr-muted">All ${nap.listings.length} listings match your canonical NAP. Checked ${laAgo(nap.checkedAt)}.</span>`; return; }
+    laNapBody.innerHTML = bad.map(l => {
+      const issues = []; if (l.phoneMatch === false) issues.push('phone'); if (l.addrMatch === false) issues.push('address'); if (l.nameMatch === false) issues.push('name');
+      return `<div class="la-nap-line"><span><b>${citEsc(l.platform || '?')}</b><br><span class="lr-muted">${citEsc(l.phone || l.address || '')}</span></span><span class="nap-bad">${issues.join(' + ')} off</span></div>`;
+    }).join('') + `<div class="lr-muted" style="margin-top:8px;">Align these to ${citEsc(nap.canonical.phone)} · ${citEsc(nap.canonical.address)}. Checked ${laAgo(nap.checkedAt)}.</div>`;
+  }
+
+  function laRenderGbp(draft) {
+    if (!laGbpBody) return;
+    if (!draft) { laGbpBadge.innerHTML = ''; laGbpBody.innerHTML = '<span class="lr-muted">No post yet — one is written each week, or click Run now.</span>'; return; }
+    laGbpBadge.innerHTML = draft.isNew ? '<span class="la-badge new">NEW</span>' : '';
+    laGbpBody.innerHTML = `<div class="la-gbp-text">${citEsc(draft.text)}</div>`
+      + `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;"><button class="btn btn-secondary btn-xs" id="la-gbp-copy" type="button">Copy post</button><span class="lr-muted">Topic: ${citEsc(draft.topic || '—')} · written ${laAgo(draft.createdAt)}</span></div>`;
+    const cp = document.getElementById('la-gbp-copy');
+    if (cp) cp.onclick = () => { navigator.clipboard.writeText(draft.text); cp.innerText = 'Copied ✓'; setTimeout(() => cp.innerText = 'Copy post', 1200); };
+  }
+
+  function laRenderReplies(list) {
+    if (!laReplies) return;
+    if (!list || !list.length) { laReplies.innerHTML = ''; return; }
+    laReplies.innerHTML = `<details><summary class="la-mini">Recent saved replies (${list.length})</summary>`
+      + list.slice(0, 6).map(r => `<div style="border-top:1px solid var(--border-color);padding:8px 0;font-size:var(--font-xs);"><span class="lr-muted">${r.rating ? ('★' + citEsc(r.rating) + ' · ') : ''}${laAgo(r.createdAt)}</span><br><i>"${citEsc((r.review || '').slice(0, 110))}${(r.review || '').length > 110 ? '…' : ''}"</i><br>${citEsc(r.reply)}</div>`).join('')
+      + `</details>`;
+  }
+
+  function laRender(s) {
+    if (!s) return;
+    if (laToggle) laToggle.checked = !!s.enabled;
+    if (laMeta) laMeta.innerHTML = s.hasKey
+      ? `Autopilot is <b style="color:${s.enabled ? 'var(--color-success)' : 'var(--text-muted)'}">${s.enabled ? 'ON' : 'OFF'}</b> · NAP check ${laDue(s.lastNapRun, s.napIntervalDays)} · GBP post ${laDue(s.lastGbpRun, s.gbpIntervalDays)}`
+      : `<span class="nap-bad">Add your Gemini API key in Settings to enable the autopilot.</span>`;
+    laRenderNap(s.nap, s.napNewMismatch);
+    laRenderGbp(s.gbpDraft);
+    laRenderReplies(s.replyHistory);
+    if (s.napNewMismatch || (s.gbpDraft && s.gbpDraft.isNew)) {
+      authFetch('/api/local-autopilot/seen', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).catch(() => {});
+    }
+  }
+
+  async function loadLocalAutopilot() {
+    try {
+      const res = await fetch('/api/local-autopilot');
+      const s = await res.json();
+      laRender(s);
+      if (s.busy) laPoll();
+    } catch (e) { /* leave last render */ }
+  }
+  window.loadLocalAutopilot = loadLocalAutopilot;
+
+  function laPoll() {
+    if (laPollTimer) return;
+    let n = 0;
+    if (laRun) { laRun.disabled = true; laRun.innerText = 'Working… (~1 min)'; }
+    laPollTimer = setInterval(async () => {
+      n++;
+      try {
+        const res = await fetch('/api/local-autopilot');
+        const s = await res.json();
+        laRender(s);
+        if (!s.busy || n > 12) { clearInterval(laPollTimer); laPollTimer = null; if (laRun) { laRun.disabled = false; laRun.innerText = 'Run now'; } if (laRunNote) laRunNote.innerText = ''; }
+      } catch (e) { clearInterval(laPollTimer); laPollTimer = null; if (laRun) { laRun.disabled = false; laRun.innerText = 'Run now'; } }
+    }, 8000);
+  }
+
+  if (laToggle) {
+    laToggle.addEventListener('change', async () => {
+      try { await authFetch('/api/local-autopilot/toggle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: laToggle.checked }) }); loadLocalAutopilot(); }
+      catch (e) { alert('Could not update: ' + e.message); }
+    });
+  }
+  if (laRun) {
+    laRun.addEventListener('click', async () => {
+      laRun.disabled = true; laRun.innerText = 'Starting…';
+      try {
+        const res = await authFetch('/api/local-autopilot/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+        const d = await res.json();
+        if (d.unavailable) { alert(d.message); laRun.disabled = false; laRun.innerText = 'Run now'; return; }
+        if (laRunNote) laRunNote.innerText = 'Running the NAP check and writing your post…';
+        setTimeout(laPoll, 1500);
+      } catch (e) { alert('Run error: ' + e.message); laRun.disabled = false; laRun.innerText = 'Run now'; }
+    });
+  }
+
   // NAP consistency audit
   const btnNapCheck = document.getElementById('btn-nap-check');
   if (btnNapCheck) {
@@ -1611,10 +1729,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Review response
   const btnLrResponse = document.getElementById('btn-lr-response');
-  if (btnLrResponse) btnLrResponse.addEventListener('click', () => {
+  if (btnLrResponse) btnLrResponse.addEventListener('click', async () => {
     const review = (document.getElementById('lr-review-text').value || '').trim();
     if (!review) { alert('Paste the review first.'); return; }
-    lrGenerate({ kind: 'review-response', review, rating: document.getElementById('lr-review-rating').value }, document.getElementById('lr-response-out'), btnLrResponse);
+    const out = document.getElementById('lr-response-out');
+    const orig = btnLrResponse.innerText;
+    btnLrResponse.disabled = true; btnLrResponse.innerText = 'Writing…';
+    try {
+      // Uses /api/local-reply so the draft is saved to the autopilot's reply history.
+      const res = await authFetch('/api/local-reply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ review, rating: document.getElementById('lr-review-rating').value }) });
+      const d = await res.json();
+      if (d.unavailable) { alert(d.message); }
+      else if (!res.ok || !d.success) { throw new Error(d.error || 'Generation failed'); }
+      else { out.value = d.reply || ''; if (window.loadLocalAutopilot) window.loadLocalAutopilot(); }
+    } catch (e) { alert('Error: ' + e.message); }
+    finally { btnLrResponse.disabled = false; btnLrResponse.innerText = orig; }
   });
   const btnLrRespCopy = document.getElementById('btn-lr-response-copy');
   if (btnLrRespCopy) btnLrRespCopy.addEventListener('click', () => lrCopy(document.getElementById('lr-response-out'), btnLrRespCopy));

@@ -882,8 +882,59 @@
         #local-tab .lr-score-bar{height:10px;background:rgba(255,255,255,.06);border-radius:999px;overflow:hidden;}
         #local-tab .lr-score-fill{height:100%;background:var(--gradient-primary);border-radius:999px;transition:width .4s ease;}
         #local-tab .lr-muted{font-size:var(--font-xs);color:var(--text-muted);}
+        #local-tab .la-card{border:1px solid rgba(99,102,241,.35);}
+        #local-tab .la-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;}
+        #local-tab .la-switch{position:relative;display:inline-block;width:46px;height:26px;flex-shrink:0;}
+        #local-tab .la-switch input{opacity:0;width:0;height:0;}
+        #local-tab .la-slider{position:absolute;cursor:pointer;inset:0;background:rgba(255,255,255,.12);border-radius:999px;transition:.3s;}
+        #local-tab .la-slider:before{content:"";position:absolute;height:20px;width:20px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.3s;}
+        #local-tab .la-switch input:checked + .la-slider{background:var(--color-success);}
+        #local-tab .la-switch input:checked + .la-slider:before{transform:translateX(20px);}
+        #local-tab .la-meta{font-size:var(--font-xs);color:var(--text-muted);margin:12px 0 4px;}
+        #local-tab .la-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:12px;}
+        @media(max-width:900px){#local-tab .la-grid{grid-template-columns:1fr;}}
+        #local-tab .la-panel{background:rgba(0,0,0,.2);border:1px solid var(--border-color);border-radius:10px;padding:14px 15px;}
+        #local-tab .la-panel-h{display:flex;justify-content:space-between;align-items:center;font-family:var(--font-heading);font-size:var(--font-sm);font-weight:600;margin-bottom:10px;gap:8px;}
+        #local-tab .la-panel-body{font-size:var(--font-sm);color:var(--text-main);line-height:1.55;}
+        #local-tab .la-badge{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;padding:2px 8px;border-radius:999px;white-space:nowrap;}
+        #local-tab .la-badge.new{background:rgba(244,63,94,.15);color:var(--color-accent);}
+        #local-tab .la-badge.ok{background:rgba(16,185,129,.15);color:var(--color-success);}
+        #local-tab .la-gbp-text{white-space:pre-line;background:rgba(0,0,0,.25);border:1px solid var(--border-color);border-radius:8px;padding:10px 12px;margin:6px 0;max-height:220px;overflow:auto;}
+        #local-tab .la-actions{display:flex;align-items:center;gap:12px;margin-top:16px;flex-wrap:wrap;}
+        #local-tab .la-actions .btn{width:auto;}
+        #local-tab .la-mini{font-size:var(--font-xs);color:var(--color-secondary);cursor:pointer;font-weight:600;}
+        #local-tab .la-nap-line{display:flex;justify-content:space-between;gap:8px;padding:4px 0;border-bottom:1px solid var(--border-color);}
+        #local-tab .la-nap-line:last-child{border-bottom:none;}
+        #local-tab .la-replies{margin-top:16px;}
       </style>
       <section class="tab-content" id="local-tab">
+        <!-- Local SEO Autopilot -->
+        <div class="content-card la-card" id="la-card">
+          <div class="la-head">
+            <div>
+              <h2 style="margin-bottom:4px;">🤖 Local SEO Autopilot</h2>
+              <p class="text-muted" style="margin:0;">Watches your NAP for new mismatches and writes a fresh Google Business Profile post every week &mdash; automatically. You just paste the post into Google.</p>
+            </div>
+            <label class="la-switch" title="Turn the autopilot on/off"><input type="checkbox" id="la-toggle"><span class="la-slider"></span></label>
+          </div>
+          <div class="la-meta" id="la-meta"></div>
+          <div class="la-grid">
+            <div class="la-panel">
+              <div class="la-panel-h"><span>NAP Monitor</span><span id="la-nap-badge"></span></div>
+              <div id="la-nap-body" class="la-panel-body"></div>
+            </div>
+            <div class="la-panel">
+              <div class="la-panel-h"><span>This Week&rsquo;s GBP Post</span><span id="la-gbp-badge"></span></div>
+              <div id="la-gbp-body" class="la-panel-body"></div>
+            </div>
+          </div>
+          <div class="la-actions">
+            <button class="btn btn-primary" id="la-run" type="button">Run now</button>
+            <span class="lr-muted" id="la-run-note"></span>
+          </div>
+          <div id="la-replies" class="la-replies"></div>
+        </div>
+
         <!-- NAP Auditor -->
         <div class="content-card">
           <h2>NAP Consistency Auditor</h2>
