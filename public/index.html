@@ -37,6 +37,17 @@
       .theme-toggle{display:flex;align-items:center;gap:9px;width:100%;background:var(--panel);border:1px solid var(--border-color);color:var(--text-muted);border-radius:10px;padding:9px 12px;font-family:var(--font-body);font-size:var(--font-sm);cursor:pointer;transition:.15s;margin-bottom:10px;}
       .theme-toggle:hover{color:var(--text-main);border-color:var(--color-primary);}
       .theme-toggle .ti{font-size:15px;}
+      /* mobile off-canvas sidebar */
+      .mobile-hamburger{display:none;background:var(--bg-card);border:1px solid var(--border-color);color:var(--text-main);width:40px;height:40px;border-radius:10px;font-size:20px;line-height:1;cursor:pointer;align-items:center;justify-content:center;margin-right:12px;flex-shrink:0;}
+      #mobile-backdrop{display:none;}
+      @media(max-width:860px){
+        .app-container{grid-template-columns:1fr;}
+        .sidebar{position:fixed;top:0;left:0;bottom:0;width:264px;z-index:1100;transform:translateX(-100%);transition:transform .25s ease;overflow-y:auto;}
+        body.nav-open .sidebar{transform:translateX(0);box-shadow:0 0 50px rgba(0,0,0,.6);}
+        .mobile-hamburger{display:inline-flex;}
+        #mobile-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:1050;}
+        body.nav-open #mobile-backdrop{display:block;}
+      }
     </style>
     <script>
       (function(){
@@ -167,6 +178,7 @@
     <!-- Main Content Frame -->
     <main class="main-content">
       <header class="app-header">
+        <button class="mobile-hamburger" id="mobile-hamburger" type="button" aria-label="Open menu">&#9776;</button>
         <div class="header-title-section">
           <h1 id="page-title">Home</h1>
           <p id="page-subtitle" class="text-muted">Your SEO &amp; AEO at a glance — score, what we did, and what to do next</p>
@@ -1453,6 +1465,7 @@
       </section>
     </main>
   </div>
+  <div id="mobile-backdrop"></div>
 
   <!-- Onboarding Wizard Widget -->
   <div class="wizard-container" id="wizard-widget" style="display: none;">

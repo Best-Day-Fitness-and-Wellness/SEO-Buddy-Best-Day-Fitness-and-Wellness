@@ -139,8 +139,17 @@ document.addEventListener('DOMContentLoaded', () => {
     btn.addEventListener('click', () => {
       const targetTab = btn.getAttribute('data-tab');
       switchTab(targetTab);
+      document.body.classList.remove('nav-open'); // close mobile menu after choosing
     });
   });
+
+  // Mobile off-canvas sidebar
+  (function () {
+    const ham = document.getElementById('mobile-hamburger');
+    const bd = document.getElementById('mobile-backdrop');
+    if (ham) ham.addEventListener('click', () => document.body.classList.toggle('nav-open'));
+    if (bd) bd.addEventListener('click', () => document.body.classList.remove('nav-open'));
+  })();
 
   // Advanced Tools collapsible group in the sidebar
   (function () {
@@ -945,6 +954,33 @@ document.addEventListener('DOMContentLoaded', () => {
   const HOME_TAB_MAP = { found: 'gsc-tab', local: 'local-tab', ai: 'aio-tab', listed: 'citations-tab', fresh: 'publish-tab' };
   function homeGoTab(tab) { const n = document.querySelector('.nav-item[data-tab="' + tab + '"]'); if (n) n.click(); }
 
+  // One-tap actions from Home/Grow move cards. Falls back to navigation.
+  async function runMoveAction(m, btn) {
+    if (!m) return;
+    if (m.action === 'enable-autopilot') {
+      btn.disabled = true; const o = btn.innerText; btn.innerText = 'Turning on…';
+      try {
+        const r = await authFetch('/api/autopilot-toggle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: true, intervalHours: 168 }) });
+        const d = await r.json();
+        if (d && d.success) { btn.innerText = 'Turned on ✓'; setTimeout(() => { if (window.loadHome) window.loadHome(); if (window.loadGrow) window.loadGrow(); }, 900); return; }
+        throw new Error('failed');
+      } catch (e) { btn.disabled = false; btn.innerText = o; homeGoTab(m.tab); }
+      return;
+    }
+    if (m.action === 'post-gbp') {
+      btn.disabled = true; const o = btn.innerText; btn.innerText = 'Posting…';
+      try {
+        const r = await authFetch('/api/gbp-post', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+        const d = await r.json();
+        if (d && d.needsSetup) { btn.disabled = false; btn.innerText = o; homeGoTab(m.tab); return; }
+        if (d && d.success) { btn.innerText = 'Posted ✓'; setTimeout(() => { if (window.loadHome) window.loadHome(); if (window.loadGrow) window.loadGrow(); }, 900); return; }
+        throw new Error((d && d.error) || 'failed');
+      } catch (e) { btn.disabled = false; btn.innerText = o; homeGoTab(m.tab); }
+      return;
+    }
+    homeGoTab(m.tab);
+  }
+
   function renderHero(hs) {
     const hero = document.getElementById('home-hero'); if (!hero) return;
     hero.style.display = 'grid';
@@ -983,12 +1019,13 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!moves.length) { wrap.style.display = 'none'; return; }
     wrap.style.display = 'block';
     const tagLabel = { high: 'High impact', med: 'Quick win', opportunity: 'Opportunity' };
-    el.innerHTML = moves.slice(0, 3).map(m => `<div class="home-move ${m.impact === 'high' ? 'high' : ''}">
+    const shown = moves.slice(0, 3);
+    el.innerHTML = shown.map(m => `<div class="home-move ${m.impact === 'high' ? 'high' : ''}">
       <div class="home-move-top"><div class="home-move-title">${sumEsc(m.title)}</div><span class="mtag ${m.impact}">${tagLabel[m.impact] || ''}</span></div>
       <div class="home-move-why">${sumEsc(m.why)}</div>
-      <div class="home-move-act"><button class="btn btn-primary" data-tab="${sumEsc(m.tab)}" type="button">${sumEsc(m.cta)}</button><span class="meff">${sumEsc(m.effort || '')}</span></div>
+      <div class="home-move-act"><button class="btn btn-primary" type="button">${sumEsc(m.cta)}</button><span class="meff">${sumEsc(m.effort || '')}</span></div>
     </div>`).join('');
-    el.querySelectorAll('.btn[data-tab]').forEach(b => b.addEventListener('click', () => homeGoTab(b.dataset.tab)));
+    el.querySelectorAll('.home-move-act .btn').forEach((b, i) => b.addEventListener('click', () => runMoveAction(shown[i], b)));
   }
   async function loadHome() {
     try {
@@ -1012,9 +1049,9 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!moves.length) { el.innerHTML = '<div class="text-muted" style="font-size:var(--font-sm);">You’re all caught up — nothing needs your attention right now. 🎉</div>'; return; }
       el.innerHTML = moves.map(m => `<div class="gmove ${m.impact === 'high' ? 'high' : ''}">
         <div><div class="gmove-t">${sumEsc(m.title)}</div><div class="gmove-w">${sumEsc(m.why)}</div></div>
-        <div class="gmove-r"><span class="gmtag ${m.impact}">${tagLabel[m.impact] || ''}</span><button class="btn btn-primary" data-tab="${sumEsc(m.tab)}" type="button">${sumEsc(m.cta)}</button></div>
+        <div class="gmove-r"><span class="gmtag ${m.impact}">${tagLabel[m.impact] || ''}</span><button class="btn btn-primary" type="button">${sumEsc(m.cta)}</button></div>
       </div>`).join('');
-      el.querySelectorAll('.btn[data-tab]').forEach(b => b.addEventListener('click', () => homeGoTab(b.dataset.tab)));
+      el.querySelectorAll('.gmove-r .btn').forEach((b, i) => b.addEventListener('click', () => runMoveAction(moves[i], b)));
     } catch (e) { el.innerHTML = '<div class="text-muted" style="font-size:var(--font-sm);">Couldn’t load your action list.</div>'; }
   }
   window.loadGrow = loadGrow;
