@@ -2574,6 +2574,37 @@ app.get('/api/health-score', async (req, res) => {
   }
 });
 
+// Prioritized "next best actions" for the Home screen — derived from real
+// state (mismatches, unposted drafts, un-run audits, coverage gaps, setup).
+app.get('/api/next-moves', (req, res) => {
+  const moves = [];
+  const rank = { high: 3, med: 2, opportunity: 1 };
+  if (localDb && localDb.nap && (localDb.nap.mismatchCount || 0) > 0) {
+    const bad = (localDb.nap.listings || []).find(l => l.phoneMatch === false || l.addrMatch === false || l.nameMatch === false);
+    const where = (bad && bad.platform) ? bad.platform : 'a listing';
+    moves.push({ key: 'nap', impact: 'high', title: `Fix your business info on ${where}`, why: 'Google trusts businesses whose name, address and phone match everywhere. A mismatch quietly hurts your local ranking.', effort: '~2 min', tab: 'local-tab', cta: 'Show me how' });
+  }
+  if (localDb && localDb.gbpDraft && !localDb.gbpDraft.posted) {
+    moves.push({ key: 'gbp', impact: 'med', title: "Approve this week's Google post", why: 'We wrote a fresh Google Business Profile post. Google rewards active profiles — post it in one tap.', effort: '~30 sec', tab: 'local-tab', cta: 'Review & post' });
+  }
+  if (citationsDb && citationsDb.targets && citationsDb.targets.length) {
+    const st = citationsDb.statuses || {};
+    const tgt = citationsDb.targets.find(t => t.listed !== true && ((st[t.domain] && st[t.domain].status) || 'todo') === 'todo');
+    if (tgt) moves.push({ key: 'listed', impact: 'opportunity', title: `Get listed on ${tgt.domain}`, why: 'AI recommends businesses from this source. Getting listed here helps AI recommend you too — we can draft the outreach.', effort: '~5 min', tab: 'citations-tab', cta: 'See how' });
+  }
+  if (!aioAuditsDb || !aioAuditsDb.length) {
+    moves.push({ key: 'ai', impact: 'med', title: 'Run your first AI visibility check', why: "See whether ChatGPT, Gemini and Google's AI actually recommend you when people ask.", effort: '~1 min', tab: 'aio-tab', cta: 'Run check' });
+  }
+  if (!autopilotEnabled) {
+    moves.push({ key: 'autopilot', impact: 'med', title: 'Turn on content autopilot', why: 'Let SEO Buddy write and publish a fresh, keyword-targeted post for you on a schedule — hands-off.', effort: '~30 sec', tab: 'publish-tab', cta: 'Turn on' });
+  }
+  if (!process.env.GSC_SITE_URL || !getGoogleAuth()) {
+    moves.push({ key: 'gsc', impact: 'high', title: 'Connect Google Search Console', why: 'This unlocks your real search rankings and clicks — the biggest part of your score.', effort: '~5 min', tab: 'settings-tab', cta: 'Connect' });
+  }
+  moves.sort((a, b) => rank[b.impact] - rank[a.impact]);
+  res.json({ success: true, moves });
+});
+
 // Consolidated autopilot digest for the Summary dashboard — one glance at
 // what every autopilot produced, with links back to each tab.
 app.get('/api/autopilot-digest', (req, res) => {
