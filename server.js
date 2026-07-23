@@ -2009,6 +2009,132 @@ app.post('/api/local-reply', requireAuth, async (req, res) => {
 setTimeout(() => { maybeRunLocalAutopilot(false).catch(() => {}); }, 30000);
 setInterval(() => { maybeRunLocalAutopilot(false).catch(() => {}); }, 12 * 60 * 60 * 1000);
 
+// ============================================================
+// 17. On-Site SEO Autopilot — a weekly content & optimization pipeline:
+//   • Content Ideas: grounded keyword/topic clusters (rotating seed)
+//   • Internal Links: suggested links between your published pages
+//   • Title/Meta: optimized tags for your most recent page
+// Runs on the same weekly, restart-safe schedule as the Local autopilot.
+// ============================================================
+const ONSITE_FILE = path.join(DATA_DIR, 'onsite-autopilot.json');
+let onsiteDb = {
+  enabled: true, intervalDays: 7, lastRun: null, seedIndex: 0,
+  ideas: null, links: null, titlemeta: null
+};
+try {
+  if (fs.existsSync(ONSITE_FILE)) onsiteDb = Object.assign(onsiteDb, JSON.parse(fs.readFileSync(ONSITE_FILE, 'utf8')));
+} catch (e) { console.error('[On-Site Autopilot] load failed:', e.message); }
+function saveOnsite() {
+  try { fs.writeFileSync(ONSITE_FILE, JSON.stringify(onsiteDb, null, 2)); }
+  catch (e) { console.error('[On-Site Autopilot] save failed:', e.message); }
+}
+
+const ONSITE_BRAND = `Best Day Fitness — a holistic health & wellness studio in St. Petersburg, FL for adults 50+, seniors, and people recovering from injury. Method: Energy = Mobility + Posture + Strength; longevity, not quick fixes.`;
+const ONSITE_SEEDS = [
+  'senior fitness st petersburg',
+  'personal trainer for seniors',
+  'balance and fall prevention exercises',
+  'strength training for adults over 50',
+  'physical therapy and mobility st petersburg',
+  'injury recovery exercise programs',
+  'functional fitness for older adults'
+];
+
+async function onsiteKeywordScan(seed) {
+  const geminiKey = process.env.GEMINI_API_KEY;
+  if (!geminiKey) return null;
+  const client = new GoogleGenAI({ apiKey: geminiKey });
+  const prompt = `${ONSITE_BRAND}\nUsing current web information, expand the seed keyword "${seed}" into 4–5 topic clusters this business could realistically target. For each cluster give: a short theme, 4–6 specific keyword phrases people actually search (favor local and long‑tail), 2–3 real questions people ask, and one concrete blog/page content idea. Return ONLY raw JSON, no markdown: {"clusters":[{"theme":"","keywords":[],"questions":[],"contentIdea":""}]}`;
+  const r = await client.models.generateContent({ model: GEMINI_MODEL, contents: prompt, config: { tools: [{ googleSearch: {} }] } });
+  const data = parseGeminiJson(r.text) || { clusters: [] };
+  return { seed, clusters: data.clusters || [], generatedAt: new Date().toISOString() };
+}
+async function onsiteLinkScan() {
+  const geminiKey = process.env.GEMINI_API_KEY;
+  if (!geminiKey) return null;
+  const pages = (historyDb || []).map(h => ({ title: h.title, keyword: h.keyword, url: h.url }));
+  if (pages.length < 2) return { suggestions: [], note: 'Publish at least two pages first — then this suggests internal links between them.', generatedAt: new Date().toISOString() };
+  const client = new GoogleGenAI({ apiKey: geminiKey });
+  const prompt = `${ONSITE_BRAND}\nHere are the pages this website has published:\n${JSON.stringify(pages)}\nSuggest internal links between them to build topic authority (pillar/cluster style). For each suggestion give the source page title, the target page title, a natural anchor phrase, and a one‑line reason. Return ONLY raw JSON, no markdown: {"suggestions":[{"from":"","to":"","anchor":"","why":""}]}`;
+  const r = await client.models.generateContent({ model: GEMINI_MODEL, contents: prompt });
+  const data = parseGeminiJson(r.text) || { suggestions: [] };
+  return { suggestions: data.suggestions || [], note: '', generatedAt: new Date().toISOString() };
+}
+async function onsiteTitleMetaScan(keyword, page) {
+  const geminiKey = process.env.GEMINI_API_KEY;
+  if (!geminiKey) return null;
+  const client = new GoogleGenAI({ apiKey: geminiKey });
+  const prompt = `${ONSITE_BRAND}\nWrite SEO title tags and meta descriptions targeting the keyword "${keyword}". Provide 3 title options (each 60 characters or fewer, compelling, naturally including the keyword) and 2 meta descriptions (each 155 characters or fewer, with a clear call to action). Return ONLY raw JSON, no markdown: {"titles":[],"metas":[]}`;
+  const r = await client.models.generateContent({ model: GEMINI_MODEL, contents: prompt });
+  const data = parseGeminiJson(r.text) || { titles: [], metas: [] };
+  return { page: page || keyword, keyword, titles: data.titles || [], metas: data.metas || [], generatedAt: new Date().toISOString() };
+}
+
+let onsiteRunning = false;
+async function maybeRunOnsiteAutopilot(force) {
+  if (onsiteRunning) return;
+  if (!force && !onsiteDb.enabled) return;
+  if (!process.env.GEMINI_API_KEY) return;
+  if (!force && daysSince(onsiteDb.lastRun) < (onsiteDb.intervalDays || 7)) return;
+  onsiteRunning = true;
+  try {
+    const seed = ONSITE_SEEDS[(onsiteDb.seedIndex || 0) % ONSITE_SEEDS.length];
+    onsiteDb.seedIndex = ((onsiteDb.seedIndex || 0) + 1) % ONSITE_SEEDS.length;
+    try { const ideas = await onsiteKeywordScan(seed); if (ideas) onsiteDb.ideas = { ...ideas, isNew: true }; }
+    catch (e) { console.error('[On-Site Autopilot] keywords failed:', e.message); }
+    try { const links = await onsiteLinkScan(); if (links) onsiteDb.links = { ...links, isNew: true }; }
+    catch (e) { console.error('[On-Site Autopilot] links failed:', e.message); }
+    try {
+      const latest = (historyDb && historyDb.length) ? historyDb[0] : null;
+      const kw = latest ? latest.keyword : seed;
+      const pg = latest ? latest.title : 'Your homepage';
+      const tm = await onsiteTitleMetaScan(kw, pg);
+      if (tm) onsiteDb.titlemeta = { ...tm, isNew: true };
+    } catch (e) { console.error('[On-Site Autopilot] titlemeta failed:', e.message); }
+    onsiteDb.lastRun = new Date().toISOString();
+    saveOnsite();
+  } finally { onsiteRunning = false; }
+}
+
+function onsiteState() {
+  return {
+    success: true,
+    enabled: onsiteDb.enabled,
+    busy: onsiteRunning,
+    intervalDays: onsiteDb.intervalDays,
+    lastRun: onsiteDb.lastRun,
+    ideas: onsiteDb.ideas,
+    links: onsiteDb.links,
+    titlemeta: onsiteDb.titlemeta,
+    hasKey: !!process.env.GEMINI_API_KEY
+  };
+}
+
+app.get('/api/onsite-autopilot', (req, res) => {
+  maybeRunOnsiteAutopilot(false).catch(() => {});
+  res.json(onsiteState());
+});
+app.post('/api/onsite-autopilot/toggle', requireAuth, (req, res) => {
+  onsiteDb.enabled = !!(req.body && req.body.enabled);
+  saveOnsite();
+  res.json({ success: true, enabled: onsiteDb.enabled });
+});
+app.post('/api/onsite-autopilot/run', requireAuth, (req, res) => {
+  if (!process.env.GEMINI_API_KEY) return res.json({ success: true, unavailable: true, message: 'Add your Gemini API key in Settings to run the On-Site SEO Autopilot.' });
+  maybeRunOnsiteAutopilot(true).catch(() => {});
+  res.json({ success: true, started: true });
+});
+app.post('/api/onsite-autopilot/seen', requireAuth, (req, res) => {
+  if (onsiteDb.ideas) onsiteDb.ideas.isNew = false;
+  if (onsiteDb.links) onsiteDb.links.isNew = false;
+  if (onsiteDb.titlemeta) onsiteDb.titlemeta.isNew = false;
+  saveOnsite();
+  res.json({ success: true });
+});
+
+setTimeout(() => { maybeRunOnsiteAutopilot(false).catch(() => {}); }, 45000);
+setInterval(() => { maybeRunOnsiteAutopilot(false).catch(() => {}); }, 12 * 60 * 60 * 1000);
+
 // Start the Express Server
 app.listen(PORT, () => {
   console.log(`=======================================================`);
