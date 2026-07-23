@@ -196,7 +196,8 @@ document.addEventListener('DOMContentLoaded', () => {
       if (window.loadLocalAutopilot) window.loadLocalAutopilot();
     } else if (tabId === 'onsite-tab') {
       pageTitle.innerText = 'On-Site & Technical SEO';
-      pageSubtitle.innerText = 'Keyword ideas, title/meta optimization, internal links, and schema';
+      pageSubtitle.innerText = 'Autopilot content ideas, title/meta & internal links — plus manual tools and schema';
+      if (window.loadOnsiteAutopilot) window.loadOnsiteAutopilot();
     } else if (tabId === 'settings-tab') {
       pageTitle.innerText = 'System Configuration';
       pageSubtitle.innerText = 'Connect live APIs, GHL tokens, and Search Console keys';
@@ -1906,6 +1907,118 @@ document.addEventListener('DOMContentLoaded', () => {
       return d.data;
     } catch (e) { alert('Error: ' + e.message); return null; }
     finally { btn.disabled = false; btn.innerText = orig; }
+  }
+
+  // --- ON-SITE SEO AUTOPILOT ---
+  const oaToggle = document.getElementById('oa-toggle');
+  const oaMeta = document.getElementById('oa-meta');
+  const oaIdeasBadge = document.getElementById('oa-ideas-badge');
+  const oaIdeasBody = document.getElementById('oa-ideas-body');
+  const oaLinksBadge = document.getElementById('oa-links-badge');
+  const oaLinksBody = document.getElementById('oa-links-body');
+  const oaTmBadge = document.getElementById('oa-tm-badge');
+  const oaTmBody = document.getElementById('oa-tm-body');
+  const oaRun = document.getElementById('oa-run');
+  const oaRunNote = document.getElementById('oa-run-note');
+  let oaPollTimer = null;
+
+  function oaAgo(iso) {
+    if (!iso) return 'never';
+    const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return mins + 'm ago';
+    const h = Math.round(mins / 60);
+    if (h < 24) return h + 'h ago';
+    return Math.round(h / 24) + 'd ago';
+  }
+  function oaDue(iso, days) {
+    if (!iso) return 'due now';
+    const rem = (days || 7) - ((Date.now() - new Date(iso).getTime()) / 86400000);
+    return rem <= 0 ? 'due now' : ('in ' + Math.ceil(rem) + 'd');
+  }
+
+  function oaRenderIdeas(ideas) {
+    if (!oaIdeasBody) return;
+    if (!ideas || !ideas.clusters || !ideas.clusters.length) { oaIdeasBadge.innerHTML = ''; oaIdeasBody.innerHTML = '<span class="os-empty">No ideas yet — turn on the autopilot or click Run now.</span>'; return; }
+    oaIdeasBadge.innerHTML = ideas.isNew ? '<span class="oa-badge">NEW</span>' : '';
+    oaIdeasBody.innerHTML = ideas.clusters.slice(0, 4).map(c => `<div class="oa-clu"><b>${citEsc(c.theme || 'Idea')}</b><div class="oa-kw">${(c.keywords || []).slice(0, 4).map(citEsc).join(' · ')}</div>${c.contentIdea ? `<div class="oa-idea">✍ ${citEsc(c.contentIdea)}</div>` : ''}</div>`).join('')
+      + `<div class="oa-idea" style="margin-top:6px;">Theme: ${citEsc(ideas.seed || '')} · ${oaAgo(ideas.generatedAt)}</div>`;
+  }
+  function oaRenderLinks(links) {
+    if (!oaLinksBody) return;
+    if (!links) { oaLinksBadge.innerHTML = ''; oaLinksBody.innerHTML = '<span class="os-empty">No suggestions yet.</span>'; return; }
+    oaLinksBadge.innerHTML = links.isNew ? '<span class="oa-badge">NEW</span>' : '';
+    const sug = links.suggestions || [];
+    if (!sug.length) { oaLinksBody.innerHTML = `<span class="os-empty">${citEsc(links.note || 'No suggestions yet.')}</span>`; return; }
+    oaLinksBody.innerHTML = sug.slice(0, 6).map(s => `<div class="oa-link"><b>${citEsc(s.from)}</b> &rarr; <span style="color:var(--color-secondary)">&ldquo;${citEsc(s.anchor)}&rdquo;</span> &rarr; <b>${citEsc(s.to)}</b><br><span class="text-muted">${citEsc(s.why)}</span></div>`).join('');
+  }
+  function oaRenderTm(tm) {
+    if (!oaTmBody) return;
+    if (!tm) { oaTmBadge.innerHTML = ''; oaTmBody.innerHTML = '<span class="os-empty">No suggestions yet.</span>'; return; }
+    oaTmBadge.innerHTML = tm.isNew ? '<span class="oa-badge">NEW</span>' : '';
+    const row = (t, limit) => `<div class="oa-opt"><span>${citEsc(t)}</span><span style="white-space:nowrap;"><span class="oa-count ${t.length > limit ? 'over' : ''}">${t.length}/${limit}</span> <button class="oa-cp" type="button" onclick="window._citCopy(${citAttr(t)}, this)">copy</button></span></div>`;
+    oaTmBody.innerHTML = `<div class="text-muted" style="font-size:var(--font-xs);margin-bottom:6px;">For: ${citEsc(tm.page || tm.keyword || '')}</div>`
+      + `<div class="os-sub">Titles</div>` + (tm.titles || []).map(t => row(t, 60)).join('')
+      + `<div class="os-sub" style="margin-top:8px;">Meta descriptions</div>` + (tm.metas || []).map(m => row(m, 155)).join('')
+      + `<div class="oa-idea" style="margin-top:6px;">${oaAgo(tm.generatedAt)}</div>`;
+  }
+
+  function oaRender(s) {
+    if (!s) return;
+    if (oaToggle) oaToggle.checked = !!s.enabled;
+    if (oaMeta) oaMeta.innerHTML = s.hasKey
+      ? `Autopilot is <b style="color:${s.enabled ? 'var(--color-success)' : 'var(--text-muted)'}">${s.enabled ? 'ON' : 'OFF'}</b> · next run ${oaDue(s.lastRun, s.intervalDays)}`
+      : `<span style="color:var(--color-accent)">Add your Gemini API key in Settings to enable the autopilot.</span>`;
+    oaRenderIdeas(s.ideas);
+    oaRenderLinks(s.links);
+    oaRenderTm(s.titlemeta);
+    if ((s.ideas && s.ideas.isNew) || (s.links && s.links.isNew) || (s.titlemeta && s.titlemeta.isNew)) {
+      authFetch('/api/onsite-autopilot/seen', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).catch(() => {});
+    }
+  }
+
+  async function loadOnsiteAutopilot() {
+    try {
+      const res = await fetch('/api/onsite-autopilot');
+      const s = await res.json();
+      oaRender(s);
+      if (s.busy) oaPoll();
+    } catch (e) { /* keep last render */ }
+  }
+  window.loadOnsiteAutopilot = loadOnsiteAutopilot;
+
+  function oaPoll() {
+    if (oaPollTimer) return;
+    let n = 0;
+    if (oaRun) { oaRun.disabled = true; oaRun.innerText = 'Working… (~1–2 min)'; }
+    oaPollTimer = setInterval(async () => {
+      n++;
+      try {
+        const res = await fetch('/api/onsite-autopilot');
+        const s = await res.json();
+        oaRender(s);
+        if (!s.busy || n > 16) { clearInterval(oaPollTimer); oaPollTimer = null; if (oaRun) { oaRun.disabled = false; oaRun.innerText = 'Run now'; } if (oaRunNote) oaRunNote.innerText = ''; }
+      } catch (e) { clearInterval(oaPollTimer); oaPollTimer = null; if (oaRun) { oaRun.disabled = false; oaRun.innerText = 'Run now'; } }
+    }, 8000);
+  }
+
+  if (oaToggle) {
+    oaToggle.addEventListener('change', async () => {
+      try { await authFetch('/api/onsite-autopilot/toggle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: oaToggle.checked }) }); loadOnsiteAutopilot(); }
+      catch (e) { alert('Could not update: ' + e.message); }
+    });
+  }
+  if (oaRun) {
+    oaRun.addEventListener('click', async () => {
+      oaRun.disabled = true; oaRun.innerText = 'Starting…';
+      try {
+        const res = await authFetch('/api/onsite-autopilot/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+        const d = await res.json();
+        if (d.unavailable) { alert(d.message); oaRun.disabled = false; oaRun.innerText = 'Run now'; return; }
+        if (oaRunNote) oaRunNote.innerText = 'Generating ideas, links and title/meta…';
+        setTimeout(oaPoll, 1500);
+      } catch (e) { alert('Run error: ' + e.message); oaRun.disabled = false; oaRun.innerText = 'Run now'; }
+    });
   }
 
   // Keyword & topic ideas
