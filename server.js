@@ -2464,6 +2464,116 @@ app.post('/api/performance-digest/send', requireAuth, async (req, res) => {
 setTimeout(() => { maybeRunPerfDigest(false).catch(() => {}); }, 75000);
 setInterval(() => { maybeRunPerfDigest(false).catch(() => {}); }, 12 * 60 * 60 * 1000);
 
+// ============================================================
+// 20. Optimization (Health) Score — the redesign's headline number.
+// Five outcome pillars scored 0-100 from data we ALREADY store; the
+// overall is a weighted average of only the MEASURED pillars, so a fresh
+// account never sees a scary low number. Snapshotted weekly for trend.
+// ============================================================
+const HEALTH_FILE = path.join(DATA_DIR, 'health-score.json');
+let healthSnapshots = [];
+try { if (fs.existsSync(HEALTH_FILE)) healthSnapshots = JSON.parse(fs.readFileSync(HEALTH_FILE, 'utf8')); } catch (e) { healthSnapshots = []; }
+function saveHealth() { try { fs.writeFileSync(HEALTH_FILE, JSON.stringify(healthSnapshots, null, 2)); } catch (e) { console.error('[Health] save failed:', e.message); } }
+function hClamp(n, lo, hi) { return Math.max(lo, Math.min(hi, n)); }
+
+async function computeHealthScore() {
+  const pillars = [];
+
+  // 1. Found on Google (25%) — GSC leaks + rank
+  try {
+    const p = await computePerformance();
+    if (p.source === 'live_gsc' && p.current) {
+      const snap = (p.snapshots && p.snapshots.length) ? p.snapshots[p.snapshots.length - 1] : null;
+      const leaks = (snap && typeof snap.leaks === 'number') ? snap.leaks : 0;
+      const pos = p.current.avgPosition || 30;
+      const leakScore = 100 - Math.min(leaks * 5, 40);
+      const rankScore = hClamp(100 - (pos - 3) * (100 / 27), 0, 100);
+      pillars.push({ key: 'found', label: 'Found on Google', weight: 25, measured: true, score: Math.round(0.6 * leakScore + 0.4 * rankScore), detail: `${leaks} search${leaks === 1 ? '' : 'es'} with no clicks · avg rank ${pos}` });
+    } else {
+      pillars.push({ key: 'found', label: 'Found on Google', weight: 25, measured: false, score: null, detail: 'Connect Search Console to measure' });
+    }
+  } catch (e) {
+    pillars.push({ key: 'found', label: 'Found on Google', weight: 25, measured: false, score: null, detail: 'Not measured yet' });
+  }
+
+  // 2. Local listings (20%) — NAP mismatches (+ GBP activity)
+  if (localDb && localDb.nap) {
+    const mm = localDb.nap.mismatchCount || 0;
+    let score = hClamp(100 - mm * 15, 0, 100);
+    if (localDb.gbpDraft && localDb.gbpDraft.posted) score = hClamp(score + 8, 0, 100);
+    pillars.push({ key: 'local', label: 'Local listings', weight: 20, measured: true, score, detail: mm ? `${mm} listing${mm > 1 ? 's' : ''} to fix` : 'Consistent everywhere' });
+  } else {
+    pillars.push({ key: 'local', label: 'Local listings', weight: 20, measured: false, score: null, detail: 'Run a listings check to measure' });
+  }
+
+  // 3. AI recommends you (20%) — audit recommend rate
+  if (aioAuditsDb && aioAuditsDb.length) {
+    const rec = aioAuditsDb.filter(a => a.recommended).length;
+    pillars.push({ key: 'ai', label: 'AI recommends you', weight: 20, measured: true, score: Math.round(rec / aioAuditsDb.length * 100), detail: `Recommended in ${rec} of ${aioAuditsDb.length} check${aioAuditsDb.length > 1 ? 's' : ''}` });
+  } else {
+    pillars.push({ key: 'ai', label: 'AI recommends you', weight: 20, measured: false, score: null, detail: 'Run an AI visibility check to measure' });
+  }
+
+  // 4. Get listed (20%) — coverage of the sources AI cites
+  if (citationsDb && citationsDb.targets && citationsDb.targets.length) {
+    const st = citationsDb.statuses || {};
+    const total = citationsDb.targets.length;
+    const done = citationsDb.targets.filter(t => t.listed === true || (st[t.domain] && st[t.domain].status === 'live')).length;
+    pillars.push({ key: 'listed', label: 'Get listed', weight: 20, measured: true, score: Math.round(done / total * 100), detail: `On ${done} of ${total} source${total > 1 ? 's' : ''} AI cites` });
+  } else {
+    pillars.push({ key: 'listed', label: 'Get listed', weight: 20, measured: false, score: null, detail: 'Scan citation targets to measure' });
+  }
+
+  // 5. Fresh content (15%) — recency + autopilot
+  {
+    const posts = (historyDb || []).filter(h => h.date);
+    if (!posts.length && !autopilotEnabled) {
+      pillars.push({ key: 'fresh', label: 'Fresh content', weight: 15, measured: false, score: null, detail: 'Publish your first post to measure' });
+    } else {
+      let days = Infinity;
+      if (posts.length) days = (Date.now() - new Date(posts[0].date + 'T00:00:00Z').getTime()) / 86400000;
+      let score = posts.length ? hClamp(100 - Math.max(0, days - 7) * (100 / 38), 0, 100) : 20;
+      if (autopilotEnabled) score = hClamp(score + 10, 0, 100);
+      pillars.push({ key: 'fresh', label: 'Fresh content', weight: 15, measured: true, score: Math.round(score), detail: posts.length ? `Last post ${Math.round(days)}d ago${autopilotEnabled ? ' · autopilot on' : ''}` : 'Autopilot on, no posts yet' });
+    }
+  }
+
+  pillars.forEach(p => { p.status = !p.measured ? 'off' : (p.score >= 75 ? 'ok' : 'warn'); });
+  const measured = pillars.filter(p => p.measured);
+  const wsum = measured.reduce((s, p) => s + p.weight, 0);
+  const overall = wsum ? Math.round(measured.reduce((s, p) => s + p.score * p.weight, 0) / wsum) : null;
+  return { overall, measuredCount: measured.length, totalPillars: pillars.length, pillars };
+}
+
+app.get('/api/health-score', async (req, res) => {
+  try {
+    const h = await computeHealthScore();
+    const today = new Date().toISOString().split('T')[0];
+    if (h.overall != null) {
+      const idx = healthSnapshots.findIndex(s => s.date === today);
+      const row = { date: today, overall: h.overall };
+      if (idx >= 0) healthSnapshots[idx] = row; else healthSnapshots.push(row);
+      if (healthSnapshots.length > 180) healthSnapshots = healthSnapshots.slice(-180);
+      saveHealth();
+    }
+    let delta = null;
+    if (h.overall != null && healthSnapshots.length > 1) {
+      const target = Date.now() - 28 * 86400000;
+      let best = null;
+      for (const s of healthSnapshots) {
+        const t = new Date(s.date + 'T00:00:00Z').getTime();
+        if (t <= target && (!best || t > new Date(best.date + 'T00:00:00Z').getTime())) best = s;
+      }
+      if (!best) best = healthSnapshots[0];
+      if (best && best.date !== today) delta = h.overall - best.overall;
+    }
+    res.json({ success: true, ...h, delta, history: healthSnapshots.slice(-60) });
+  } catch (e) {
+    console.error('[Health Score] failed:', e.message);
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
 // Consolidated autopilot digest for the Summary dashboard — one glance at
 // what every autopilot produced, with links back to each tab.
 app.get('/api/autopilot-digest', (req, res) => {
