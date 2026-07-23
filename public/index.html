@@ -208,6 +208,40 @@
         #summary-tab .sum-ap-text{font-size:var(--font-sm);color:var(--text-main);line-height:1.4;}
         #summary-tab .sum-ap-new{font-size:9px;font-weight:700;letter-spacing:.4px;background:rgba(244,63,94,.15);color:var(--color-accent);padding:1px 6px;border-radius:999px;}
         #summary-tab .sum-ap-arrow{font-size:var(--font-xs);color:var(--color-secondary);margin-top:6px;}
+        #summary-tab .home-hero{display:grid;grid-template-columns:auto 1fr;gap:28px;align-items:center;background:var(--bg-card);border:1px solid var(--border-color);border-radius:18px;padding:24px 28px;margin-bottom:16px;backdrop-filter:blur(10px);}
+        @media(max-width:640px){#summary-tab .home-hero{grid-template-columns:1fr;justify-items:center;text-align:center;}}
+        #summary-tab .home-gauge{width:150px;height:150px;border-radius:50%;display:flex;align-items:center;justify-content:center;position:relative;background:conic-gradient(var(--color-success) 0% 0%, rgba(255,255,255,.07) 0% 100%);transition:background .6s ease;}
+        #summary-tab .home-gauge::after{content:'';position:absolute;inset:13px;border-radius:50%;background:#0d1220;}
+        #summary-tab .home-gauge-in{position:relative;z-index:2;text-align:center;}
+        #summary-tab .home-gauge-in b{font-family:var(--font-heading);font-size:2.6rem;font-weight:800;line-height:1;display:block;}
+        #summary-tab .home-gauge-in span{font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--text-muted);}
+        #summary-tab .home-hero h2{font-family:var(--font-heading);font-size:1.4rem;font-weight:700;margin:0 0 8px;}
+        #summary-tab .home-hero h2 em{font-style:normal;color:var(--color-success);}
+        #summary-tab .home-hero p{color:var(--text-muted);font-size:var(--font-sm);margin:0;max-width:560px;}
+        #summary-tab .home-trend{font-size:var(--font-xs);font-weight:700;padding:2px 9px;border-radius:999px;margin-left:8px;vertical-align:middle;}
+        #summary-tab .home-trend.up{background:rgba(16,185,129,.15);color:var(--color-success);}
+        #summary-tab .home-trend.flat{background:rgba(148,163,184,.12);color:var(--text-muted);}
+        #summary-tab .home-pillars{display:grid;grid-template-columns:repeat(5,1fr);gap:11px;margin-bottom:16px;}
+        @media(max-width:900px){#summary-tab .home-pillars{grid-template-columns:1fr 1fr;}}
+        #summary-tab .home-pillar{background:var(--bg-card);border:1px solid var(--border-color);border-radius:12px;padding:13px 14px;cursor:pointer;transition:.15s;}
+        #summary-tab .home-pillar:hover{transform:translateY(-2px);border-color:var(--color-primary);}
+        #summary-tab .home-pillar .pdot{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:7px;}
+        #summary-tab .pdot.ok{background:var(--color-success);} #summary-tab .pdot.warn{background:var(--color-warning);} #summary-tab .pdot.off{background:var(--text-dark);}
+        #summary-tab .home-pillar .plbl{font-size:12.5px;font-weight:600;color:var(--text-main);}
+        #summary-tab .home-pillar .pdet{font-size:11px;color:var(--text-muted);margin-top:6px;}
+        #summary-tab .home-pillar .pdet.warnt{color:var(--color-warning);} #summary-tab .home-pillar .pdet.offt{color:var(--text-dark);}
+        #summary-tab .home-moves-wrap{margin:4px 0 18px;}
+        #summary-tab .home-sec-h{font-family:var(--font-heading);font-size:15px;font-weight:600;margin-bottom:12px;}
+        #summary-tab .home-move{background:var(--bg-card);border:1px solid var(--border-color);border-radius:12px;padding:15px 17px;margin-bottom:10px;}
+        #summary-tab .home-move.high{border-color:rgba(244,63,94,.4);}
+        #summary-tab .home-move-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;}
+        #summary-tab .home-move-title{font-size:14.5px;font-weight:600;color:var(--text-main);}
+        #summary-tab .home-move-why{font-size:12.5px;color:var(--text-muted);margin-top:5px;line-height:1.5;}
+        #summary-tab .home-move .mtag{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;padding:3px 8px;border-radius:999px;white-space:nowrap;}
+        #summary-tab .mtag.high{background:rgba(244,63,94,.15);color:#fda4af;} #summary-tab .mtag.med{background:rgba(245,158,11,.15);color:#fcd34d;} #summary-tab .mtag.opportunity{background:rgba(16,185,129,.15);color:#6ee7b7;}
+        #summary-tab .home-move-act{margin-top:12px;display:flex;gap:10px;align-items:center;}
+        #summary-tab .home-move-act .btn{width:auto;padding:7px 15px;font-size:13px;}
+        #summary-tab .home-move-act .meff{font-size:11.5px;color:var(--text-dark);}
       </style>
       <section class="tab-content active" id="summary-tab">
         <div class="sum-toolbar">
@@ -218,6 +252,15 @@
           </div>
           <button class="sum-refresh" id="sum-refresh">&#8635; Refresh</button>
         </div>
+
+        <div class="home-hero" id="home-hero" style="display:none;">
+          <div class="home-gauge" id="home-gauge"><div class="home-gauge-in"><b id="home-score">&mdash;</b><span>Optimized</span></div></div>
+          <div>
+            <h2 id="home-headline">Measuring your SEO &amp; AEO&hellip;</h2>
+            <p id="home-sub"></p>
+          </div>
+        </div>
+        <div class="home-pillars" id="home-pillars" style="display:none;"></div>
 
         <div class="sum-value-strip">
           <div class="sum-value opp">
@@ -236,10 +279,15 @@
 
         <div class="sum-autopilot" id="sum-autopilot" style="display:none;">
           <div class="sum-ap-head">
-            <span class="sum-ap-title">&#129302; Autopilot activity</span>
+            <span class="sum-ap-title">&#129302; What we handled for you this week</span>
             <span class="sum-ap-sub" id="sum-ap-sub"></span>
           </div>
           <div class="sum-ap-grid" id="sum-ap-grid"></div>
+        </div>
+
+        <div class="home-moves-wrap" id="home-moves-wrap" style="display:none;">
+          <div class="home-sec-h">&#9989; Your next moves <span style="font-size:12px;color:var(--text-dark);font-weight:400;">&mdash; ranked by impact</span></div>
+          <div id="home-moves"></div>
         </div>
 
         <div class="sum-kpis">

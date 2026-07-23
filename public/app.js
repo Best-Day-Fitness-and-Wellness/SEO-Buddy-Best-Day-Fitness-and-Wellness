@@ -920,6 +920,66 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (e) { wrap.style.display = 'none'; }
   }
 
+  // --- HOME: score hero + pillars + next moves ---
+  const HOME_TAB_MAP = { found: 'gsc-tab', local: 'local-tab', ai: 'aio-tab', listed: 'citations-tab', fresh: 'publish-tab' };
+  function homeGoTab(tab) { const n = document.querySelector('.nav-item[data-tab="' + tab + '"]'); if (n) n.click(); }
+
+  function renderHero(hs) {
+    const hero = document.getElementById('home-hero'); if (!hero) return;
+    hero.style.display = 'grid';
+    const g = document.getElementById('home-gauge'), sc = document.getElementById('home-score');
+    const hl = document.getElementById('home-headline'), sub = document.getElementById('home-sub');
+    if (hs.overall == null) {
+      sc.innerText = '—';
+      g.style.background = 'conic-gradient(var(--text-dark) 0% 0%, rgba(255,255,255,.07) 0% 100%)';
+      hl.innerHTML = 'Let’s measure your SEO &amp; AEO';
+      sub.innerText = 'Complete the quick setup and the moves below to light up your score.';
+      return;
+    }
+    const pct = hs.overall;
+    const color = pct >= 75 ? 'var(--color-success)' : (pct >= 50 ? 'var(--color-warning)' : 'var(--color-accent)');
+    g.style.background = `conic-gradient(${color} 0% ${pct}%, rgba(255,255,255,.07) ${pct}% 100%)`;
+    sc.innerText = pct;
+    const trend = (hs.delta != null && hs.delta !== 0) ? `<span class="home-trend ${hs.delta > 0 ? 'up' : 'flat'}">${hs.delta > 0 ? '+' : ''}${hs.delta} this month</span>` : '';
+    hl.innerHTML = `Your SEO &amp; AEO is <em>${pct}% maximized</em>${trend}`;
+    sub.innerText = hs.measuredCount < hs.totalPillars
+      ? `${hs.measuredCount} of ${hs.totalPillars} areas measured — finish setup to measure them all.`
+      : `All ${hs.totalPillars} areas measured. Keep the momentum with your next moves below.`;
+  }
+  function renderPillars(hs) {
+    const el = document.getElementById('home-pillars'); if (!el || !hs.pillars) return;
+    el.style.display = 'grid';
+    el.innerHTML = hs.pillars.map(p => {
+      const detCls = p.status === 'warn' ? 'warnt' : (p.status === 'off' ? 'offt' : '');
+      return `<div class="home-pillar" data-tab="${HOME_TAB_MAP[p.key] || 'summary-tab'}"><span class="pdot ${p.status}"></span><span class="plbl">${sumEsc(p.label)}</span><div class="pdet ${detCls}">${sumEsc(p.detail)}</div></div>`;
+    }).join('');
+    el.querySelectorAll('.home-pillar').forEach(c => c.addEventListener('click', () => homeGoTab(c.dataset.tab)));
+  }
+  function renderMoves(nm) {
+    const wrap = document.getElementById('home-moves-wrap'), el = document.getElementById('home-moves');
+    if (!wrap || !el) return;
+    const moves = (nm && nm.moves) || [];
+    if (!moves.length) { wrap.style.display = 'none'; return; }
+    wrap.style.display = 'block';
+    const tagLabel = { high: 'High impact', med: 'Quick win', opportunity: 'Opportunity' };
+    el.innerHTML = moves.slice(0, 3).map(m => `<div class="home-move ${m.impact === 'high' ? 'high' : ''}">
+      <div class="home-move-top"><div class="home-move-title">${sumEsc(m.title)}</div><span class="mtag ${m.impact}">${tagLabel[m.impact] || ''}</span></div>
+      <div class="home-move-why">${sumEsc(m.why)}</div>
+      <div class="home-move-act"><button class="btn btn-primary" data-tab="${sumEsc(m.tab)}" type="button">${sumEsc(m.cta)}</button><span class="meff">${sumEsc(m.effort || '')}</span></div>
+    </div>`).join('');
+    el.querySelectorAll('.btn[data-tab]').forEach(b => b.addEventListener('click', () => homeGoTab(b.dataset.tab)));
+  }
+  async function loadHome() {
+    try {
+      const [hs, nm] = await Promise.all([
+        fetch('/api/health-score').then(r => r.json()),
+        fetch('/api/next-moves').then(r => r.json())
+      ]);
+      renderHero(hs); renderPillars(hs); renderMoves(nm);
+    } catch (e) { /* leave hidden */ }
+  }
+  window.loadHome = loadHome;
+
   async function loadSummary() {
     const [aioRes, gscRes, histRes] = await Promise.allSettled([
       fetch('/api/aio-history').then(r => r.json()),
@@ -935,6 +995,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const $ = id => document.getElementById(id);
     if (!$('sum-updated')) return; // summary DOM not present
 
+    loadHome();
     loadAutopilotDigest();
     $('sum-updated').innerText = new Date().toLocaleTimeString();
 
