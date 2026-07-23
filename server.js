@@ -2423,7 +2423,8 @@ function savePerfDigest() {
 function perfPct(cur, prev) { if (prev == null || prev === 0) return null; return Math.round((cur - prev) / prev * 100); }
 function perfDigestText(d) {
   const sign = n => (n >= 0 ? '+' : '') + n;
-  const lines = ['Best Day Fitness — Weekly SEO Performance', ''];
+  const lines = [`${BUSINESS.name} — Weekly SEO Performance`, ''];
+  if (d.score != null) lines.push(`Optimization Score: ${d.score}/100`, '');
   if (d.clicks) lines.push(`Clicks: ${d.clicks.cur}${d.clicks.pct != null ? ` (${sign(d.clicks.pct)}% vs the previous 4 weeks)` : ''}`);
   if (d.impressions) lines.push(`Impressions: ${d.impressions.cur}${d.impressions.pct != null ? ` (${sign(d.impressions.pct)}%)` : ''}`);
   if (d.avgPosition) lines.push(`Average Google rank: ${d.avgPosition.cur}${d.avgPosition.prev != null ? ` (was ${d.avgPosition.prev})` : ''}`);
@@ -2438,9 +2439,12 @@ function perfDigestText(d) {
 async function buildPerfDigest() {
   const p = await computePerformance();
   const cur = p.current, prev = p.previous;
+  let score = null;
+  try { const h = await computeHealthScore(); score = h.overall; } catch (e) { /* score optional */ }
   const d = {
     generatedAt: new Date().toISOString(),
     source: p.source,
+    score,
     clicks: cur ? { cur: cur.clicks, prev: prev ? prev.clicks : null, pct: prev ? perfPct(cur.clicks, prev.clicks) : null } : null,
     impressions: cur ? { cur: cur.impressions, prev: prev ? prev.impressions : null, pct: prev ? perfPct(cur.impressions, prev.impressions) : null } : null,
     avgPosition: cur ? { cur: cur.avgPosition, prev: prev ? prev.avgPosition : null } : null,
@@ -2641,7 +2645,7 @@ app.get('/api/next-moves', (req, res) => {
     moves.push({ key: 'nap', impact: 'high', title: `Fix your business info on ${where}`, why: 'Google trusts businesses whose name, address and phone match everywhere. A mismatch quietly hurts your local ranking.', effort: '~2 min', tab: 'local-tab', cta: 'Show me how' });
   }
   if (localDb && localDb.gbpDraft && !localDb.gbpDraft.posted) {
-    moves.push({ key: 'gbp', impact: 'med', title: "Approve this week's Google post", why: 'We wrote a fresh Google Business Profile post. Google rewards active profiles — post it in one tap.', effort: '~30 sec', tab: 'local-tab', cta: 'Review & post' });
+    moves.push({ key: 'gbp', impact: 'med', title: "Approve this week's Google post", why: 'We wrote a fresh Google Business Profile post. Google rewards active profiles — post it in one tap.', effort: '~30 sec', tab: 'local-tab', cta: 'Post it', action: 'post-gbp' });
   }
   if (citationsDb && citationsDb.targets && citationsDb.targets.length) {
     const st = citationsDb.statuses || {};
@@ -2652,7 +2656,7 @@ app.get('/api/next-moves', (req, res) => {
     moves.push({ key: 'ai', impact: 'med', title: 'Run your first AI visibility check', why: "See whether ChatGPT, Gemini and Google's AI actually recommend you when people ask.", effort: '~1 min', tab: 'aio-tab', cta: 'Run check' });
   }
   if (!autopilotEnabled) {
-    moves.push({ key: 'autopilot', impact: 'med', title: 'Turn on content autopilot', why: 'Let SEO Buddy write and publish a fresh, keyword-targeted post for you on a schedule — hands-off.', effort: '~30 sec', tab: 'publish-tab', cta: 'Turn on' });
+    moves.push({ key: 'autopilot', impact: 'med', title: 'Turn on content autopilot', why: 'Let SEO Buddy write and publish a fresh, keyword-targeted post for you on a schedule — hands-off.', effort: '~30 sec', tab: 'publish-tab', cta: 'Turn on', action: 'enable-autopilot' });
   }
   if (!process.env.GSC_SITE_URL || !getGoogleAuth()) {
     moves.push({ key: 'gsc', impact: 'high', title: 'Connect Google Search Console', why: 'This unlocks your real search rankings and clicks — the biggest part of your score.', effort: '~5 min', tab: 'settings-tab', cta: 'Connect' });
