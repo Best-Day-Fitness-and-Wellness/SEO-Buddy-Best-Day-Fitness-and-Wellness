@@ -774,6 +774,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       autopilotInterval.value = data.intervalHours;
+      renderAutopilotQueue(data.queue);
 
       if (data.enabled && data.nextRunTime) {
         const nextDate = new Date(data.nextRunTime);
@@ -820,6 +821,45 @@ document.addEventListener('DOMContentLoaded', () => {
 
   autopilotToggle.addEventListener('change', updateAutopilotSchedule);
   autopilotInterval.addEventListener('change', updateAutopilotSchedule);
+
+  // Content queue (topics the autopilot writes first)
+  function renderAutopilotQueue(queue) {
+    const el = document.getElementById('autopilot-queue-list');
+    if (!el) return;
+    if (!queue || !queue.length) {
+      el.innerHTML = '<div class="text-muted" style="font-size:var(--font-xs);">Queue is empty — the autopilot will find content gaps automatically.</div>';
+      return;
+    }
+    el.innerHTML = queue.map((q, i) => `<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 10px;background:rgba(0,0,0,.2);border:1px solid var(--border-color);border-radius:8px;margin-bottom:6px;font-size:var(--font-sm);">
+      <span><span style="color:var(--color-secondary);font-weight:700;">${i + 1}.</span> ${sumEsc(q.topic)}</span>
+      <button class="apq-remove" data-i="${i}" title="Remove" style="background:none;border:none;color:var(--color-accent);cursor:pointer;font-size:18px;line-height:1;padding:0 4px;">&times;</button>
+    </div>`).join('');
+    el.querySelectorAll('.apq-remove').forEach(b => b.addEventListener('click', () => apQueueRemove(+b.dataset.i)));
+  }
+  async function apQueueAdd() {
+    const inp = document.getElementById('autopilot-queue-input');
+    if (!inp) return;
+    const topic = (inp.value || '').trim();
+    if (!topic) { alert('Enter a topic or keyword.'); return; }
+    try {
+      const r = await authFetch('/api/autopilot-queue/add', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ topic }) });
+      const d = await r.json();
+      if (!r.ok || !d.success) { alert(d.error || 'Could not add.'); return; }
+      inp.value = '';
+      renderAutopilotQueue(d.queue);
+    } catch (e) { alert('Error: ' + e.message); }
+  }
+  async function apQueueRemove(i) {
+    try {
+      const r = await authFetch('/api/autopilot-queue/remove', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ index: i }) });
+      const d = await r.json();
+      renderAutopilotQueue(d.queue);
+    } catch (e) { alert('Error: ' + e.message); }
+  }
+  const btnApQueueAdd = document.getElementById('btn-autopilot-queue-add');
+  if (btnApQueueAdd) btnApQueueAdd.addEventListener('click', apQueueAdd);
+  const apQueueInput = document.getElementById('autopilot-queue-input');
+  if (apQueueInput) apQueueInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); apQueueAdd(); } });
 
   btnRunAutopilotNow.addEventListener('click', async () => {
     btnRunAutopilotNow.disabled = true;

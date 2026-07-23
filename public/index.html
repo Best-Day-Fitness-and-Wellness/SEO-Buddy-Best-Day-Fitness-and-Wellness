@@ -612,6 +612,7 @@
                     <option value="24" selected>Every 24 Hours (Daily)</option>
                     <option value="48">Every 48 Hours</option>
                     <option value="168">Every 7 Days (Weekly)</option>
+                    <option value="336">Every 14 Days</option>
                   </select>
                 </div>
                 <div class="config-item">
@@ -624,6 +625,16 @@
                     Run Autopilot Cycle Now
                   </button>
                 </div>
+              </div>
+
+              <!-- Content Queue -->
+              <div class="autopilot-queue mt-3" id="autopilot-queue-wrap">
+                <label style="display:block;font-size:var(--font-xs);text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);font-weight:600;margin-bottom:8px;">Content Queue <span style="text-transform:none;letter-spacing:0;font-weight:400;">&mdash; topics the autopilot writes first, before it finds gaps on its own</span></label>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                  <input type="text" id="autopilot-queue-input" class="form-input form-input-sm" style="flex:1;min-width:220px;" placeholder="e.g. fall prevention exercises for seniors">
+                  <button class="btn btn-secondary btn-sm" id="btn-autopilot-queue-add" type="button">Add to queue</button>
+                </div>
+                <div id="autopilot-queue-list" style="margin-top:10px;"></div>
               </div>
 
               <!-- Terminal Output for logs -->
