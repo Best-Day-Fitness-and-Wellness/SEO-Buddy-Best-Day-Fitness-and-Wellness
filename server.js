@@ -1935,6 +1935,14 @@ async function maybeRunLocalAutopilot(force) {
           if (localDb.gbpDraft) { localDb.gbpHistory.unshift({ ...localDb.gbpDraft, isNew: false }); localDb.gbpHistory = localDb.gbpHistory.slice(0, 8); }
           localDb.gbpDraft = { ...draft, isNew: true };
           localDb.lastGbpRun = new Date().toISOString();
+          // If GBP posting is connected, publish it automatically; otherwise it stays a ready-to-paste draft.
+          try {
+            if (typeof gbpConfigured === 'function' && gbpConfigured()) {
+              await postGbpLocalPost(draft.text);
+              localDb.gbpDraft.posted = true;
+              localDb.gbpDraft.postedAt = new Date().toISOString();
+            }
+          } catch (gbpErr) { localDb.gbpDraft.postError = gbpErr.message; console.error('[Local Autopilot] GBP auto-post failed:', gbpErr.message); }
         }
       } catch (e) { console.error('[Local Autopilot] GBP draft failed:', e.message); }
     }
@@ -2134,6 +2142,102 @@ app.post('/api/onsite-autopilot/seen', requireAuth, (req, res) => {
 
 setTimeout(() => { maybeRunOnsiteAutopilot(false).catch(() => {}); }, 45000);
 setInterval(() => { maybeRunOnsiteAutopilot(false).catch(() => {}); }, 12 * 60 * 60 * 1000);
+
+// ============================================================
+// 18. OAuth integrations — Gmail direct send + Google Business Profile
+// auto-post. Both are PROGRESSIVE ENHANCEMENTS: if the env vars aren't
+// set, the endpoints report needsSetup and the UI falls back to the
+// existing compose-link / paste flow. Nothing breaks when unconfigured.
+// ============================================================
+function gmailClient() {
+  const id = process.env.GMAIL_CLIENT_ID, secret = process.env.GMAIL_CLIENT_SECRET, refresh = process.env.GMAIL_REFRESH_TOKEN;
+  if (!id || !secret || !refresh) return null;
+  const o = new google.auth.OAuth2(id, secret, 'https://developers.google.com/oauthplayground');
+  o.setCredentials({ refresh_token: refresh });
+  return google.gmail({ version: 'v1', auth: o });
+}
+
+app.get('/api/gmail-status', (req, res) => {
+  res.json({ configured: !!gmailClient(), from: process.env.GMAIL_SENDER || '' });
+});
+
+// Send a pitch email directly through the owner's Gmail (silent send).
+app.post('/api/send-pitch', requireAuth, async (req, res) => {
+  const { to, subject, body } = req.body || {};
+  const gmail = gmailClient();
+  if (!gmail) return res.json({ success: true, needsSetup: true, message: 'Gmail direct-send isn’t connected yet — use the compose window. Add GMAIL_CLIENT_ID / GMAIL_CLIENT_SECRET / GMAIL_REFRESH_TOKEN in Railway to enable one-click send.' });
+  if (!to || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(to).trim())) {
+    return res.status(400).json({ success: false, error: 'Enter a valid recipient email address to send.' });
+  }
+  try {
+    const headers = [
+      `To: ${String(to).trim()}`,
+      process.env.GMAIL_SENDER ? `From: ${process.env.GMAIL_SENDER}` : null,
+      `Subject: ${subject || ''}`,
+      'MIME-Version: 1.0',
+      'Content-Type: text/plain; charset=UTF-8'
+    ].filter(Boolean).join('\r\n');
+    const raw = Buffer.from(`${headers}\r\n\r\n${body || ''}`).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    const r = await gmail.users.messages.send({ userId: 'me', requestBody: { raw } });
+    return res.json({ success: true, sent: true, id: r.data && r.data.id });
+  } catch (err) {
+    console.error('[Gmail send] failed:', err.message);
+    return res.status(502).json({ success: false, error: `Gmail send failed: ${err.message}` });
+  }
+});
+
+// --- Google Business Profile auto-post (requires APPROVED Business Profile
+// API access — apply via Google's form; can take days/weeks). Pre-built so
+// it flips on the moment access + GBP_* env vars are in place. ---
+function gbpAuth() {
+  const id = process.env.GBP_CLIENT_ID || process.env.GMAIL_CLIENT_ID;
+  const secret = process.env.GBP_CLIENT_SECRET || process.env.GMAIL_CLIENT_SECRET;
+  const refresh = process.env.GBP_REFRESH_TOKEN;
+  if (!id || !secret || !refresh) return null;
+  const o = new google.auth.OAuth2(id, secret, 'https://developers.google.com/oauthplayground');
+  o.setCredentials({ refresh_token: refresh });
+  return o;
+}
+function gbpConfigured() {
+  return !!(gbpAuth() && process.env.GBP_ACCOUNT_ID && process.env.GBP_LOCATION_ID);
+}
+async function postGbpLocalPost(text) {
+  const auth = gbpAuth();
+  if (!auth || !process.env.GBP_ACCOUNT_ID || !process.env.GBP_LOCATION_ID) return { posted: false, needsSetup: true };
+  const tokenObj = await auth.getAccessToken();
+  const token = (tokenObj && tokenObj.token) || tokenObj;
+  const url = `https://mybusiness.googleapis.com/v4/accounts/${process.env.GBP_ACCOUNT_ID}/locations/${process.env.GBP_LOCATION_ID}/localPosts`;
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      languageCode: 'en-US',
+      summary: String(text || '').slice(0, 1500),
+      topicType: 'STANDARD',
+      callToAction: { actionType: 'LEARN_MORE', url: siteDomain() }
+    })
+  });
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(data.error && data.error.message ? data.error.message : `GBP API HTTP ${resp.status}`);
+  return { posted: true, name: data.name, searchUrl: data.searchUrl };
+}
+
+app.get('/api/gbp-status', (req, res) => {
+  res.json({ configured: gbpConfigured() });
+});
+app.post('/api/gbp-post', requireAuth, async (req, res) => {
+  const text = (req.body && req.body.text) || (localDb.gbpDraft && localDb.gbpDraft.text);
+  if (!text) return res.status(400).json({ success: false, error: 'No post text to publish.' });
+  if (!gbpConfigured()) return res.json({ success: true, needsSetup: true, message: 'Google Business Profile posting isn’t connected. It needs approved Business Profile API access plus the GBP_* env vars.' });
+  try {
+    const result = await postGbpLocalPost(text);
+    if (localDb.gbpDraft && localDb.gbpDraft.text === text) { localDb.gbpDraft.posted = true; localDb.gbpDraft.postedAt = new Date().toISOString(); saveLocal(); }
+    return res.json({ success: true, ...result });
+  } catch (err) {
+    console.error('[GBP post] failed:', err.message);
+    return res.status(502).json({ success: false, error: `GBP post failed: ${err.message}` });
+  }
+});
 
 // Start the Express Server
 app.listen(PORT, () => {
