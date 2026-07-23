@@ -2442,57 +2442,63 @@ document.addEventListener('DOMContentLoaded', () => {
   const wizardSteps = [
     {
       tab: 'summary-tab',
-      highlight: '.sum-value-strip',
-      title: 'Step 1: Your Dashboard at a Glance',
-      text: 'This is your home base — in plain English it shows whether AI recommends you, the search opportunities you’re missing, what you’ve published, and your estimated business value. Everything else in the app is how you improve these numbers.'
+      highlight: '#home-hero',
+      title: 'Step 1 · Home — your one-glance snapshot',
+      text: 'Your <b>Optimization Score</b> up top shows how maximized your SEO &amp; AEO is right now. The five pillars beneath it are quick health checks — <span style="color:var(--color-success)">green</span> is good, <span style="color:var(--color-warning)">amber</span> needs a look. Just under those, <b>Your next moves</b> lists the highest-impact fixes, many with a one-tap button.'
+    },
+    {
+      tab: 'grow-tab',
+      highlight: '#grow-moves',
+      title: 'Step 2 · Grow — your to-do list',
+      text: 'Grow is your full, prioritized action list: everything worth doing, ranked by impact. Work top to bottom and your score climbs. Below it are shortcuts straight into any tool.'
     },
     {
       tab: 'performance-tab',
       highlight: '.perf-kpis',
-      title: 'Step 2: Is It Working?',
-      text: 'The <b>Performance</b> tab proves the payoff: your search impressions, clicks and rank this period vs last, your AI‑visibility trend over time, and your new leads. This is how you know the work is paying off.'
+      title: 'Step 3 · Reports — is it working?',
+      text: 'Reports proves the payoff: impressions, clicks and Google rank this period vs last, your AI-visibility trend, new leads, and a plain-English <b>Weekly Digest</b>. This is where you confirm the work is paying off.'
     },
     {
       tab: 'gsc-tab',
       highlight: '#gsc-table',
-      title: 'Step 3: Spot the Content Gaps',
-      text: 'Google shows your site on searches but you get 0 clicks because you lack a dedicated page. Find a keyword labeled <span class="status-badge leak" style="padding: 1px 4px; font-size: 10px;">Content Gap</span> and click <b>Generate Page</b>.'
+      title: 'Step 4 · Searches You’re Missing',
+      text: 'The next tools live under <b>Advanced Tools</b> in the sidebar. This one shows searches where Google already displays you but you get no clicks — your quickest wins. Pick one and click <b>Generate Page</b>.'
     },
     {
       tab: 'ai-tab',
       highlight: '.creator-form-panel',
-      title: 'Step 4: Write Authoritative Content',
-      text: 'Generate a structured, SEO‑ready page. Add a <b>real client story</b> in the Case Study box for E‑E‑A‑T, then preview it and either <b>Copy the HTML</b> into GoHighLevel or head to <b>Publish &amp; Index</b>.'
+      title: 'Step 5 · Create a Post',
+      text: 'Have AI write a structured, SEO-ready article for you. Add a <b>real client story</b> for extra credibility, then preview it and either copy the HTML or send it straight to <b>Publish</b>.'
     },
     {
       tab: 'publish-tab',
       highlight: '.deploy-controls-card',
-      title: 'Step 5: Publish & Same‑Day Indexing',
-      text: 'Push the page live to GoHighLevel, then paste its URL in the Indexing block and click <b>Submit URL for Indexing</b> to request a Google crawl within hours.'
+      title: 'Step 6 · Publish',
+      text: 'Push a page live, then paste its URL to request a Google crawl within hours. You can also switch on the <b>content autopilot</b> here to publish fresh pages on a schedule — hands-off.'
     },
     {
       tab: 'aio-tab',
       highlight: '#btn-run-aio-audit',
-      title: 'Step 6: Check Your AI Visibility',
-      text: 'See whether AI actually recommends you. Pick a local search and click <b>Run Live Google‑AI Audit</b> — you’ll see if you’re cited by Google’s AI, who’s recommended instead, and the real sources.'
+      title: 'Step 7 · AI Visibility Check',
+      text: 'See whether AI assistants actually recommend you. Pick a local search and run a live audit — you’ll see if you’re cited, who’s recommended instead, and the real sources behind the answer.'
     },
     {
       tab: 'citations-tab',
       highlight: '#btn-find-citations',
-      title: 'Step 7: Get Listed Where AI Looks',
-      text: 'AI cites directories, review sites and “best‑of” lists more than your own pages. <b>Citation Targets</b> finds the real sources AI pulls from and tells you exactly where to get listed to win AI answers.'
+      title: 'Step 8 · Where to Get Listed',
+      text: 'AI trusts directories, review sites and “best-of” lists more than your own pages. This finds the exact sources AI pulls from and tells you where to get listed to win those answers.'
     },
     {
       tab: 'local-tab',
       highlight: '#btn-nap-check',
-      title: 'Step 8: Win Local SEO',
-      text: 'The <b>Local SEO</b> tab checks that your Name/Address/Phone match everywhere, writes review replies and requests, generates Google Business Profile posts, and scores you on the local fundamentals.'
+      title: 'Step 9 · Local Presence',
+      text: 'Checks that your Name, Address &amp; Phone match everywhere, drafts review replies and requests, creates Google Business Profile posts, and scores your local fundamentals.'
     },
     {
       tab: 'onsite-tab',
       highlight: '#btn-os-keywords',
-      title: 'Step 9: Sharpen Your On‑Site SEO',
-      text: 'Finally, <b>On‑Site SEO</b> uncovers new keyword ideas, optimizes your title tags and meta descriptions, suggests internal links, and outputs richer schema — the technical polish that helps you rank.'
+      title: 'Step 10 · Site Optimization',
+      text: 'The technical polish: fresh keyword ideas, sharper title tags and meta descriptions, internal-link suggestions, and richer schema — the details that help you rank.'
     }
   ];
 
@@ -2510,8 +2516,11 @@ document.addEventListener('DOMContentLoaded', () => {
   btnWizardBack.addEventListener('click', previousStep);
   btnWizardNext.addEventListener('click', nextStep);
 
+  let tourFinished = false;
   function startTour() {
     currentWizardStep = 0;
+    tourFinished = false;
+    btnWizardBack.style.display = '';
     wizardWidget.style.display = 'block';
     btnStartWizard.style.display = 'none';
     renderStep();
@@ -2556,13 +2565,26 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function nextStep() {
+    if (tourFinished) { endTour(); return; }
     if (currentWizardStep < wizardSteps.length - 1) {
       currentWizardStep++;
       renderStep();
     } else {
-      endTour();
-      alert('System tour complete! You are ready to rank your keywords!');
+      finishTour();
     }
+  }
+
+  function finishTour() {
+    tourFinished = true;
+    clearHighlights();
+    switchTab('summary-tab');
+    wizardStepText.innerHTML = `
+      <h4>You’re all set &#127881;</h4>
+      <p style="font-size: 13px; color: var(--text-muted); margin-top: 5px;">That’s the tour. Start on <b>Home</b>, work through <b>Your next moves</b>, then check <b>Reports</b> to watch it pay off. You can reopen this anytime with the <b>Quick Guide</b> button.</p>
+    `;
+    wizardProgressDots.innerHTML = '';
+    btnWizardBack.style.display = 'none';
+    btnWizardNext.innerText = 'Done';
   }
 
   function previousStep() {
