@@ -331,11 +331,46 @@
         #performance-tab .perf-mover .up{color:var(--color-success);font-weight:700;white-space:nowrap;}
         #performance-tab .perf-mover .down{color:var(--color-accent);font-weight:700;white-space:nowrap;}
         #performance-tab .perf-empty{color:var(--text-muted);font-size:var(--font-sm);padding:12px 0;line-height:1.5;}
+        #performance-tab .pd-card{border:1px solid rgba(99,102,241,.3);}
+        #performance-tab .pd-head{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;margin-bottom:12px;}
+        #performance-tab .pd-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+        #performance-tab .pd-toggle{display:flex;align-items:center;gap:7px;font-size:var(--font-xs);color:var(--text-muted);cursor:pointer;white-space:nowrap;}
+        #performance-tab .pd-switch{position:relative;display:inline-block;width:38px;height:22px;flex-shrink:0;}
+        #performance-tab .pd-switch input{opacity:0;width:0;height:0;}
+        #performance-tab .pd-slider{position:absolute;inset:0;background:rgba(255,255,255,.12);border-radius:999px;transition:.3s;}
+        #performance-tab .pd-slider:before{content:"";position:absolute;height:16px;width:16px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.3s;}
+        #performance-tab .pd-switch input:checked + .pd-slider{background:var(--color-success);}
+        #performance-tab .pd-switch input:checked + .pd-slider:before{transform:translateX(16px);}
+        #performance-tab .pd-body{font-size:var(--font-sm);color:var(--text-main);line-height:1.6;}
+        #performance-tab .pd-row{display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:1px solid var(--border-color);}
+        #performance-tab .pd-row:last-child{border-bottom:none;}
+        #performance-tab .pd-row b{font-family:var(--font-heading);color:var(--text-main);}
+        #performance-tab .pd-up{color:var(--color-success);font-weight:700;}
+        #performance-tab .pd-down{color:var(--color-accent);font-weight:700;}
+        #performance-tab .pd-kw{font-size:var(--font-xs);color:var(--text-muted);margin-top:10px;line-height:1.5;}
+        #performance-tab .pd-autoemail{display:block;margin-top:12px;font-size:var(--font-xs);color:var(--text-muted);cursor:pointer;}
+        #performance-tab .btn-xs{padding:5px 11px;font-size:var(--font-xs);width:auto;}
       </style>
       <section class="tab-content" id="performance-tab">
         <div class="perf-bar">
           <div class="perf-bar-left">Comparing the <b>last 28 days</b> vs the <b>previous 28 days</b> &middot; updated <span id="perf-updated">&mdash;</span><span class="perf-badge" id="perf-badge">&hellip;</span></div>
           <button class="perf-refresh" id="perf-refresh">&#8635; Refresh</button>
+        </div>
+
+        <div class="content-card pd-card" id="pd-card" style="display:none;">
+          <div class="pd-head">
+            <div>
+              <h3 class="perf-title">&#128200; Weekly Digest</h3>
+              <p class="perf-hint" id="pd-when" style="margin-bottom:0;">A plain-English recap of your week, saved automatically.</p>
+            </div>
+            <div class="pd-controls">
+              <label class="pd-toggle" title="Save a digest every week"><span class="pd-switch"><input type="checkbox" id="pd-enabled"><span class="pd-slider"></span></span><span>Weekly</span></label>
+              <button class="btn btn-secondary btn-xs" id="pd-run" type="button">Generate now</button>
+              <button class="btn btn-primary btn-xs" id="pd-email" type="button">Email me</button>
+            </div>
+          </div>
+          <div id="pd-body" class="pd-body"></div>
+          <label class="pd-autoemail" id="pd-autoemail-wrap" style="display:none;"><input type="checkbox" id="pd-autoemail"> Email it to me automatically each week</label>
         </div>
 
         <div class="perf-kpis">

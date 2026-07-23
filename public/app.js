@@ -172,6 +172,7 @@ document.addEventListener('DOMContentLoaded', () => {
       pageTitle.innerText = 'Performance';
       pageSubtitle.innerText = 'Is it working? Search trends, AI visibility over time, and leads';
       loadPerformance();
+      if (window.loadPerfDigest) window.loadPerfDigest();
     } else if (tabId === 'gsc-tab') {
       pageTitle.innerText = 'GSC Content Gaps';
       pageSubtitle.innerText = 'Analyze Search Console impressions and find low-click authority loops';
@@ -1926,6 +1927,79 @@ document.addEventListener('DOMContentLoaded', () => {
       el.innerText = `${arrow} ${pct != null ? pct + '% ' : ''}${improved ? 'up' : 'down'} (was ${Number(prev).toLocaleString()})`;
     }
   }
+
+  // --- PERFORMANCE WEEKLY DIGEST ---
+  const pdCard = document.getElementById('pd-card');
+  const pdBody = document.getElementById('pd-body');
+  const pdWhen = document.getElementById('pd-when');
+  const pdEnabled = document.getElementById('pd-enabled');
+  const pdAutoWrap = document.getElementById('pd-autoemail-wrap');
+  const pdAutoEmail = document.getElementById('pd-autoemail');
+  const pdRun = document.getElementById('pd-run');
+  const pdEmail = document.getElementById('pd-email');
+  let pdPollTimer = null;
+
+  function pdAgo(iso) { if (!iso) return 'never'; const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000); if (m < 1) return 'just now'; if (m < 60) return m + 'm ago'; const h = Math.round(m / 60); if (h < 24) return h + 'h ago'; return Math.round(h / 24) + 'd ago'; }
+  function pdRow(label, valHtml) { return `<div class="pd-row"><span>${label}</span><span>${valHtml}</span></div>`; }
+  function pdPct(o) { return (o && o.pct != null) ? ` <span class="${o.pct >= 0 ? 'pd-up' : 'pd-down'}">${o.pct >= 0 ? '+' : ''}${o.pct}%</span>` : ''; }
+
+  function pdRenderDigest(d) {
+    if (!pdBody) return;
+    if (!d) { pdBody.innerHTML = '<div class="perf-hint">No digest yet — click <b>Generate now</b> to build this week’s recap.</div>'; return; }
+    let rows = '';
+    if (d.clicks) rows += pdRow('Clicks', `<b>${(d.clicks.cur || 0).toLocaleString()}</b>${pdPct(d.clicks)}`);
+    if (d.impressions) rows += pdRow('Impressions', `<b>${(d.impressions.cur || 0).toLocaleString()}</b>${pdPct(d.impressions)}`);
+    if (d.avgPosition) rows += pdRow('Avg Google rank', `<b>${d.avgPosition.cur}</b>${d.avgPosition.prev != null ? ` <span class="perf-hint" style="display:inline">(was ${d.avgPosition.prev})</span>` : ''}`);
+    if (d.aiVisibility != null) rows += pdRow('AI visibility', `<b>${d.aiVisibility}%</b>`);
+    if (d.leads) rows += pdRow('New leads', `<b>${d.leads.current}</b>${d.leads.previous != null ? ` <span class="perf-hint" style="display:inline">(was ${d.leads.previous})</span>` : ''}`);
+    if (!rows) rows = '<div class="perf-hint">Connect Search Console in Settings for live numbers in your digest.</div>';
+    let kw = '';
+    if (d.gainers && d.gainers.length) kw += `<div class="pd-kw"><span class="pd-up">&#9650; Rising:</span> ${d.gainers.map(g => sumEsc(g.query)).join(', ')}</div>`;
+    if (d.losers && d.losers.length) kw += `<div class="pd-kw"><span class="pd-down">&#9660; Slipping:</span> ${d.losers.map(g => sumEsc(g.query)).join(', ')}</div>`;
+    pdBody.innerHTML = rows + kw;
+  }
+
+  function pdRender(s) {
+    if (!pdCard) return;
+    pdCard.style.display = 'block';
+    if (pdEnabled) pdEnabled.checked = !!s.enabled;
+    if (pdAutoEmail) pdAutoEmail.checked = !!s.autoEmail;
+    if (pdAutoWrap) pdAutoWrap.style.display = s.gmailConfigured ? 'block' : 'none';
+    if (pdEmail) pdEmail.style.display = s.gmailConfigured ? 'inline-flex' : 'none';
+    if (pdWhen) pdWhen.innerHTML = s.digest
+      ? `Last built ${pdAgo(s.digest.generatedAt)}${s.digest.emailedAt ? ` · emailed ${pdAgo(s.digest.emailedAt)}` : ''}${!s.gmailConfigured ? ' · <span style="color:var(--color-secondary)">connect Gmail to auto-email</span>' : ''}`
+      : 'A plain-English recap of your week, saved automatically.';
+    pdRenderDigest(s.digest);
+    const perfTabEl = document.getElementById('performance-tab');
+    if (s.digest && s.digest.isNew && perfTabEl && perfTabEl.classList.contains('active')) {
+      authFetch('/api/performance-digest/seen', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).catch(() => {});
+    }
+  }
+
+  async function loadPerfDigest() {
+    try { const s = await (await fetch('/api/performance-digest')).json(); pdRender(s); if (s.busy) pdPoll(); }
+    catch (e) { /* keep last */ }
+  }
+  window.loadPerfDigest = loadPerfDigest;
+
+  function pdPoll() {
+    if (pdPollTimer) return;
+    let n = 0;
+    if (pdRun) { pdRun.disabled = true; pdRun.innerText = 'Building…'; }
+    pdPollTimer = setInterval(async () => {
+      n++;
+      try {
+        const s = await (await fetch('/api/performance-digest')).json();
+        pdRender(s);
+        if (!s.busy || n > 10) { clearInterval(pdPollTimer); pdPollTimer = null; if (pdRun) { pdRun.disabled = false; pdRun.innerText = 'Generate now'; } }
+      } catch (e) { clearInterval(pdPollTimer); pdPollTimer = null; if (pdRun) { pdRun.disabled = false; pdRun.innerText = 'Generate now'; } }
+    }, 6000);
+  }
+
+  if (pdEnabled) pdEnabled.addEventListener('change', async () => { try { await authFetch('/api/performance-digest/toggle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: pdEnabled.checked }) }); } catch (e) { alert('Could not update: ' + e.message); } });
+  if (pdAutoEmail) pdAutoEmail.addEventListener('change', async () => { try { await authFetch('/api/performance-digest/toggle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ autoEmail: pdAutoEmail.checked }) }); } catch (e) { alert('Could not update: ' + e.message); } });
+  if (pdRun) pdRun.addEventListener('click', async () => { pdRun.disabled = true; pdRun.innerText = 'Starting…'; try { const r = await authFetch('/api/performance-digest/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }); await r.json(); setTimeout(pdPoll, 1200); } catch (e) { alert('Error: ' + e.message); pdRun.disabled = false; pdRun.innerText = 'Generate now'; } });
+  if (pdEmail) pdEmail.addEventListener('click', async () => { pdEmail.disabled = true; const o = pdEmail.innerText; pdEmail.innerText = 'Sending…'; try { const r = await authFetch('/api/performance-digest/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }); const d = await r.json(); if (d.needsSetup) { alert(d.message); } else if (!r.ok || !d.success) { throw new Error(d.error || 'Send failed'); } else { pdEmail.innerText = 'Sent ✓'; setTimeout(() => { pdEmail.innerText = o; pdEmail.disabled = false; }, 1600); return; } } catch (e) { alert('Email error: ' + e.message); } pdEmail.disabled = false; pdEmail.innerText = o; });
 
   async function loadPerformance() {
     const $ = id => document.getElementById(id);
