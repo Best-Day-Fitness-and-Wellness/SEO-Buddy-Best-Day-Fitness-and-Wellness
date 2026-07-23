@@ -854,6 +854,31 @@ document.addEventListener('DOMContentLoaded', () => {
     return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   }
 
+  async function loadAutopilotDigest() {
+    const wrap = document.getElementById('sum-autopilot');
+    const grid = document.getElementById('sum-ap-grid');
+    const sub = document.getElementById('sum-ap-sub');
+    if (!wrap || !grid) return;
+    try {
+      const d = await (await fetch('/api/autopilot-digest')).json();
+      const items = (d && d.items) || [];
+      if (!items.length) { wrap.style.display = 'none'; return; }
+      wrap.style.display = 'block';
+      if (sub) sub.innerText = d.newCount ? `${d.newCount} new since you last looked` : 'Up to date';
+      grid.innerHTML = items.map(it => `<div class="sum-ap-item ${it.tone === 'warn' ? 'warn' : ''}" data-tab="${sumEsc(it.tab)}">
+        <div class="sum-ap-label"><span>${it.icon || ''} ${sumEsc(it.label)}</span>${it.isNew ? '<span class="sum-ap-new">NEW</span>' : ''}</div>
+        <div class="sum-ap-text">${sumEsc(it.text)}</div>
+        <div class="sum-ap-arrow">Open &rarr;</div>
+      </div>`).join('');
+      grid.querySelectorAll('.sum-ap-item').forEach(el => {
+        el.addEventListener('click', () => {
+          const nav = document.querySelector('.nav-item[data-tab="' + el.dataset.tab + '"]');
+          if (nav) nav.click();
+        });
+      });
+    } catch (e) { wrap.style.display = 'none'; }
+  }
+
   async function loadSummary() {
     const [aioRes, gscRes, histRes] = await Promise.allSettled([
       fetch('/api/aio-history').then(r => r.json()),
@@ -869,6 +894,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const $ = id => document.getElementById(id);
     if (!$('sum-updated')) return; // summary DOM not present
 
+    loadAutopilotDigest();
     $('sum-updated').innerText = new Date().toLocaleTimeString();
 
     // Data-source badge (the search numbers are the ones that can be demo data)
