@@ -601,6 +601,23 @@ let autopilotInterval = null;
 let autopilotEnabled = false;
 let autopilotIntervalHours = 24;
 let nextRunTime = null;
+let autopilotQueue = []; // [{ topic, addedAt }] — covered before GSC gaps
+
+// Durable autopilot config (cadence + enabled + topic queue) so the schedule
+// and queue survive redeploys. The scheduler itself is restored at startup.
+const AUTOPILOT_CONFIG_FILE = path.join(DATA_DIR, 'autopilot-config.json');
+function saveAutopilotConfig() {
+  try { fs.writeFileSync(AUTOPILOT_CONFIG_FILE, JSON.stringify({ enabled: autopilotEnabled, intervalHours: autopilotIntervalHours, queue: autopilotQueue }, null, 2)); }
+  catch (e) { console.error('[Autopilot Config] save failed:', e.message); }
+}
+try {
+  if (fs.existsSync(AUTOPILOT_CONFIG_FILE)) {
+    const cfg = JSON.parse(fs.readFileSync(AUTOPILOT_CONFIG_FILE, 'utf8'));
+    if (typeof cfg.enabled === 'boolean') autopilotEnabled = cfg.enabled;
+    if (cfg.intervalHours) autopilotIntervalHours = parseFloat(cfg.intervalHours);
+    if (Array.isArray(cfg.queue)) autopilotQueue = cfg.queue;
+  }
+} catch (e) { console.error('[Autopilot Config] load failed:', e.message); }
 
 // Case study text mapping for Autopilot
 const AUTOPILOT_CASE_STUDIES = {
@@ -645,19 +662,27 @@ async function runAutopilotCycle() {
     }
   }
 
-  // Find a leak keyword that we haven't targeted in our history yet
-  const leakKeywords = keywords.filter(k => k.leak);
-  const targetLeak = leakKeywords.find(k => {
-    return !historyDb.some(h => h.keyword.toLowerCase() === k.query.toLowerCase());
-  });
-
-  if (!targetLeak) {
-    logAutopilotActivity('Check complete. No new untargeted content gaps identified.');
-    return null;
+  // Pick the target: queued topics first, then an untargeted GSC gap.
+  let query = null;
+  let fromQueue = false;
+  while (autopilotQueue.length && !query) {
+    const cand = String(autopilotQueue[0].topic || '').trim();
+    if (cand && !historyDb.some(h => h.keyword.toLowerCase() === cand.toLowerCase())) { query = cand; fromQueue = true; }
+    else { autopilotQueue.shift(); saveAutopilotConfig(); } // drop blank or already-covered
   }
 
-  const query = targetLeak.query;
-  logAutopilotActivity(`Targeting leak query: "${query}" (Impressions: ${targetLeak.impressions})`);
+  if (!query) {
+    const leakKeywords = keywords.filter(k => k.leak);
+    const targetLeak = leakKeywords.find(k => !historyDb.some(h => h.keyword.toLowerCase() === k.query.toLowerCase()));
+    if (!targetLeak) {
+      logAutopilotActivity('Check complete. No queued topics and no new untargeted content gaps identified.');
+      return null;
+    }
+    query = targetLeak.query;
+    logAutopilotActivity(`Targeting leak query: "${query}" (Impressions: ${targetLeak.impressions})`);
+  } else {
+    logAutopilotActivity(`Targeting queued topic: "${query}" (${autopilotQueue.length} in queue)`);
+  }
 
   try {
     // 1. Generate Content
@@ -708,6 +733,12 @@ async function runAutopilotCycle() {
 
     historyDb.unshift(historyEntry);
     saveHistory();
+
+    // Remove the covered topic from the queue.
+    if (fromQueue) {
+      autopilotQueue = autopilotQueue.filter(q => String(q.topic || '').trim().toLowerCase() !== query.toLowerCase());
+      saveAutopilotConfig();
+    }
 
     logAutopilotActivity(indexStatus === 'Indexing Failed'
       ? `✅ Autopilot run complete — published "${article.title}" (indexing skipped; see warning above).`
@@ -934,6 +965,7 @@ app.get('/api/autopilot-status', (req, res) => {
     enabled: autopilotEnabled,
     intervalHours: autopilotIntervalHours,
     nextRunTime: nextRunTime,
+    queue: autopilotQueue,
     logs: autopilotLogs
   });
 });
@@ -941,12 +973,13 @@ app.get('/api/autopilot-status', (req, res) => {
 // 7. Toggle Autopilot Agent
 app.post('/api/autopilot-toggle', requireAuth, (req, res) => {
   const { enabled, intervalHours } = req.body;
-  
+
   autopilotEnabled = !!enabled;
   if (intervalHours) autopilotIntervalHours = parseFloat(intervalHours);
-  
+
   startAutopilotScheduler();
-  
+  saveAutopilotConfig();
+
   return res.json({
     success: true,
     enabled: autopilotEnabled,
@@ -954,6 +987,23 @@ app.post('/api/autopilot-toggle', requireAuth, (req, res) => {
     nextRunTime: nextRunTime,
     message: `Autopilot schedule updated successfully.`
   });
+});
+
+// 7b. Content topic queue — autopilot covers these before finding gaps.
+app.post('/api/autopilot-queue/add', requireAuth, (req, res) => {
+  const topic = String((req.body && req.body.topic) || '').trim();
+  if (!topic) return res.status(400).json({ success: false, error: 'Enter a topic or keyword.' });
+  if (topic.length > 120) return res.status(400).json({ success: false, error: 'Keep topics under 120 characters.' });
+  if (autopilotQueue.length >= 50) return res.status(400).json({ success: false, error: 'Queue is full (50). Remove some first.' });
+  autopilotQueue.push({ topic, addedAt: new Date().toISOString() });
+  saveAutopilotConfig();
+  res.json({ success: true, queue: autopilotQueue });
+});
+app.post('/api/autopilot-queue/remove', requireAuth, (req, res) => {
+  const idx = (req.body && typeof req.body.index === 'number') ? req.body.index : -1;
+  if (idx >= 0 && idx < autopilotQueue.length) autopilotQueue.splice(idx, 1);
+  saveAutopilotConfig();
+  res.json({ success: true, queue: autopilotQueue });
 });
 
 // 8. Trigger Autopilot run immediately (Manual Override)
@@ -2450,6 +2500,11 @@ app.get('/api/autopilot-digest', (req, res) => {
   }
   res.json({ success: true, items, newCount: items.filter(i => i.isNew).length, generatedAt: new Date().toISOString() });
 });
+
+// Restore the autopilot schedule if it was enabled before a redeploy.
+if (autopilotEnabled) {
+  try { startAutopilotScheduler(); } catch (e) { console.error('[Autopilot] restore failed:', e.message); }
+}
 
 // Start the Express Server
 app.listen(PORT, () => {
