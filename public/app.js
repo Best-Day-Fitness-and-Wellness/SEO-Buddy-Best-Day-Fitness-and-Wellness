@@ -1292,6 +1292,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const citKitBody = document.getElementById('cit-kit-body');
   const citKitCaret = document.getElementById('cit-kit-caret');
   const citationsResults = document.getElementById('citations-results');
+  const citAutoToggle = document.getElementById('cit-auto-toggle');
 
   let citLastData = { targets: [], brandCited: false };
   const CIT_TOTAL = { t: 0 };
@@ -1524,6 +1525,7 @@ document.addEventListener('DOMContentLoaded', () => {
         <div class="cit-body">
           <div class="cit-domain"><a href="https://${citEsc(t.domain)}" target="_blank" rel="noopener">${citEsc(t.domain)}</a></div>
           <div class="cit-meta">
+            ${t.isNew ? '<span class="cit-badge cit-new">NEW</span>' : ''}
             <span class="cit-badge ${typeCls}">${citEsc(t.type)}</span>
             <span class="cit-listed ${listedCls}">${listedTxt}</span>
             <span class="cit-cited">cited in ${t.citedFor} of ${CIT_TOTAL.t} searches</span>
@@ -1549,9 +1551,17 @@ document.addEventListener('DOMContentLoaded', () => {
     citLastData = data || { targets: [] };
     citRenderKit(data.kit);
     if (citLastScanned) citLastScanned.innerText = citTimeAgo(data.lastScanned);
+    if (citAutoToggle) citAutoToggle.checked = !!data.autoEnabled;
     citRenderProgress(data.counts, data.brandCited);
     citRenderWorklist(data.targets, data.totalQueries);
     if (data.queries && data.queries.length && citationsQueries) citationsQueries.value = data.queries.join('\n');
+    // Clear NEW-target flags server-side only once the worklist is actually
+    // on screen (not on the background startup load, which runs while another
+    // tab is active — otherwise the badges would clear before you see them).
+    const citTabEl = document.getElementById('citations-tab');
+    if (data.newDomains && data.newDomains.length && citTabEl && citTabEl.classList.contains('active')) {
+      authFetch('/api/citation-autopilot/seen', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).catch(() => {});
+    }
   }
 
   async function loadCitationWorklist() {
@@ -1576,6 +1586,13 @@ document.addEventListener('DOMContentLoaded', () => {
       const show = citKitBody.style.display === 'none';
       citKitBody.style.display = show ? 'block' : 'none';
       if (citKitCaret) citKitCaret.innerHTML = show ? '&#9652; hide' : '&#9662; show';
+    });
+  }
+
+  if (citAutoToggle) {
+    citAutoToggle.addEventListener('change', async () => {
+      try { await authFetch('/api/citation-autopilot/toggle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: citAutoToggle.checked }) }); }
+      catch (e) { alert('Could not update: ' + e.message); }
     });
   }
 
