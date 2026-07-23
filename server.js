@@ -553,6 +553,19 @@ async function publishGhlHelper(title, content, status, config = {}) {
   };
 }
 
+// Translate Google's terse Indexing API errors into an actionable message.
+function explainIndexError(message) {
+  const m = String(message || '');
+  if (/ownership|Permission denied|Failed to verify|does not have .*permission/i.test(m)) {
+    return `Google refused the indexing request: the service account is not a verified OWNER of the site in Search Console. `
+      + `Fix: Search Console → Settings → Users and permissions → add the service-account email (the "client_email" in your Google service-account JSON) with permission = Owner. `
+      + `Note: "Full" access — which is enough for the GSC data tabs — is NOT enough for the Indexing API. `
+      + `Also confirm the published URL is on the same verified domain (${process.env.GSC_SITE_URL || 'your property'}). `
+      + `[original: ${m}]`;
+  }
+  return m;
+}
+
 // 3. Indexing Helper
 async function indexUrlHelper(url) {
   const auth = getGoogleAuth();
@@ -671,9 +684,17 @@ async function runAutopilotCycle() {
     logAutopilotActivity('Publishing article to GoHighLevel...');
     const publish = await publishGhlHelper(article.title, article.content, 'published');
 
-    // 3. Request Google Indexing
+    // 3. Request Google Indexing — NON-FATAL. The article is already published;
+    // an indexing permission error must not discard a successful publish or
+    // report the whole run as failed.
     logAutopilotActivity(`Requesting instant Google Indexing for: ${publish.url}`);
-    const index = await indexUrlHelper(publish.url);
+    let indexStatus = 'Indexing Requested';
+    try {
+      await indexUrlHelper(publish.url);
+    } catch (idxErr) {
+      indexStatus = 'Indexing Failed';
+      logAutopilotActivity(`⚠️ Article published, but Google Indexing was refused. ${explainIndexError(idxErr.message)}`);
+    }
 
     // 4. Update History
     const historyEntry = {
@@ -681,15 +702,17 @@ async function runAutopilotCycle() {
       keyword: query,
       platform: publish.source === 'mock_ghl' ? 'GHL (Mock Autopilot)' : 'GoHighLevel (Published)',
       date: new Date().toISOString().split('T')[0],
-      indexed: 'Indexing Requested',
+      indexed: indexStatus,
       url: publish.url
     };
 
     historyDb.unshift(historyEntry);
     saveHistory();
 
-    logAutopilotActivity(`✅ Autopilot run complete! Deployed and Indexed: "${article.title}"`);
-    return historyEntry;
+    logAutopilotActivity(indexStatus === 'Indexing Failed'
+      ? `✅ Autopilot run complete — published "${article.title}" (indexing skipped; see warning above).`
+      : `✅ Autopilot run complete! Deployed and Indexed: "${article.title}"`);
+    return { ...historyEntry, indexWarning: indexStatus === 'Indexing Failed' };
 
   } catch (err) {
     logAutopilotActivity(`❌ Autopilot cycle failed: ${err.message}`);
@@ -896,7 +919,7 @@ app.post('/api/index-url', requireAuth, async (req, res) => {
 
     return res.json(data);
   } catch (err) {
-    return res.status(500).json({ success: false, error: err.message });
+    return res.status(500).json({ success: false, error: explainIndexError(err.message) });
   }
 });
 
@@ -941,10 +964,14 @@ app.post('/api/autopilot-run-now', requireAuth, async (req, res) => {
       success: true,
       ran: !!entry,
       entry,
-      message: entry ? 'Autopilot completed a run successfully!' : 'Autopilot checked GSC, but found no new content leaks.'
+      message: entry
+        ? (entry.indexWarning
+            ? 'Autopilot published the article. Google Indexing was refused (service account needs Owner permission in Search Console) — see the activity log.'
+            : 'Autopilot completed a run successfully!')
+        : 'Autopilot checked GSC, but found no new content leaks.'
     });
   } catch (err) {
-    return res.status(500).json({ success: false, error: err.message });
+    return res.status(500).json({ success: false, error: explainIndexError(err.message) });
   }
 });
 
@@ -1791,6 +1818,196 @@ Return ONLY raw JSON, no markdown: {"to":"who to contact, e.g. 'Features editor'
     return res.status(502).json({ success: false, error: err.message });
   }
 });
+
+// ============================================================
+// 16. Local SEO Autopilot — hands-off local upkeep:
+//   • NAP monitor: scheduled grounded scan, flags NEW mismatches only
+//   • Weekly GBP post: auto-drafted and queued, ready to paste (Google
+//     doesn't allow auto-posting without OAuth approval, so we draft)
+//   • Review-reply drafter with saved history (on-demand — GBP reviews
+//     can't be auto-pulled without Google OAuth)
+// ============================================================
+const LOCAL_FILE = path.join(DATA_DIR, 'local-autopilot.json');
+let localDb = {
+  enabled: true,
+  napIntervalDays: 7,
+  gbpIntervalDays: 7,
+  lastNapRun: null,
+  lastGbpRun: null,
+  nap: null,               // { canonical, listings, mismatchCount, checkedAt }
+  napSignature: null,      // to detect NEW mismatches vs last check
+  napNewMismatch: false,
+  gbpDraft: null,          // { text, topic, postType, createdAt, isNew }
+  gbpHistory: [],
+  replyHistory: []         // { review, rating, reply, createdAt }
+};
+try {
+  if (fs.existsSync(LOCAL_FILE)) localDb = Object.assign(localDb, JSON.parse(fs.readFileSync(LOCAL_FILE, 'utf8')));
+} catch (e) { console.error('[Local Autopilot] load failed:', e.message); }
+function saveLocal() {
+  try { fs.writeFileSync(LOCAL_FILE, JSON.stringify(localDb, null, 2)); }
+  catch (e) { console.error('[Local Autopilot] save failed:', e.message); }
+}
+
+async function localNapScan() {
+  const geminiKey = process.env.GEMINI_API_KEY;
+  const canonical = { name: BUSINESS.name, address: `${BUSINESS.streetAddress}, ${BUSINESS.addressLocality}, ${BUSINESS.addressRegion} ${BUSINESS.postalCode}`, phone: BUSINESS.telephone };
+  if (!geminiKey) return null;
+  const client = new GoogleGenAI({ apiKey: geminiKey });
+  const digits = s => String(s || '').replace(/\D/g, '');
+  const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const canonPhone = digits(canonical.phone);
+  const prompt = `Find the current online business listings for "${BUSINESS.name}" located in ${BUSINESS.addressLocality}, ${BUSINESS.addressRegion}. For each major platform (Google Business Profile, Yelp, Facebook, Apple Maps, Bing Places, BBB, local fitness directories), report the EXACT business name, full street address, and phone number shown there, based on current web information. Reply with ONLY raw JSON, no markdown fences: {"listings":[{"platform":"","name":"","address":"","phone":""}]}. Empty string if a field isn't shown.`;
+  const r = await client.models.generateContent({ model: GEMINI_MODEL, contents: prompt, config: { tools: [{ googleSearch: {} }] } });
+  const parsed = parseGeminiJson(r.text) || { listings: [] };
+  const listings = (parsed.listings || []).map(l => ({
+    platform: l.platform || '', name: l.name || '', address: l.address || '', phone: l.phone || '',
+    nameMatch: l.name ? (norm(l.name).includes(norm(BUSINESS.name)) || norm(BUSINESS.name).includes(norm(l.name))) : null,
+    phoneMatch: l.phone ? (digits(l.phone).slice(-10) === canonPhone.slice(-10)) : null,
+    addrMatch: l.address ? norm(l.address).includes(norm(BUSINESS.streetAddress)) : null
+  }));
+  const mismatchCount = listings.filter(l => l.phoneMatch === false || l.addrMatch === false || l.nameMatch === false).length;
+  return { canonical, listings, mismatchCount, checkedAt: new Date().toISOString() };
+}
+function napSignatureOf(nap) {
+  if (!nap || !nap.listings) return '';
+  return nap.listings
+    .filter(l => l.phoneMatch === false || l.addrMatch === false || l.nameMatch === false)
+    .map(l => `${l.platform}:${l.phoneMatch}${l.addrMatch}${l.nameMatch}`).sort().join('|');
+}
+
+const GBP_TOPIC_SEED = [
+  'a simple fall-prevention and balance tip for active adults 50+',
+  'the benefits of strength training for seniors and injury recovery',
+  'how mobility work helps you stay independent as you age',
+  'why small-group coaching beats crowded gyms for adults 50+',
+  'a posture and core tip for everyday movement',
+  'staying active and strong in St. Petersburg this season',
+  'what to expect at a first longevity assessment with us'
+];
+async function localGbpDraft() {
+  const geminiKey = process.env.GEMINI_API_KEY;
+  if (!geminiKey) return null;
+  const client = new GoogleGenAI({ apiKey: geminiKey });
+  let topic, topicLabel;
+  if (historyDb && historyDb.length) {
+    topicLabel = historyDb[0].title;
+    topic = `our recent article "${historyDb[0].title}" (topic: ${historyDb[0].keyword})`;
+  } else {
+    const idx = (localDb.gbpHistory.length) % GBP_TOPIC_SEED.length;
+    topic = GBP_TOPIC_SEED[idx];
+    topicLabel = topic;
+  }
+  const brand = `Best Day Fitness is a holistic health & wellness studio in St. Petersburg, FL for adults 50+, seniors, and people recovering from injury. Voice: warm, encouraging, professional, and human — never salesy or generic.`;
+  const prompt = `${brand}\nWrite a Google Business Profile post about: ${topic}. Under 1500 characters, engaging and locally relevant to St. Petersburg, with a clear call to action at the end (book a consultation / call us / visit). Return only the post text.`;
+  const r = await client.models.generateContent({ model: GEMINI_MODEL, contents: prompt });
+  return { text: (r.text || '').trim(), topic: topicLabel, postType: 'update', createdAt: new Date().toISOString() };
+}
+
+function daysSince(iso) { if (!iso) return Infinity; return (Date.now() - new Date(iso).getTime()) / (1000 * 60 * 60 * 24); }
+
+let localRunning = false;
+async function maybeRunLocalAutopilot(force) {
+  if (localRunning) return;
+  if (!force && !localDb.enabled) return;
+  if (!process.env.GEMINI_API_KEY) return;
+  const napDue = force || daysSince(localDb.lastNapRun) >= (localDb.napIntervalDays || 7);
+  const gbpDue = force || daysSince(localDb.lastGbpRun) >= (localDb.gbpIntervalDays || 7);
+  if (!napDue && !gbpDue) return;
+  localRunning = true;
+  try {
+    if (napDue) {
+      try {
+        const nap = await localNapScan();
+        if (nap) {
+          const sig = napSignatureOf(nap);
+          localDb.napNewMismatch = !!(sig && sig !== (localDb.napSignature || '') && nap.mismatchCount > 0);
+          localDb.napSignature = sig;
+          localDb.nap = nap;
+          localDb.lastNapRun = new Date().toISOString();
+        }
+      } catch (e) { console.error('[Local Autopilot] NAP scan failed:', e.message); }
+    }
+    if (gbpDue) {
+      try {
+        const draft = await localGbpDraft();
+        if (draft) {
+          if (localDb.gbpDraft) { localDb.gbpHistory.unshift({ ...localDb.gbpDraft, isNew: false }); localDb.gbpHistory = localDb.gbpHistory.slice(0, 8); }
+          localDb.gbpDraft = { ...draft, isNew: true };
+          localDb.lastGbpRun = new Date().toISOString();
+        }
+      } catch (e) { console.error('[Local Autopilot] GBP draft failed:', e.message); }
+    }
+    saveLocal();
+  } finally { localRunning = false; }
+}
+
+function localState() {
+  return {
+    success: true,
+    enabled: localDb.enabled,
+    busy: localRunning,
+    napIntervalDays: localDb.napIntervalDays,
+    gbpIntervalDays: localDb.gbpIntervalDays,
+    lastNapRun: localDb.lastNapRun,
+    lastGbpRun: localDb.lastGbpRun,
+    nap: localDb.nap,
+    napNewMismatch: localDb.napNewMismatch,
+    gbpDraft: localDb.gbpDraft,
+    gbpHistory: localDb.gbpHistory,
+    replyHistory: localDb.replyHistory,
+    hasKey: !!process.env.GEMINI_API_KEY
+  };
+}
+
+// GET state (read-only). Fire-and-forget a due-check so opening the tab nudges
+// the schedule, but never block the response on a live scan.
+app.get('/api/local-autopilot', (req, res) => {
+  maybeRunLocalAutopilot(false).catch(() => {});
+  res.json(localState());
+});
+app.post('/api/local-autopilot/toggle', requireAuth, (req, res) => {
+  localDb.enabled = !!(req.body && req.body.enabled);
+  saveLocal();
+  res.json({ success: true, enabled: localDb.enabled });
+});
+app.post('/api/local-autopilot/run', requireAuth, (req, res) => {
+  if (!process.env.GEMINI_API_KEY) return res.json({ success: true, unavailable: true, message: 'Add your Gemini API key in Settings to run the Local SEO Autopilot.' });
+  maybeRunLocalAutopilot(true).catch(() => {});   // non-blocking; frontend polls GET for busy/results
+  res.json({ success: true, started: true });
+});
+app.post('/api/local-autopilot/seen', requireAuth, (req, res) => {
+  localDb.napNewMismatch = false;
+  if (localDb.gbpDraft) localDb.gbpDraft.isNew = false;
+  saveLocal();
+  res.json({ success: true });
+});
+
+// Draft a reply to a pasted review AND save it to history.
+app.post('/api/local-reply', requireAuth, async (req, res) => {
+  const { review, rating } = req.body || {};
+  if (!review) return res.status(400).json({ success: false, error: 'Paste the review to respond to.' });
+  const geminiKey = process.env.GEMINI_API_KEY;
+  if (!geminiKey) return res.json({ success: true, unavailable: true, message: 'Add your Gemini API key in Settings to draft replies.' });
+  try {
+    const client = new GoogleGenAI({ apiKey: geminiKey });
+    const brand = `Best Day Fitness is a holistic health & wellness studio in St. Petersburg, FL for adults 50+, seniors, and people recovering from injury. Voice: warm, encouraging, professional, and human — never salesy or generic.`;
+    const prompt = `${brand}\nWrite a warm, personal, professional reply from the business to this Google review${rating ? ` (${rating} stars)` : ''}:\n"""${review}"""\nRules: reference something specific they mentioned; keep it 2–4 sentences; sound human, never templated; if it's negative, be gracious, take responsibility, and invite them to connect offline. Return only the reply text.`;
+    const r = await client.models.generateContent({ model: GEMINI_MODEL, contents: prompt });
+    const reply = (r.text || '').trim();
+    localDb.replyHistory.unshift({ review: String(review).slice(0, 500), rating: rating || '', reply, createdAt: new Date().toISOString() });
+    localDb.replyHistory = localDb.replyHistory.slice(0, 20);
+    saveLocal();
+    res.json({ success: true, reply });
+  } catch (err) {
+    console.error('[Local Reply] failed:', err.message);
+    res.status(502).json({ success: false, error: err.message });
+  }
+});
+
+// Background scheduler: catch up shortly after boot, then check twice a day.
+setTimeout(() => { maybeRunLocalAutopilot(false).catch(() => {}); }, 30000);
+setInterval(() => { maybeRunLocalAutopilot(false).catch(() => {}); }, 12 * 60 * 60 * 1000);
 
 // Start the Express Server
 app.listen(PORT, () => {
