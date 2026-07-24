@@ -255,6 +255,41 @@ if (fs.existsSync(AIO_AUDITS_FILE)) {
   fs.writeFileSync(AIO_AUDITS_FILE, JSON.stringify(aioAuditsDb, null, 2));
 }
 
+// ============================================================
+// Multi-engine AI Visibility store (Phase 1). Tracks brand visibility
+// across several answer engines over time, plus a competitor leaderboard.
+// Shape: { prompts:[str], snapshots:[snapshot], updatedAt }
+//   snapshot = { date, engines:[str], visibilityScore, shareOfVoice,
+//     sentimentScore, brandMentions, totalAnswers, perEngine:[{engine,score}],
+//     leaderboard:[{name,isBrand,mentions,score}], answers:[{engine,prompt,recommended,sentiment,competitors,snippet}] }
+const AI_VIS_FILE = path.join(DATA_DIR, 'ai-visibility.json');
+const DEFAULT_VIS_PROMPTS = [
+  'best senior fitness in St. Petersburg FL',
+  'personal trainer for adults over 50 in St. Petersburg',
+  'senior gym St. Petersburg Florida',
+  'best fitness studio for injury recovery in St. Petersburg',
+  'balance and mobility training for older adults St. Petersburg'
+];
+let aiVisDb = { prompts: DEFAULT_VIS_PROMPTS.slice(), snapshots: [], updatedAt: null };
+if (fs.existsSync(AI_VIS_FILE)) {
+  try {
+    const loaded = JSON.parse(fs.readFileSync(AI_VIS_FILE, 'utf8'));
+    if (loaded && typeof loaded === 'object') {
+      aiVisDb = {
+        prompts: Array.isArray(loaded.prompts) && loaded.prompts.length ? loaded.prompts : DEFAULT_VIS_PROMPTS.slice(),
+        snapshots: Array.isArray(loaded.snapshots) ? loaded.snapshots : [],
+        updatedAt: loaded.updatedAt || null
+      };
+    }
+  } catch (e) { /* keep defaults */ }
+} else {
+  try { fs.writeFileSync(AI_VIS_FILE, JSON.stringify(aiVisDb, null, 2)); } catch (e) {}
+}
+function saveAiVis() {
+  try { fs.writeFileSync(AI_VIS_FILE, JSON.stringify(aiVisDb, null, 2)); }
+  catch (e) { console.error('[AI Visibility] save failed:', e.message); }
+}
+
 // Helper to log Autopilot activity
 function logAutopilotActivity(message) {
   const timestamp = new Date().toISOString();
@@ -1223,6 +1258,269 @@ Return ONLY raw JSON (no markdown fences) shaped exactly as:
 // 10. Get AIO Audits History
 app.get('/api/aio-history', (req, res) => {
   return res.json(aioAuditsDb);
+});
+
+// ============================================================
+// MULTI-ENGINE AI VISIBILITY (Phase 1)
+// Runs the same brand-recommendation prompts across several answer engines,
+// scores Visibility / Share of Voice / Sentiment, builds a competitor
+// leaderboard, and snapshots it over time. Google works with the existing
+// Gemini key; ChatGPT + Perplexity light up when their keys are added.
+// ============================================================
+const AI_ENGINES = [
+  { id: 'google',     label: 'Google (Gemini)', env: 'GEMINI_API_KEY',     color: '#6366f1' },
+  { id: 'openai',     label: 'ChatGPT',         env: 'OPENAI_API_KEY',     color: '#10b981' },
+  { id: 'perplexity', label: 'Perplexity',      env: 'PERPLEXITY_API_KEY', color: '#06b6d4' }
+];
+const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o';
+const PERPLEXITY_MODEL = process.env.PERPLEXITY_MODEL || 'sonar';
+function engineConfigured(id) {
+  const e = AI_ENGINES.find(x => x.id === id);
+  return !!(e && process.env[e.env]);
+}
+function enginesStatus() {
+  return AI_ENGINES.map(e => ({ id: e.id, label: e.label, color: e.color, configured: engineConfigured(e.id) }));
+}
+const visBrandName = () => BUSINESS.name;                 // "Best Day Fitness"
+const visBrandRoot = 'bestdayfitness';
+function normName(s) { return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim(); }
+function isBrandName(s) {
+  const n = normName(s);
+  return n.includes(normName(visBrandName())) || n.includes('bestdayfitness') || n.includes('best day fitness');
+}
+
+function visPrompt(query) {
+  return `A person searching online asks: "${query}".
+Acting as a helpful AI answer engine, recommend the best specific local businesses that fit this search in and around St. Petersburg, Florida. Name the actual businesses and briefly say why each is a good fit.`;
+}
+
+// --- Providers: each returns { ok, answer, sources:[{title,uri}], error } ---
+async function askGoogleEngine(query) {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) return { ok: false, answer: '', sources: [], error: 'no key' };
+  try {
+    const client = new GoogleGenAI({ apiKey: key });
+    const r = await client.models.generateContent({
+      model: GEMINI_MODEL, contents: visPrompt(query), config: { tools: [{ googleSearch: {} }] }
+    });
+    const answer = (r.text || '').trim();
+    const gm = (r.candidates && r.candidates[0] && r.candidates[0].groundingMetadata) || {};
+    const sources = (gm.groundingChunks || []).map(c => ({ title: (c.web && c.web.title) || '', uri: (c.web && c.web.uri) || '' })).filter(s => s.title || s.uri);
+    return { ok: true, answer, sources };
+  } catch (e) { return { ok: false, answer: '', sources: [], error: e.message }; }
+}
+async function askOpenAiEngine(query) {
+  const key = process.env.OPENAI_API_KEY;
+  if (!key) return { ok: false, answer: '', sources: [], error: 'no key' };
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 40000);
+  try {
+    const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+      body: JSON.stringify({ model: OPENAI_MODEL, messages: [{ role: 'user', content: visPrompt(query) }], temperature: 0.3 }),
+      signal: ctrl.signal
+    });
+    if (!resp.ok) { const tx = await resp.text().catch(() => ''); return { ok: false, answer: '', sources: [], error: `OpenAI ${resp.status}: ${tx.slice(0, 160)}` }; }
+    const j = await resp.json();
+    const answer = ((j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || '').trim();
+    return { ok: true, answer, sources: [] };
+  } catch (e) { return { ok: false, answer: '', sources: [], error: e.name === 'AbortError' ? 'timeout' : e.message }; }
+  finally { clearTimeout(t); }
+}
+async function askPerplexityEngine(query) {
+  const key = process.env.PERPLEXITY_API_KEY;
+  if (!key) return { ok: false, answer: '', sources: [], error: 'no key' };
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 40000);
+  try {
+    const resp = await fetch('https://api.perplexity.ai/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+      body: JSON.stringify({ model: PERPLEXITY_MODEL, messages: [{ role: 'user', content: visPrompt(query) }] }),
+      signal: ctrl.signal
+    });
+    if (!resp.ok) { const tx = await resp.text().catch(() => ''); return { ok: false, answer: '', sources: [], error: `Perplexity ${resp.status}: ${tx.slice(0, 160)}` }; }
+    const j = await resp.json();
+    const answer = ((j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || '').trim();
+    const sources = Array.isArray(j.citations) ? j.citations.map(u => ({ title: '', uri: u })) : [];
+    return { ok: true, answer, sources };
+  } catch (e) { return { ok: false, answer: '', sources: [], error: e.name === 'AbortError' ? 'timeout' : e.message }; }
+  finally { clearTimeout(t); }
+}
+async function askEngine(id, query) {
+  if (id === 'google') return askGoogleEngine(query);
+  if (id === 'openai') return askOpenAiEngine(query);
+  if (id === 'perplexity') return askPerplexityEngine(query);
+  return { ok: false, answer: '', sources: [], error: 'unknown engine' };
+}
+
+// --- Analyzer: use Gemini to read any engine's answer and extract, uniformly,
+// whether the brand is recommended, the sentiment toward it, and competitor names. ---
+async function analyzeVisAnswer(query, answerText, sources) {
+  const brand = visBrandName();
+  const hay = (answerText + ' ' + (sources || []).map(s => s.title + ' ' + s.uri).join(' ')).toLowerCase();
+  const stringHit = hay.includes(brand.toLowerCase()) || hay.includes(visBrandRoot);
+  const key = process.env.GEMINI_API_KEY;
+  if (!key || !answerText) {
+    return { recommended: stringHit, sentiment: stringHit ? 'neutral' : 'absent', competitors: [] };
+  }
+  try {
+    const client = new GoogleGenAI({ apiKey: key });
+    const p = `An AI answer engine responded to the query "${query}" with:
+"""
+${answerText.slice(0, 4000)}
+"""
+The brand we care about is "${brand}". Return ONLY raw JSON, no markdown:
+{"mentioned": true or false (does the answer recommend or mention ${brand}?), "sentiment": "positive" | "neutral" | "negative" (tone toward ${brand}; use "neutral" if merely listed; ignore if not mentioned), "competitors": ["names of OTHER businesses the answer recommends or mentions, excluding ${brand}"]}`;
+    const r = await client.models.generateContent({ model: GEMINI_MODEL, contents: p });
+    const parsed = parseGeminiJson(r.text) || {};
+    const mentioned = typeof parsed.mentioned === 'boolean' ? parsed.mentioned : stringHit;
+    let competitors = Array.isArray(parsed.competitors) ? parsed.competitors.filter(Boolean).filter(c => !isBrandName(c)) : [];
+    // de-dupe by normalized name, keep display
+    const seen = new Set(); competitors = competitors.filter(c => { const n = normName(c); if (!n || seen.has(n)) return false; seen.add(n); return true; });
+    let sentiment = ['positive', 'neutral', 'negative'].includes(parsed.sentiment) ? parsed.sentiment : 'neutral';
+    if (!mentioned) sentiment = 'absent';
+    return { recommended: !!mentioned, sentiment, competitors };
+  } catch (e) {
+    return { recommended: stringHit, sentiment: stringHit ? 'neutral' : 'absent', competitors: [] };
+  }
+}
+
+function sentimentToScore(s) { return s === 'positive' ? 100 : s === 'negative' ? 0 : 50; }
+
+// Orchestrator: run every enabled engine × prompt, score, and snapshot.
+async function runAiVisibility(engineIds) {
+  const enabled = (engineIds && engineIds.length ? engineIds : AI_ENGINES.map(e => e.id)).filter(engineConfigured);
+  if (!enabled.length) return { error: 'No AI engines are configured. Add GEMINI_API_KEY (and optionally OPENAI_API_KEY / PERPLEXITY_API_KEY).' };
+  const prompts = (aiVisDb.prompts && aiVisDb.prompts.length ? aiVisDb.prompts : DEFAULT_VIS_PROMPTS).slice(0, 25);
+  const brand = visBrandName();
+
+  const answers = [];
+  for (const engine of enabled) {
+    for (const prompt of prompts) {
+      const res = await askEngine(engine, prompt);
+      if (!res.ok) { answers.push({ engine, prompt, recommended: false, sentiment: 'error', competitors: [], snippet: '', error: res.error || 'failed' }); continue; }
+      const analysis = await analyzeVisAnswer(prompt, res.answer, res.sources);
+      answers.push({
+        engine, prompt,
+        recommended: analysis.recommended,
+        sentiment: analysis.sentiment,
+        competitors: analysis.competitors,
+        snippet: res.answer.length > 320 ? res.answer.slice(0, 317) + '…' : res.answer,
+        sources: (res.sources || []).slice(0, 6)
+      });
+    }
+  }
+
+  const scored = answers.filter(a => a.sentiment !== 'error');   // only answers we actually got
+  const totalAnswers = scored.length;
+  const brandMentions = scored.filter(a => a.recommended).length;
+  const visibilityScore = totalAnswers ? Math.round(brandMentions / totalAnswers * 100) : 0;
+
+  // Mention tally for share of voice + leaderboard (brand + competitors)
+  const mentions = {};       // normalized -> { name, count, isBrand }
+  const bump = (name, isBrand) => { const n = normName(name); if (!n) return; if (!mentions[n]) mentions[n] = { name: name, count: 0, isBrand: !!isBrand }; mentions[n].count++; };
+  scored.forEach(a => { if (a.recommended) bump(brand, true); a.competitors.forEach(c => bump(c, false)); });
+  const totalMentions = Object.values(mentions).reduce((s, m) => s + m.count, 0);
+  const shareOfVoice = totalMentions ? Math.round(brandMentions / totalMentions * 100) : 0;
+
+  const brandAnswers = scored.filter(a => a.recommended);
+  const sentimentScore = brandAnswers.length ? Math.round(brandAnswers.reduce((s, a) => s + sentimentToScore(a.sentiment), 0) / brandAnswers.length) : null;
+
+  const leaderboard = Object.values(mentions)
+    .map(m => ({ name: m.name, isBrand: m.isBrand, mentions: m.count, score: totalAnswers ? Math.round(m.count / totalAnswers * 100) : 0 }))
+    .sort((a, b) => b.mentions - a.mentions);
+  // ensure brand present in leaderboard even at 0
+  if (!leaderboard.some(l => l.isBrand)) leaderboard.push({ name: brand, isBrand: true, mentions: 0, score: 0 });
+
+  const perEngine = enabled.map(engine => {
+    const es = scored.filter(a => a.engine === engine);
+    const em = es.filter(a => a.recommended).length;
+    return { engine, label: (AI_ENGINES.find(e => e.id === engine) || {}).label || engine, score: es.length ? Math.round(em / es.length * 100) : 0, answers: es.length };
+  });
+
+  const today = new Date().toISOString().slice(0, 10);
+  const snapshot = { date: today, ranAt: new Date().toISOString(), engines: enabled, prompts, visibilityScore, shareOfVoice, sentimentScore, brandMentions, totalAnswers, perEngine, leaderboard, answers };
+
+  // replace same-day snapshot, else append; keep last 60
+  const idx = aiVisDb.snapshots.findIndex(s => s.date === today);
+  if (idx >= 0) aiVisDb.snapshots[idx] = snapshot; else aiVisDb.snapshots.push(snapshot);
+  aiVisDb.snapshots = aiVisDb.snapshots.slice(-60);
+  aiVisDb.updatedAt = snapshot.ranAt;
+  saveAiVis();
+  return { snapshot };
+}
+
+// Build the trend series the dashboard chart needs: one line per brand
+// (you + top competitors) across snapshots, plus your metric lines.
+function visTrend() {
+  const snaps = aiVisDb.snapshots.slice(-24);
+  const brandKey = normName(visBrandName());
+  // pick top competitors by latest leaderboard
+  const latest = snaps[snaps.length - 1];
+  const topNames = latest ? latest.leaderboard.slice(0, 6).map(l => l.name) : [visBrandName()];
+  const series = topNames.map(name => {
+    const nk = normName(name);
+    return {
+      name, isBrand: nk === brandKey,
+      points: snaps.map(s => {
+        const row = (s.leaderboard || []).find(l => normName(l.name) === nk);
+        return { date: s.date, score: row ? row.score : 0 };
+      })
+    };
+  });
+  const metricLines = {
+    visibility: snaps.map(s => ({ date: s.date, value: s.visibilityScore })),
+    shareOfVoice: snaps.map(s => ({ date: s.date, value: s.shareOfVoice })),
+    sentiment: snaps.map(s => ({ date: s.date, value: s.sentimentScore }))
+  };
+  return { series, metricLines, dates: snaps.map(s => s.date) };
+}
+
+// GET current state: engine status, prompts, latest snapshot, deltas, trend.
+app.get('/api/ai-visibility', (req, res) => {
+  const snaps = aiVisDb.snapshots;
+  const latest = snaps[snaps.length - 1] || null;
+  const prev = snaps.length > 1 ? snaps[snaps.length - 2] : null;
+  const delta = (a, b) => (a == null || b == null) ? null : a - b;
+  const deltas = latest ? {
+    visibility: prev ? delta(latest.visibilityScore, prev.visibilityScore) : null,
+    shareOfVoice: prev ? delta(latest.shareOfVoice, prev.shareOfVoice) : null,
+    sentiment: prev ? delta(latest.sentimentScore, prev.sentimentScore) : null
+  } : null;
+  return res.json({
+    brand: visBrandName(),
+    engines: enginesStatus(),
+    prompts: aiVisDb.prompts,
+    latest, deltas,
+    trend: visTrend(),
+    updatedAt: aiVisDb.updatedAt,
+    anyConfigured: AI_ENGINES.some(e => engineConfigured(e.id))
+  });
+});
+
+// POST run a fresh multi-engine visibility sweep (spends API credits).
+app.post('/api/ai-visibility/run', requireAuth, async (req, res) => {
+  const { engines } = req.body || {};
+  try {
+    const out = await runAiVisibility(Array.isArray(engines) ? engines : null);
+    if (out.error) return res.status(400).json({ success: false, error: out.error });
+    return res.json({ success: true, snapshot: out.snapshot, deltas: null });
+  } catch (e) {
+    console.error('[AI Visibility run] failed:', e.message);
+    return res.status(502).json({ success: false, error: e.message });
+  }
+});
+
+// POST update the tracked prompt list.
+app.post('/api/ai-visibility/prompts', requireAuth, (req, res) => {
+  const { prompts } = req.body || {};
+  if (!Array.isArray(prompts)) return res.status(400).json({ success: false, error: 'prompts must be an array of strings.' });
+  const clean = prompts.map(p => String(p || '').trim()).filter(Boolean).slice(0, 25);
+  aiVisDb.prompts = clean.length ? clean : DEFAULT_VIS_PROMPTS.slice();
+  saveAiVis();
+  return res.json({ success: true, prompts: aiVisDb.prompts });
 });
 
 // 11. Generate JSON-LD Schema Assets
