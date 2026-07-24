@@ -1299,13 +1299,13 @@ Acting as a helpful AI answer engine, recommend the best specific local business
 }
 
 // --- Providers: each returns { ok, answer, sources:[{title,uri}], error } ---
-async function askGoogleEngine(query) {
+async function askGoogleEngine(promptText) {
   const key = process.env.GEMINI_API_KEY;
   if (!key) return { ok: false, answer: '', sources: [], error: 'no key' };
   try {
     const client = new GoogleGenAI({ apiKey: key });
     const r = await client.models.generateContent({
-      model: GEMINI_MODEL, contents: visPrompt(query), config: { tools: [{ googleSearch: {} }] }
+      model: GEMINI_MODEL, contents: promptText, config: { tools: [{ googleSearch: {} }] }
     });
     const answer = (r.text || '').trim();
     const gm = (r.candidates && r.candidates[0] && r.candidates[0].groundingMetadata) || {};
@@ -1313,7 +1313,7 @@ async function askGoogleEngine(query) {
     return { ok: true, answer, sources };
   } catch (e) { return { ok: false, answer: '', sources: [], error: e.message }; }
 }
-async function askOpenAiEngine(query) {
+async function askOpenAiEngine(promptText) {
   const key = process.env.OPENAI_API_KEY;
   if (!key) return { ok: false, answer: '', sources: [], error: 'no key' };
   const ctrl = new AbortController();
@@ -1322,7 +1322,7 @@ async function askOpenAiEngine(query) {
     const resp = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
-      body: JSON.stringify({ model: OPENAI_MODEL, messages: [{ role: 'user', content: visPrompt(query) }], temperature: 0.3 }),
+      body: JSON.stringify({ model: OPENAI_MODEL, messages: [{ role: 'user', content: promptText }], temperature: 0.3 }),
       signal: ctrl.signal
     });
     if (!resp.ok) { const tx = await resp.text().catch(() => ''); return { ok: false, answer: '', sources: [], error: `OpenAI ${resp.status}: ${tx.slice(0, 160)}` }; }
@@ -1332,7 +1332,7 @@ async function askOpenAiEngine(query) {
   } catch (e) { return { ok: false, answer: '', sources: [], error: e.name === 'AbortError' ? 'timeout' : e.message }; }
   finally { clearTimeout(t); }
 }
-async function askPerplexityEngine(query) {
+async function askPerplexityEngine(promptText) {
   const key = process.env.PERPLEXITY_API_KEY;
   if (!key) return { ok: false, answer: '', sources: [], error: 'no key' };
   const ctrl = new AbortController();
@@ -1341,7 +1341,7 @@ async function askPerplexityEngine(query) {
     const resp = await fetch('https://api.perplexity.ai/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
-      body: JSON.stringify({ model: PERPLEXITY_MODEL, messages: [{ role: 'user', content: visPrompt(query) }] }),
+      body: JSON.stringify({ model: PERPLEXITY_MODEL, messages: [{ role: 'user', content: promptText }] }),
       signal: ctrl.signal
     });
     if (!resp.ok) { const tx = await resp.text().catch(() => ''); return { ok: false, answer: '', sources: [], error: `Perplexity ${resp.status}: ${tx.slice(0, 160)}` }; }
@@ -1352,10 +1352,10 @@ async function askPerplexityEngine(query) {
   } catch (e) { return { ok: false, answer: '', sources: [], error: e.name === 'AbortError' ? 'timeout' : e.message }; }
   finally { clearTimeout(t); }
 }
-async function askEngine(id, query) {
-  if (id === 'google') return askGoogleEngine(query);
-  if (id === 'openai') return askOpenAiEngine(query);
-  if (id === 'perplexity') return askPerplexityEngine(query);
+async function askEngine(id, promptText) {
+  if (id === 'google') return askGoogleEngine(promptText);
+  if (id === 'openai') return askOpenAiEngine(promptText);
+  if (id === 'perplexity') return askPerplexityEngine(promptText);
   return { ok: false, answer: '', sources: [], error: 'unknown engine' };
 }
 
@@ -1403,7 +1403,7 @@ async function runAiVisibility(engineIds) {
   const answers = [];
   for (const engine of enabled) {
     for (const prompt of prompts) {
-      const res = await askEngine(engine, prompt);
+      const res = await askEngine(engine, visPrompt(prompt));
       if (!res.ok) { answers.push({ engine, prompt, recommended: false, sentiment: 'error', competitors: [], snippet: '', error: res.error || 'failed' }); continue; }
       const analysis = await analyzeVisAnswer(prompt, res.answer, res.sources);
       answers.push({
@@ -1548,6 +1548,236 @@ app.post('/api/ai-visibility/toggle', requireAuth, (req, res) => {
 // Staggered startup catch-up + 12h heartbeat so the trend fills on schedule.
 setTimeout(() => { maybeRunAiVisibility(false).catch(() => {}); }, 90000);
 setInterval(() => { maybeRunAiVisibility(false).catch(() => {}); }, 12 * 60 * 60 * 1000);
+
+// ============================================================
+// P4a — FACTCHECK / BRAND-ACCURACY MONITOR
+// Asks each engine what it "knows" about the business, then compares against
+// the canonical business identity and flags inaccurate/outdated claims.
+// ============================================================
+const FACTCHECK_FILE = path.join(DATA_DIR, 'ai-factcheck.json');
+let factCheckDb = { latest: null, updatedAt: null };
+if (fs.existsSync(FACTCHECK_FILE)) {
+  try { const l = JSON.parse(fs.readFileSync(FACTCHECK_FILE, 'utf8')); if (l && typeof l === 'object') factCheckDb = { latest: l.latest || null, updatedAt: l.updatedAt || null }; }
+  catch (e) { /* keep default */ }
+} else { try { fs.writeFileSync(FACTCHECK_FILE, JSON.stringify(factCheckDb, null, 2)); } catch (e) {} }
+let factCheckRunning = false;
+function saveFactCheck() { try { fs.writeFileSync(FACTCHECK_FILE, JSON.stringify(factCheckDb, null, 2)); } catch (e) { console.error('[FactCheck] save failed:', e.message); } }
+
+function factTruth() {
+  const kit = (typeof listingKit === 'function') ? listingKit() : {};
+  return {
+    name: BUSINESS.name,
+    city: BUSINESS.addressLocality || 'St. Petersburg',
+    region: BUSINESS.addressRegion || 'FL',
+    address: kit.addressOneLine || `${BUSINESS.streetAddress || ''}, ${BUSINESS.addressLocality || ''}, ${BUSINESS.addressRegion || ''} ${BUSINESS.postalCode || ''}`.trim(),
+    phone: kit.phone || BUSINESS.telephone,
+    website: kit.website || ('https://' + (typeof siteDomain === 'function' ? siteDomain() : 'bestdayfitness.com')),
+    services: Array.isArray(kit.categories) && kit.categories.length ? kit.categories.join(', ') : 'senior fitness, personal training, physical therapy, wellness for adults 50+'
+  };
+}
+
+async function analyzeFactAnswer(answerText, truth) {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key || !answerText) return { issues: [], summary: key ? 'The engine gave no usable answer.' : 'Add a Gemini key to analyze answers.' };
+  try {
+    const client = new GoogleGenAI({ apiKey: key });
+    const p = `An AI assistant said the following about our business:
+"""
+${answerText.slice(0, 4000)}
+"""
+GROUND TRUTH about the business:
+${JSON.stringify(truth)}
+
+Compare the AI's factual claims to the ground truth. Focus on: location (city/state), street address, phone number, and business type/services. Ignore hedged or "I don't know" statements. Only list claims the AI actually asserted. Return ONLY raw JSON, no markdown:
+{"issues":[{"field":"location|address|phone|services|name|other","aiClaim":"what the AI asserted (short)","correct":true or false,"truth":"the correct value","note":"short note"}],"summary":"one sentence on overall accuracy"}`;
+    const r = await client.models.generateContent({ model: GEMINI_MODEL, contents: p });
+    const parsed = parseGeminiJson(r.text) || {};
+    const issues = Array.isArray(parsed.issues) ? parsed.issues.filter(i => i && i.aiClaim).map(i => ({
+      field: String(i.field || 'other'), aiClaim: String(i.aiClaim), correct: i.correct !== false, truth: String(i.truth || ''), note: String(i.note || '')
+    })) : [];
+    return { issues, summary: String(parsed.summary || '') };
+  } catch (e) { return { issues: [], summary: 'Analysis failed: ' + e.message }; }
+}
+
+async function runFactCheck() {
+  const enabled = AI_ENGINES.map(e => e.id).filter(engineConfigured);
+  if (!enabled.length) return { error: 'No AI engines are configured. Add GEMINI_API_KEY (and optionally OPENAI_API_KEY / PERPLEXITY_API_KEY).' };
+  const truth = factTruth();
+  const q = `Tell me what you know about the business "${truth.name}" in ${truth.city}, ${truth.region}. Include: what city and state it is in, its street address if you know it, its phone number, and its main services or business type. Only state facts you are confident about; if you don't know a detail, say you don't know.`;
+  const results = [];
+  for (const engine of enabled) {
+    const label = (AI_ENGINES.find(e => e.id === engine) || {}).label || engine;
+    const res = await askEngine(engine, q);
+    if (!res.ok) { results.push({ engine, label, error: res.error || 'failed', accuracy: null, wrong: 0, totalClaims: 0, issues: [], summary: '' }); continue; }
+    const analysis = await analyzeFactAnswer(res.answer, truth);
+    const totalClaims = analysis.issues.length;
+    const wrong = analysis.issues.filter(i => !i.correct).length;
+    const accuracy = totalClaims ? Math.round((totalClaims - wrong) / totalClaims * 100) : null;
+    results.push({ engine, label, accuracy, wrong, totalClaims, issues: analysis.issues, summary: analysis.summary, snippet: res.answer.length > 400 ? res.answer.slice(0, 397) + '…' : res.answer, sources: (res.sources || []).slice(0, 5) });
+  }
+  const totalWrong = results.reduce((s, r) => s + (r.wrong || 0), 0);
+  const snapshot = { ranAt: new Date().toISOString(), truth, engines: enabled, results, totalWrong };
+  factCheckDb.latest = snapshot; factCheckDb.updatedAt = snapshot.ranAt; saveFactCheck();
+  return { snapshot };
+}
+
+app.get('/api/ai-factcheck', (req, res) => {
+  res.json({ latest: factCheckDb.latest, updatedAt: factCheckDb.updatedAt, engines: enginesStatus(), anyConfigured: AI_ENGINES.some(e => engineConfigured(e.id)), running: factCheckRunning });
+});
+app.post('/api/ai-factcheck/run', requireAuth, async (req, res) => {
+  if (factCheckRunning) return res.json({ success: true, busy: true });
+  factCheckRunning = true;
+  try {
+    const out = await runFactCheck();
+    if (out.error) return res.status(400).json({ success: false, error: out.error });
+    res.json({ success: true, snapshot: out.snapshot });
+  } catch (e) { console.error('[FactCheck run] failed:', e.message); res.status(502).json({ success: false, error: e.message }); }
+  finally { factCheckRunning = false; }
+});
+
+// ============================================================
+// P4b — AI CRAWLER ACCESS AUDIT
+// AI crawlers are server-side bots (they don't run JS), and GHL doesn't expose
+// server logs — so we can't count hits. What we CAN do (and what actually
+// matters) is verify the site's robots.txt lets the AI bots read it at all.
+// A blocked GPTBot = invisible to ChatGPT no matter how good the content is.
+// ============================================================
+const AI_CRAWLERS = [
+  { ua: 'GPTBot', label: 'GPTBot', purpose: 'OpenAI — trains & feeds ChatGPT' },
+  { ua: 'OAI-SearchBot', label: 'OAI-SearchBot', purpose: 'ChatGPT Search index' },
+  { ua: 'ChatGPT-User', label: 'ChatGPT-User', purpose: 'ChatGPT live browsing' },
+  { ua: 'PerplexityBot', label: 'PerplexityBot', purpose: 'Perplexity index' },
+  { ua: 'ClaudeBot', label: 'ClaudeBot', purpose: 'Anthropic Claude' },
+  { ua: 'Google-Extended', label: 'Google-Extended', purpose: 'Gemini / Google AI' },
+  { ua: 'Applebot-Extended', label: 'Applebot-Extended', purpose: 'Apple Intelligence' },
+  { ua: 'Amazonbot', label: 'Amazonbot', purpose: 'Amazon (Alexa / Rufus)' },
+  { ua: 'meta-externalagent', label: 'Meta-ExternalAgent', purpose: 'Meta AI' },
+  { ua: 'Bytespider', label: 'Bytespider', purpose: 'ByteDance / TikTok AI' },
+  { ua: 'CCBot', label: 'CCBot', purpose: 'Common Crawl — feeds many LLMs' }
+];
+const AI_CRAWLERS_FILE = path.join(DATA_DIR, 'ai-crawlers.json');
+let crawlersDb = { latest: null, updatedAt: null };
+if (fs.existsSync(AI_CRAWLERS_FILE)) {
+  try { const l = JSON.parse(fs.readFileSync(AI_CRAWLERS_FILE, 'utf8')); if (l && typeof l === 'object') crawlersDb = { latest: l.latest || null, updatedAt: l.updatedAt || null }; } catch (e) {}
+} else { try { fs.writeFileSync(AI_CRAWLERS_FILE, JSON.stringify(crawlersDb, null, 2)); } catch (e) {} }
+let crawlersRunning = false;
+function saveCrawlers() { try { fs.writeFileSync(AI_CRAWLERS_FILE, JSON.stringify(crawlersDb, null, 2)); } catch (e) { console.error('[AI Crawlers] save failed:', e.message); } }
+
+function parseRobots(txt) {
+  const groups = []; let cur = null;
+  (txt || '').split(/\r?\n/).forEach(line => {
+    const l = line.replace(/#.*$/, '').trim(); if (!l) return;
+    const m = l.match(/^([a-z-]+)\s*:\s*(.*)$/i); if (!m) return;
+    const field = m[1].toLowerCase(), val = m[2].trim();
+    if (field === 'user-agent') { if (!cur || cur._started) { cur = { agents: [], allow: [], disallow: [], _started: false }; groups.push(cur); } cur.agents.push(val.toLowerCase()); }
+    else if (field === 'disallow' && cur) { cur._started = true; cur.disallow.push(val); }
+    else if (field === 'allow' && cur) { cur._started = true; cur.allow.push(val); }
+  });
+  return groups;
+}
+function crawlerVerdict(groups, ua) {
+  const lua = ua.toLowerCase();
+  let g = groups.find(gr => gr.agents.some(a => a !== '*' && (a === lua || lua.includes(a) || a.includes(lua))));
+  let matchedBy = g ? 'specific rule' : '';
+  if (!g) { g = groups.find(gr => gr.agents.includes('*')); matchedBy = g ? 'the * (all bots) rule' : ''; }
+  if (!g) return { status: 'allowed', reason: 'not restricted', matchedBy: 'no matching rule' };
+  const blocksAll = g.disallow.includes('/');
+  const allowsRoot = g.allow.includes('/');
+  if (blocksAll && !allowsRoot) return { status: 'blocked', reason: 'Disallow: /', matchedBy };
+  const somePaths = g.disallow.filter(d => d && d !== '/').length;
+  return { status: 'allowed', reason: somePaths ? 'allowed (some paths blocked)' : 'allowed', matchedBy };
+}
+async function runCrawlerAudit() {
+  const base = siteDomain();
+  const url = base + '/robots.txt';
+  let robotsText = '', hadRobots = false, status = 0, fetchError = '';
+  try {
+    const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), 15000);
+    const resp = await fetch(url, { signal: ctrl.signal, headers: { 'User-Agent': 'SEO-Buddy-AI-Readiness/1.0' } });
+    clearTimeout(t); status = resp.status;
+    if (resp.ok) { robotsText = await resp.text(); hadRobots = true; }
+  } catch (e) { fetchError = e.name === 'AbortError' ? 'timeout' : e.message; }
+  const groups = parseRobots(robotsText);
+  const bots = AI_CRAWLERS.map(b => {
+    const v = hadRobots ? crawlerVerdict(groups, b.ua) : { status: 'allowed', reason: 'no robots.txt found (site is open to all)', matchedBy: 'none' };
+    return { ...b, ...v };
+  });
+  const blocked = bots.filter(b => b.status === 'blocked').length;
+  const snapshot = { ranAt: new Date().toISOString(), site: base, robotsUrl: url, hadRobots, status, fetchError, blocked, total: bots.length, bots, robotsSnippet: robotsText.slice(0, 1500) };
+  crawlersDb.latest = snapshot; crawlersDb.updatedAt = snapshot.ranAt; saveCrawlers();
+  return { snapshot };
+}
+app.get('/api/ai-crawlers', (req, res) => {
+  res.json({ latest: crawlersDb.latest, updatedAt: crawlersDb.updatedAt, running: crawlersRunning, site: siteDomain() });
+});
+app.post('/api/ai-crawlers/run', requireAuth, async (req, res) => {
+  if (crawlersRunning) return res.json({ success: true, busy: true });
+  crawlersRunning = true;
+  try { const out = await runCrawlerAudit(); res.json({ success: true, snapshot: out.snapshot }); }
+  catch (e) { console.error('[AI Crawlers run] failed:', e.message); res.status(502).json({ success: false, error: e.message }); }
+  finally { crawlersRunning = false; }
+});
+
+// ============================================================
+// P4c — REDDIT VISIBILITY ENGINE
+// AI answer engines cite Reddit heavily. This finds real, high-intent Reddit
+// threads where the business can add genuine value (and get mentioned), with
+// an authentic, non-spammy engagement angle for each.
+// ============================================================
+const REDDIT_FILE = path.join(DATA_DIR, 'reddit-threads.json');
+let redditDb = { latest: null, updatedAt: null };
+if (fs.existsSync(REDDIT_FILE)) {
+  try { const l = JSON.parse(fs.readFileSync(REDDIT_FILE, 'utf8')); if (l && typeof l === 'object') redditDb = { latest: l.latest || null, updatedAt: l.updatedAt || null }; } catch (e) {}
+} else { try { fs.writeFileSync(REDDIT_FILE, JSON.stringify(redditDb, null, 2)); } catch (e) {} }
+let redditRunning = false;
+function saveReddit() { try { fs.writeFileSync(REDDIT_FILE, JSON.stringify(redditDb, null, 2)); } catch (e) { console.error('[Reddit] save failed:', e.message); } }
+
+async function runRedditScan() {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) return { error: 'Reddit discovery uses live Google Search grounding — add your Gemini API key in Settings.' };
+  const kit = (typeof listingKit === 'function') ? listingKit() : {};
+  const brand = BUSINESS.name;
+  const city = BUSINESS.addressLocality || 'St. Petersburg';
+  const region = BUSINESS.addressRegion || 'FL';
+  const desc = kit.shortDesc || 'a senior-focused fitness & wellness studio for adults 50+';
+  try {
+    const client = new GoogleGenAI({ apiKey: key });
+    const p = `Using current web information, find real, active Reddit threads where a business like "${brand}" — ${desc} in ${city}, ${region} — could genuinely help by participating.
+Look for people asking for recommendations about: senior fitness, personal trainers for adults over 50, mobility/balance/strength for older adults, injury recovery, physical therapy, or gyms in ${city} or the Tampa Bay FL area — plus broader relevant discussions people ask AI about.
+Only include REAL reddit.com thread URLs you actually find in search. For each, give a short authentic, helpful, NON-spammy way to add value (be a real participant, disclose the affiliation, never hard-sell).
+Return ONLY raw JSON, no markdown: {"threads":[{"title":"the thread title","subreddit":"r/...","url":"https://www.reddit.com/...","why":"one line on why it's relevant","angle":"a short, genuine way to contribute value"}]}`;
+    const r = await client.models.generateContent({ model: GEMINI_MODEL, contents: p, config: { tools: [{ googleSearch: {} }] } });
+    const parsed = parseGeminiJson(r.text) || {};
+    let threads = Array.isArray(parsed.threads) ? parsed.threads : [];
+    threads = threads
+      .filter(t => t && t.url && /reddit\.com/i.test(t.url))
+      .map(t => ({
+        title: String(t.title || 'Reddit thread').slice(0, 200),
+        subreddit: String(t.subreddit || '').replace(/^\/?r?\/?/i, 'r/').slice(0, 40),
+        url: String(t.url).trim(),
+        why: String(t.why || '').slice(0, 240),
+        angle: String(t.angle || '').slice(0, 300)
+      }));
+    // de-dupe by url
+    const seen = new Set(); threads = threads.filter(t => { if (seen.has(t.url)) return false; seen.add(t.url); return true; }).slice(0, 12);
+    const snapshot = { ranAt: new Date().toISOString(), threads };
+    redditDb.latest = snapshot; redditDb.updatedAt = snapshot.ranAt; saveReddit();
+    return { snapshot };
+  } catch (e) { return { error: e.message }; }
+}
+app.get('/api/reddit-threads', (req, res) => {
+  res.json({ latest: redditDb.latest, updatedAt: redditDb.updatedAt, running: redditRunning, anyConfigured: !!process.env.GEMINI_API_KEY });
+});
+app.post('/api/reddit-threads/run', requireAuth, async (req, res) => {
+  if (redditRunning) return res.json({ success: true, busy: true });
+  redditRunning = true;
+  try {
+    const out = await runRedditScan();
+    if (out.error) return res.status(400).json({ success: false, error: out.error });
+    res.json({ success: true, snapshot: out.snapshot });
+  } catch (e) { console.error('[Reddit run] failed:', e.message); res.status(502).json({ success: false, error: e.message }); }
+  finally { redditRunning = false; }
+});
 
 // POST update the tracked prompt list.
 app.post('/api/ai-visibility/prompts', requireAuth, (req, res) => {
