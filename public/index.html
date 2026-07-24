@@ -867,13 +867,37 @@
           #aio-tab .av-empty{border:1px dashed var(--border-color);border-radius:14px;padding:28px;text-align:center;color:var(--text-muted);font-size:14px;line-height:1.6;margin-bottom:22px;}
           #aio-tab .av-divider{display:flex;align-items:center;gap:12px;margin:26px 0 18px;color:var(--text-dark);font-size:12px;text-transform:uppercase;letter-spacing:.5px;}
           #aio-tab .av-divider::before,#aio-tab .av-divider::after{content:'';flex:1;height:1px;background:var(--border-color);}
+          #aio-tab .av-auto{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--text-muted);cursor:pointer;white-space:nowrap;}
+          #aio-tab .av-switch{position:relative;display:inline-block;width:38px;height:22px;flex-shrink:0;}
+          #aio-tab .av-switch input{opacity:0;width:0;height:0;}
+          #aio-tab .av-slider{position:absolute;inset:0;background:rgba(255,255,255,.12);border-radius:999px;transition:.3s;}
+          #aio-tab .av-slider:before{content:"";position:absolute;height:16px;width:16px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.3s;}
+          #aio-tab .av-switch input:checked + .av-slider{background:var(--color-success);}
+          #aio-tab .av-switch input:checked + .av-slider:before{transform:translateX(16px);}
+          #aio-tab .av-linkbtn{background:none;border:0;color:var(--color-secondary);font-size:12px;cursor:pointer;font-family:inherit;text-decoration:underline;}
+          #aio-tab .av-prompts{border:1px solid var(--border-color);border-radius:12px;padding:16px;margin-bottom:20px;background:var(--bg-card);}
+          #aio-tab .av-prompts h4{margin:0 0 4px;font-size:14px;}
+          #aio-tab .av-prompts textarea{width:100%;min-height:120px;background:rgba(0,0,0,.3);border:1px solid var(--border-color);color:var(--text-main);border-radius:8px;padding:10px;font-family:inherit;font-size:13px;line-height:1.6;resize:vertical;}
+          #aio-tab .av-prompts-actions{display:flex;gap:10px;margin-top:10px;}
         </style>
 
         <div class="av-toolbar">
           <div class="av-engines" id="av-engines"></div>
           <div class="av-toolbar-right">
             <span class="av-updated" id="av-updated"></span>
+            <label class="av-auto" title="Automatically re-run once a week so your trend fills in on its own"><span class="av-switch"><input type="checkbox" id="av-auto"><span class="av-slider"></span></span><span>Auto weekly</span></label>
+            <button class="av-linkbtn" id="av-edit-prompts" type="button">Edit prompts</button>
             <button class="btn btn-primary btn-xs" id="av-run" type="button">&#8635; Run AI visibility check</button>
+          </div>
+        </div>
+
+        <div class="av-prompts" id="av-prompts-panel" style="display:none;">
+          <h4>Tracked search prompts</h4>
+          <p class="text-muted" style="font-size:12.5px;margin:0 0 10px;">One search per line &mdash; these are the questions run across every engine. Up to 25.</p>
+          <textarea id="av-prompts-text" placeholder="best senior fitness in St. Petersburg FL&#10;personal trainer for adults over 50 St. Petersburg"></textarea>
+          <div class="av-prompts-actions">
+            <button class="btn btn-primary btn-xs" id="av-prompts-save" type="button">Save prompts</button>
+            <button class="btn btn-secondary btn-xs" id="av-prompts-cancel" type="button">Cancel</button>
           </div>
         </div>
 

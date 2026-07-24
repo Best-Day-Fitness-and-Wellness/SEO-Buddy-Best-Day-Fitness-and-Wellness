@@ -1595,6 +1595,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const anyConfigured = avState.anyConfigured;
     const hasData = !!avState.latest;
     const emptyEl = avEl('av-empty'), mainEl = avEl('av-main');
+    // auto-weekly toggle + running state
+    const autoBox = avEl('av-auto'); if (autoBox) autoBox.checked = !!avState.autoEnabled;
+    const runBtn = avEl('av-run');
+    if (runBtn) {
+      if (avState.running) { runBtn.disabled = true; runBtn.innerHTML = 'Checking engines…'; }
+      else if (!runBtn.dataset.busy) { runBtn.disabled = false; runBtn.innerHTML = '&#8635; Run AI visibility check'; }
+    }
+    if (avState.running) avStartPolling();
     if (avEl('av-updated')) avEl('av-updated').innerText = avState.updatedAt ? ('Last check ' + avAgo(avState.updatedAt)) : 'Never run';
     if (!hasData) {
       mainEl.style.display = 'none';
@@ -1632,20 +1640,63 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   window.loadAiVisibility = loadAiVisibility;
 
+  // Poll while a check runs in the background (scheduled or long manual run).
+  let avPollTimer = null;
+  function avStartPolling() {
+    if (avPollTimer) return;
+    avPollTimer = setInterval(async () => {
+      try {
+        const r = await fetch('/api/ai-visibility'); const d = await r.json();
+        if (!d.running) { clearInterval(avPollTimer); avPollTimer = null; const rb = avEl('av-run'); if (rb) delete rb.dataset.busy; avState = d; avRender(); }
+      } catch (e) { clearInterval(avPollTimer); avPollTimer = null; }
+    }, 5000);
+  }
+
   document.querySelectorAll('#aio-tab .av-mtab').forEach(btn => {
     btn.addEventListener('click', () => { avMetric = btn.dataset.metric; if (avState && avState.latest) { avRenderScore(); avRenderChart(); } });
   });
   const avRunBtn = avEl('av-run');
   if (avRunBtn) avRunBtn.addEventListener('click', async () => {
     if (avState && !avState.anyConfigured) { alert('No AI engines are connected. Add GEMINI_API_KEY (and optionally OPENAI_API_KEY / PERPLEXITY_API_KEY) in Railway, then run again.'); return; }
-    avRunBtn.disabled = true; const orig = avRunBtn.innerHTML; avRunBtn.innerHTML = 'Checking engines…';
+    avRunBtn.disabled = true; avRunBtn.dataset.busy = '1'; avRunBtn.innerHTML = 'Checking engines…';
     try {
       const r = await authFetch('/api/ai-visibility/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
       const d = await r.json();
       if (!r.ok || !d.success) throw new Error(d.error || 'Run failed');
+      delete avRunBtn.dataset.busy;
       await loadAiVisibility();
-    } catch (e) { alert('AI visibility check failed: ' + e.message); }
-    finally { avRunBtn.disabled = false; avRunBtn.innerHTML = orig; }
+    } catch (e) { delete avRunBtn.dataset.busy; alert('AI visibility check failed: ' + e.message); await loadAiVisibility(); }
+  });
+  // Auto-weekly toggle
+  const avAutoBox = avEl('av-auto');
+  if (avAutoBox) avAutoBox.addEventListener('change', async () => {
+    try {
+      const r = await authFetch('/api/ai-visibility/toggle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: avAutoBox.checked }) });
+      const d = await r.json(); if (!r.ok || !d.success) throw new Error(d.error || 'Toggle failed');
+    } catch (e) { avAutoBox.checked = !avAutoBox.checked; alert('Could not update auto-weekly: ' + e.message); }
+  });
+  // Prompt editor
+  const avEditBtn = avEl('av-edit-prompts'), avPromptsPanel = avEl('av-prompts-panel'), avPromptsText = avEl('av-prompts-text');
+  if (avEditBtn) avEditBtn.addEventListener('click', () => {
+    const open = avPromptsPanel.style.display !== 'none';
+    if (open) { avPromptsPanel.style.display = 'none'; return; }
+    avPromptsText.value = (avState && avState.prompts ? avState.prompts : []).join('\n');
+    avPromptsPanel.style.display = 'block';
+  });
+  const avPromptsCancel = avEl('av-prompts-cancel');
+  if (avPromptsCancel) avPromptsCancel.addEventListener('click', () => { avPromptsPanel.style.display = 'none'; });
+  const avPromptsSave = avEl('av-prompts-save');
+  if (avPromptsSave) avPromptsSave.addEventListener('click', async () => {
+    const list = avPromptsText.value.split('\n').map(s => s.trim()).filter(Boolean).slice(0, 25);
+    if (!list.length) { alert('Add at least one search prompt.'); return; }
+    avPromptsSave.disabled = true; avPromptsSave.innerText = 'Saving…';
+    try {
+      const r = await authFetch('/api/ai-visibility/prompts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompts: list }) });
+      const d = await r.json(); if (!r.ok || !d.success) throw new Error(d.error || 'Save failed');
+      if (avState) avState.prompts = d.prompts;
+      avPromptsPanel.style.display = 'none';
+    } catch (e) { alert('Could not save prompts: ' + e.message); }
+    finally { avPromptsSave.disabled = false; avPromptsSave.innerText = 'Save prompts'; }
   });
 
 
