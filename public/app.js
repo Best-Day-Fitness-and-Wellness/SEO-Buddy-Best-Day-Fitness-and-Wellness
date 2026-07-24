@@ -2900,6 +2900,12 @@ document.addEventListener('DOMContentLoaded', () => {
       highlight: '#btn-os-keywords',
       title: 'Step 11 · Site Optimization',
       text: 'The technical polish: fresh keyword ideas, sharper title tags and meta descriptions, internal-link suggestions, and richer schema — the details that help you rank.'
+    },
+    {
+      tab: 'summary-tab',
+      highlight: '#asst-fab',
+      title: 'Step 12 · Meet your SEO Buddy Assistant',
+      text: 'See the <b>Ask SEO Buddy</b> button in the bottom‑right? That’s your assistant, and it’s the fastest way to use everything here. Ask it anything in plain English &mdash; <i>“How am I doing?”</i>, <i>“Who’s beating me in AI?”</i>, <i>“Write an article about balance classes.”</i> It answers from your <b>real data</b>, and it can even <b>do the work for you</b> (run a check, draft a Google post, write &amp; publish an article, send a pitch) &mdash; always showing a preview for you to approve first. Nothing happens until you tap to confirm.'
     }
   ];
 
