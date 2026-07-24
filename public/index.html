@@ -71,16 +71,20 @@
       </div>
       
       <style>
-        .nav-group-label{font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--text-dark);font-weight:600;padding:14px 14px 6px;}
-        .nav-adv-toggle{display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none;border-radius:8px;transition:.15s;margin-top:6px;}
-        .nav-adv-toggle:hover{color:var(--text-muted);background:rgba(255,255,255,.03);}
-        .nav-adv-caret{transition:transform .2s;font-size:10px;}
-        .nav-adv-toggle.open .nav-adv-caret{transform:rotate(90deg);}
-        .nav-adv-group{display:none;}
-        .nav-adv-group.open{display:block;}
+        .nav-group-label{font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--text-dark);font-weight:600;padding:16px 14px 6px;}
+        .biz-chip{display:flex;align-items:center;gap:10px;margin:2px 10px 6px;padding:9px 11px;border:1px solid var(--border-color);border-radius:12px;background:rgba(255,255,255,.02);}
+        .biz-chip .av{width:27px;height:27px;border-radius:7px;background:#0b0e14;border:1px solid var(--border-color);display:flex;align-items:center;justify-content:center;flex-shrink:0;color:var(--color-secondary);}
+        .biz-chip .av svg{width:15px;height:15px;}
+        .biz-chip .nm{font-size:13px;font-weight:600;color:var(--text-main);line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:150px;}
+        .biz-chip .dm{font-size:10.5px;color:var(--text-dark);}
+        .sidebar-footer{border-top:1px solid var(--border-color);padding-top:10px;}
+        .sidebar-footer .nav-item{width:100%;box-sizing:border-box;}
       </style>
+      <div class="biz-chip" title="Your business">
+        <span class="av"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg></span>
+        <div><div class="nm" id="biz-chip-name">Best Day Fitness</div><div class="dm" id="display-site-url">bestdayfitness.com</div></div>
+      </div>
       <nav class="nav-menu">
-        <div class="nav-group-label">Main</div>
         <button class="nav-item active" data-tab="summary-tab" id="nav-summary">
           <svg viewBox="0 0 24 24" class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
@@ -90,11 +94,13 @@
         </button>
         <button class="nav-item" data-tab="grow-tab" id="nav-grow">
           <svg viewBox="0 0 24 24" class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline>
-            <polyline points="17 6 23 6 23 12"></polyline>
+            <path d="M9 11l3 3L22 4"></path>
+            <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
           </svg>
           Grow
         </button>
+
+        <div class="nav-group-label">Insights</div>
         <button class="nav-item" data-tab="performance-tab" id="nav-performance">
           <svg viewBox="0 0 24 24" class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <line x1="18" y1="20" x2="18" y2="10"></line>
@@ -103,6 +109,58 @@
           </svg>
           Reports
         </button>
+        <button class="nav-item" data-tab="aio-tab" id="nav-aio">
+          <svg viewBox="0 0 24 24" class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line>
+            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+          </svg>
+          AI Visibility Check
+        </button>
+        <button class="nav-item" data-tab="gsc-tab" id="nav-gsc">
+          <svg viewBox="0 0 24 24" class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+            <line x1="9" y1="3" x2="9" y2="21"></line><line x1="15" y1="3" x2="15" y2="21"></line>
+            <line x1="3" y1="9" x2="21" y2="9"></line><line x1="3" y1="15" x2="21" y2="15"></line>
+          </svg>
+          Searches You&rsquo;re Missing
+        </button>
+
+        <div class="nav-group-label">Optimize</div>
+        <button class="nav-item" data-tab="ai-tab" id="nav-ai">
+          <svg viewBox="0 0 24 24" class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+          </svg>
+          Create a Post
+        </button>
+        <button class="nav-item" data-tab="publish-tab" id="nav-publish">
+          <svg viewBox="0 0 24 24" class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path>
+            <polyline points="16 6 12 2 8 6"></polyline><line x1="12" y1="2" x2="12" y2="15"></line>
+          </svg>
+          Publish
+        </button>
+        <button class="nav-item" data-tab="citations-tab" id="nav-citations">
+          <svg viewBox="0 0 24 24" class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+          </svg>
+          Where to Get Listed
+        </button>
+        <button class="nav-item" data-tab="local-tab" id="nav-local">
+          <svg viewBox="0 0 24 24" class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle>
+          </svg>
+          Local Presence
+        </button>
+        <button class="nav-item" data-tab="onsite-tab" id="nav-onsite">
+          <svg viewBox="0 0 24 24" class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline>
+          </svg>
+          Site Optimization
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
         <button class="nav-item" data-tab="settings-tab" id="nav-settings">
           <svg viewBox="0 0 24 24" class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="3"></circle>
@@ -110,68 +168,10 @@
           </svg>
           Settings
         </button>
-
-        <div class="nav-group-label nav-adv-toggle" id="nav-adv-toggle">Advanced Tools <span class="nav-adv-caret">&#9656;</span></div>
-        <div class="nav-adv-group" id="nav-adv-group">
-          <button class="nav-item" data-tab="gsc-tab" id="nav-gsc">
-            <svg viewBox="0 0 24 24" class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-              <line x1="9" y1="3" x2="9" y2="21"></line><line x1="15" y1="3" x2="15" y2="21"></line>
-              <line x1="3" y1="9" x2="21" y2="9"></line><line x1="3" y1="15" x2="21" y2="15"></line>
-            </svg>
-            Searches You&rsquo;re Missing
-          </button>
-          <button class="nav-item" data-tab="ai-tab" id="nav-ai">
-            <svg viewBox="0 0 24 24" class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
-            </svg>
-            Create a Post
-          </button>
-          <button class="nav-item" data-tab="publish-tab" id="nav-publish">
-            <svg viewBox="0 0 24 24" class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path>
-              <polyline points="16 6 12 2 8 6"></polyline><line x1="12" y1="2" x2="12" y2="15"></line>
-            </svg>
-            Publish
-          </button>
-          <button class="nav-item" data-tab="aio-tab" id="nav-aio">
-            <svg viewBox="0 0 24 24" class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line>
-              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
-            </svg>
-            AI Visibility Check
-          </button>
-          <button class="nav-item" data-tab="citations-tab" id="nav-citations">
-            <svg viewBox="0 0 24 24" class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
-              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
-            </svg>
-            Where to Get Listed
-          </button>
-          <button class="nav-item" data-tab="local-tab" id="nav-local">
-            <svg viewBox="0 0 24 24" class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle>
-            </svg>
-            Local Presence
-          </button>
-          <button class="nav-item" data-tab="onsite-tab" id="nav-onsite">
-            <svg viewBox="0 0 24 24" class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline>
-            </svg>
-            Site Optimization
-          </button>
-        </div>
-      </nav>
-      
-      <div class="sidebar-footer">
         <button class="theme-toggle" id="btn-open-setup" type="button" title="Business info & setup"><span class="ti">🚀</span><span>Setup &amp; business info</span></button>
         <button class="theme-toggle" id="theme-toggle" type="button" title="Switch light / dark">
           <span class="ti" id="theme-ic">🌙</span><span id="theme-label">Dark mode</span>
         </button>
-        <div class="company-badge">
-          <span class="badge-label">Active Property</span>
-          <span class="badge-name" id="display-site-url">bestdayfitness.com</span>
-        </div>
       </div>
     </aside>
 

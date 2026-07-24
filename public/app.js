@@ -3069,7 +3069,10 @@ document.addEventListener('DOMContentLoaded', () => {
     closeBtn.addEventListener('click', closeWiz);
 
     // First-run: auto-open once if the business profile hasn't been set up.
+    // Also populate the sidebar business chip with the saved name.
     fetch('/api/business-profile').then(r => r.json()).then(d => {
+      const nm = document.getElementById('biz-chip-name');
+      if (nm && d && d.profile && d.profile.name) nm.innerText = d.profile.name;
       let seen = '0'; try { seen = localStorage.getItem('seo_wizard_seen') || '0'; } catch (e) {}
       if (d && d.profile && !d.profile.configured && seen !== '1') setTimeout(openWiz, 900);
     }).catch(() => {});
