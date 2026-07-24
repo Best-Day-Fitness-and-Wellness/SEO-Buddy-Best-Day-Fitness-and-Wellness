@@ -238,6 +238,7 @@ document.addEventListener('DOMContentLoaded', () => {
     } else if (tabId === 'settings-tab') {
       pageTitle.innerText = 'Settings';
       pageSubtitle.innerText = 'Connect your accounts, business info, and automation preferences';
+      if (window.loadUsage) window.loadUsage();
     }
   }
 
@@ -3035,25 +3036,42 @@ document.addEventListener('DOMContentLoaded', () => {
       if (action && action.endpoint) renderAction(r.querySelector('.asst-botwrap'), action);
     }
     function replaceBtns(card, html) { const b = card.querySelector('.asst-action-btns'); if (b) b.outerHTML = html; }
+    function htmlToText(h) { const d = document.createElement('div'); d.innerHTML = h || ''; return (d.textContent || d.innerText || '').replace(/\s+/g, ' ').trim(); }
+    // After a confirm succeeds, some actions produce a follow-up card from the response.
+    const CHAIN = {
+      write_article: d => (d && d.content) ? { kind: 'content', id: 'publish_article', title: `Publish “${String(d.title || 'your article').slice(0, 60)}”`, preview: htmlToText(d.content).slice(0, 220) + '…', confirmLabel: 'Publish it', endpoint: '/api/publish-ghl', method: 'POST', body: { title: d.title, content: d.content, status: 'published', keyword: d.title }, tab: 'publish-tab', done: 'Published to your site.' } : null,
+      publish_article: d => (d && d.url) ? { kind: 'run', id: 'index_article', title: 'Ask Google to index it', note: `Live at ${d.url}. Request indexing so it shows up in search faster.`, confirmLabel: 'Request indexing', endpoint: '/api/index-url', method: 'POST', body: { url: d.url }, tab: 'publish-tab', done: 'Google indexing requested.' } : null,
+      draft_citation_pitch: d => (d && (d.body || d.subject)) ? { kind: 'email', id: 'send_pitch', title: 'Send this pitch', to: d.email || '', subject: d.subject || '', previewBody: d.body || '', contactUrl: d.contactUrl || '', confirmLabel: 'Send via Gmail', endpoint: '/api/send-pitch', method: 'POST', body: { to: d.email || '', subject: d.subject || '', body: d.body || '' }, tab: 'citations-tab', done: 'Pitch sent via Gmail.' } : null
+    };
     function renderAction(wrap, action) {
       const card = document.createElement('div'); card.className = 'asst-action';
-      const icon = action.kind === 'content' ? '&#9998;' : '&#9889;';
+      const icon = (action.kind === 'content' || action.kind === 'email') ? '&#9998;' : '&#9889;';
       let html = `<div class="asst-action-h">${icon} ${esc(action.title)}</div>`;
-      if (action.kind === 'content' && action.preview) html += `<div class="asst-action-body preview">${esc(action.preview)}</div>`;
-      else if (action.note) html += `<div class="asst-action-body">${esc(action.note)}</div>`;
-      html += `<div class="asst-action-btns"><button class="asst-btn primary" data-act="go" type="button">${esc(action.confirmLabel)}</button>${action.kind === 'content' ? '<button class="asst-btn" data-act="copy" type="button">Copy</button>' : ''}<button class="asst-btn" data-act="cancel" type="button">Cancel</button></div>`;
+      if (action.kind === 'email') {
+        html += `<div class="asst-action-body">` +
+          `<div style="color:var(--text-dark);font-size:11px;">TO</div><div style="color:var(--text-main);margin-bottom:6px;">${esc(action.to || '(no address found — use the contact page)')}</div>` +
+          `<div style="color:var(--text-dark);font-size:11px;">SUBJECT</div><div style="color:var(--text-main);margin-bottom:6px;">${esc(action.subject)}</div>` +
+          `<div style="color:var(--text-dark);font-size:11px;">MESSAGE</div><div class="preview" style="font-style:italic;">${esc(action.previewBody)}</div></div>`;
+      } else if (action.kind === 'content' && action.preview) { html += `<div class="asst-action-body preview">${esc(action.preview)}</div>`; }
+      else if (action.note) { html += `<div class="asst-action-body">${esc(action.note)}</div>`; }
+      const canCopy = action.kind === 'content' || action.kind === 'email';
+      const contactLink = (action.kind === 'email' && action.contactUrl) ? `<a class="asst-btn" href="${esc(action.contactUrl)}" target="_blank" rel="noopener" style="text-decoration:none;">Contact page</a>` : '';
+      html += `<div class="asst-action-btns"><button class="asst-btn primary" data-act="go" type="button">${esc(action.confirmLabel)}</button>${canCopy ? '<button class="asst-btn" data-act="copy" type="button">Copy</button>' : ''}${contactLink}<button class="asst-btn" data-act="cancel" type="button">Cancel</button></div>`;
       card.innerHTML = html;
       wrap.appendChild(card); scrollDown();
       card.querySelector('[data-act="cancel"]').addEventListener('click', () => replaceBtns(card, '<div class="asst-result" style="color:var(--text-dark)">Cancelled — nothing happened.</div>'));
       const copyBtn = card.querySelector('[data-act="copy"]');
-      if (copyBtn) copyBtn.addEventListener('click', () => { try { navigator.clipboard.writeText(action.preview); } catch (e) {} copyBtn.innerText = 'Copied ✓'; });
+      if (copyBtn) copyBtn.addEventListener('click', () => { try { navigator.clipboard.writeText(action.kind === 'email' ? (action.previewBody || '') : (action.preview || '')); } catch (e) {} copyBtn.innerText = 'Copied ✓'; });
       card.querySelector('[data-act="go"]').addEventListener('click', async (e) => {
         const go = e.currentTarget; go.disabled = true; go.innerText = 'Working…';
         try {
           const r = await authFetch(action.endpoint, { method: action.method || 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(action.body || {}) });
           const d = await r.json().catch(() => ({}));
-          if (d && d.needsSetup) { replaceBtns(card, `<div class="asst-result warn">&#9888; ${esc(d.message || 'This needs a quick setup first.')}${action.kind === 'content' ? ' Your draft is above — copy it and paste it in.' : ''}</div>`); return; }
+          if (d && d.budgetReached) { replaceBtns(card, `<div class="asst-result warn">&#9888; ${esc(d.message || 'Monthly usage budget reached.')}</div>`); return; }
+          if (d && d.needsSetup) { replaceBtns(card, `<div class="asst-result warn">&#9888; ${esc(d.message || 'This needs a quick setup first.')}${canCopy ? ' Your draft is above — copy it to use it now.' : ''}</div>`); return; }
           if (!r.ok || d.success === false) throw new Error((d && d.error) || "It didn't go through.");
+          const next = CHAIN[action.id] ? CHAIN[action.id](d) : null;
+          if (next) { replaceBtns(card, `<div class="asst-result">&#10003; ${esc(action.done)}</div>`); renderAction(card.parentElement, next); return; }
           const link = action.tab ? ` <a data-open="${esc(action.tab)}">Open the tab &rarr;</a>` : '';
           replaceBtns(card, `<div class="asst-result">&#10003; ${esc(action.done)}${link}</div>`);
           const a = card.querySelector('a[data-open]'); if (a) a.addEventListener('click', () => { close(); const n = document.querySelector('.nav-item[data-tab="' + a.dataset.open + '"]'); if (n) n.click(); });
@@ -3101,6 +3119,44 @@ document.addEventListener('DOMContentLoaded', () => {
     textEl.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
     textEl.addEventListener('input', () => { textEl.style.height = 'auto'; textEl.style.height = Math.min(textEl.scrollHeight, 90) + 'px'; });
   })();
+
+  // --- USAGE & COST METERING (Settings card) ---
+  async function loadUsage() {
+    const $ = id => document.getElementById(id);
+    if (!$('usage-cost')) return;
+    try {
+      const r = await fetch('/api/usage'); const d = await r.json(); const u = d.usage || {};
+      $('usage-month').innerText = d.month || 'this month';
+      $('usage-cost').innerText = '$' + (u.estCostUSD || 0).toFixed(2);
+      $('usage-stats').innerHTML = [
+        ['Assistant chats', u.assistantMessages || 0],
+        ['AI checks run', (u.groundedCalls || 0) + (u.openaiCalls || 0) + (u.perplexityCalls || 0)],
+        ['Analyses', u.geminiCalls || 0],
+        ['Articles', u.articles || 0]
+      ].map(x => `<div class="usage-stat"><div class="n">${x[1]}</div><div class="l">${x[0]}</div></div>`).join('');
+      const bi = $('usage-budget'); if (document.activeElement !== bi) bi.value = d.budgetUSD != null ? d.budgetUSD : '';
+      const wrap = $('usage-bar-wrap');
+      if (d.budgetUSD != null && d.budgetUSD > 0) {
+        const pct = Math.min(100, Math.round((u.estCostUSD || 0) / d.budgetUSD * 100));
+        wrap.style.display = 'block'; $('usage-bar').style.width = pct + '%';
+        $('usage-bar-label').innerText = `$${(u.estCostUSD || 0).toFixed(2)} of $${d.budgetUSD} cap` + (d.overBudget ? ' — reached, AI paused for the month' : '');
+        $('usage-cost').className = d.overBudget ? 'usage-over' : '';
+      } else { wrap.style.display = 'none'; $('usage-cost').className = ''; }
+    } catch (e) { /* keep */ }
+  }
+  window.loadUsage = loadUsage;
+  const ubSave = document.getElementById('usage-budget-save');
+  if (ubSave) ubSave.addEventListener('click', async () => {
+    const v = document.getElementById('usage-budget').value;
+    ubSave.disabled = true; const o = ubSave.innerText; ubSave.innerText = 'Saving…';
+    try {
+      const r = await authFetch('/api/usage/budget', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ budgetUSD: v === '' ? null : Number(v) }) });
+      const d = await r.json(); if (!r.ok || !d.success) throw new Error(d.error || 'Failed');
+      document.getElementById('usage-budget-note').innerText = d.budgetUSD != null ? ('✓ Cap set to $' + d.budgetUSD) : '✓ No cap';
+      loadUsage();
+    } catch (e) { alert('Could not save the cap: ' + e.message); }
+    finally { ubSave.disabled = false; ubSave.innerText = o; }
+  });
 
   // --- ONBOARDING SETUP WIZARD ---
   (function () {

@@ -1580,6 +1580,34 @@
 
       <!-- TAB 5: API SETTINGS -->
       <section class="tab-content" id="settings-tab">
+        <style>
+          #settings-tab .usage-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:14px;}
+          @media(max-width:640px){#settings-tab .usage-stats{grid-template-columns:1fr 1fr;}}
+          #settings-tab .usage-stat{background:var(--bg-card);border:1px solid var(--border-color);border-radius:12px;padding:12px 14px;}
+          #settings-tab .usage-stat .n{font-family:var(--font-heading);font-size:1.4rem;font-weight:700;color:var(--text-main);line-height:1.1;}
+          #settings-tab .usage-stat .l{font-size:11px;color:var(--text-muted);margin-top:3px;}
+          #settings-tab .usage-over{color:var(--color-accent)!important;}
+          #settings-tab .usage-bar{height:8px;background:rgba(255,255,255,.06);border-radius:999px;overflow:hidden;margin-top:12px;}
+          #settings-tab .usage-bar span{display:block;height:100%;border-radius:999px;background:var(--gradient-primary);transition:width .5s;}
+        </style>
+        <div class="content-card max-width-md" id="usage-card">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">
+            <div><h2 style="margin-bottom:2px;">Usage this month</h2><p class="text-muted" style="margin:0;">Estimated AI spend for <span id="usage-month">this month</span>. A rough estimate to keep an eye on cost &mdash; not a bill.</p></div>
+            <div style="text-align:right;"><div style="font-family:var(--font-heading);font-size:2rem;font-weight:800;color:var(--text-main);line-height:1;" id="usage-cost">$0.00</div><div class="text-muted" style="font-size:11px;">estimated</div></div>
+          </div>
+          <div class="usage-stats" id="usage-stats"></div>
+          <div id="usage-bar-wrap" style="display:none;"><div class="usage-bar"><span id="usage-bar" style="width:0%;"></span></div><div class="text-muted" style="font-size:11px;margin-top:5px;" id="usage-bar-label"></div></div>
+          <div class="form-group" style="margin-top:16px;">
+            <label for="usage-budget">Monthly budget cap (optional)</label>
+            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+              <span style="color:var(--text-muted);">$</span>
+              <input type="number" id="usage-budget" class="form-input" placeholder="e.g. 25" style="max-width:140px;" min="0" step="1">
+              <button class="btn btn-secondary btn-xs" id="usage-budget-save" type="button">Save cap</button>
+              <span id="usage-budget-note" class="text-muted" style="font-size:12px;"></span>
+            </div>
+            <small class="text-muted">When set, AI features pause for the rest of the month once the estimate reaches this cap. Leave blank for no cap. (Tracked per location, ready for franchise.)</small>
+          </div>
+        </div>
         <div class="content-card max-width-md">
           <h2>Integration Settings</h2>
           <p class="text-muted mb-4">Configure your API credentials to switch from Mock Mode to Live Operations</p>
