@@ -184,12 +184,19 @@
           <p id="page-subtitle" class="text-muted">Your SEO &amp; AEO at a glance — score, what we did, and what to do next</p>
         </div>
         <div class="header-actions">
+          <button class="header-help" id="btn-start-wizard" type="button" title="Quick Guide — take the tour">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+          </button>
           <div class="status-indicator mock" id="mode-status">
             <span class="indicator-dot"></span>
             <span id="mode-status-text">Mock Mode</span>
           </div>
         </div>
       </header>
+      <style>
+        .header-help{width:38px;height:38px;border-radius:10px;background:var(--bg-card);border:1px solid var(--border-color);color:var(--text-muted);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;transition:.15s;flex-shrink:0;}
+        .header-help:hover{color:var(--text-main);border-color:var(--color-primary);}
+      </style>
 
       <!-- TAB 0: SUMMARY (default landing) -->
       <style>
@@ -1694,10 +1701,62 @@
   </div>
 
   <!-- Help Trigger Button -->
-  <button class="floating-help-trigger" id="btn-start-wizard" title="Start Onboarding Tour">
-    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
-    <span>Quick Guide</span>
+  <!-- SEO Buddy Assistant — floating copilot -->
+  <style>
+    .asst-fab{position:fixed;right:22px;bottom:22px;z-index:900;display:inline-flex;align-items:center;gap:9px;padding:12px 18px;border:0;border-radius:999px;background:var(--gradient-primary);color:#fff;font-family:var(--font-body);font-size:14px;font-weight:600;cursor:pointer;box-shadow:0 12px 30px -8px rgba(99,102,241,.7);transition:transform .15s,box-shadow .15s;}
+    .asst-fab:hover{transform:translateY(-2px);box-shadow:0 16px 36px -8px rgba(99,102,241,.85);}
+    .asst-fab svg{width:20px;height:20px;stroke:#fff;fill:none;}
+    @media(max-width:560px){.asst-fab span{display:none;} .asst-fab{padding:14px;}}
+    .asst-panel{position:fixed;right:22px;bottom:22px;z-index:950;width:400px;max-width:calc(100vw - 32px);height:600px;max-height:calc(100vh - 44px);display:none;flex-direction:column;
+      background:linear-gradient(180deg,rgba(17,21,29,.98),rgba(9,11,14,.99));border:1px solid var(--border-color);border-radius:20px;overflow:hidden;box-shadow:0 40px 80px -24px rgba(0,0,0,.75);}
+    .asst-panel.open{display:flex;}
+    .asst-head{display:flex;align-items:center;gap:11px;padding:14px 15px;border-bottom:1px solid var(--border-color);background:rgba(255,255,255,.015);}
+    .asst-head .av{width:34px;height:34px;border-radius:10px;background:var(--gradient-primary);display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+    .asst-head .av svg{width:18px;height:18px;stroke:#fff;fill:none;}
+    .asst-head .t b{font-family:var(--font-heading);font-size:15px;font-weight:700;display:block;line-height:1.1;color:var(--text-main);}
+    .asst-head .t span{font-size:11px;color:var(--color-success);display:flex;align-items:center;gap:5px;}
+    .asst-head .t span::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--color-success);box-shadow:0 0 0 3px rgba(16,185,129,.2);}
+    .asst-head .x{margin-left:auto;background:none;border:0;color:var(--text-dark);font-size:20px;line-height:1;cursor:pointer;padding:4px;}
+    .asst-head .x:hover{color:var(--text-main);}
+    .asst-msgs{flex:1;overflow-y:auto;padding:15px;display:flex;flex-direction:column;gap:13px;}
+    .asst-msgs::-webkit-scrollbar{width:6px;} .asst-msgs::-webkit-scrollbar-thumb{background:rgba(255,255,255,.08);border-radius:3px;}
+    .asst-row{display:flex;gap:9px;}
+    .asst-row.me{justify-content:flex-end;}
+    .asst-bav{width:26px;height:26px;border-radius:8px;background:var(--gradient-primary);display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:2px;}
+    .asst-bav svg{width:14px;height:14px;stroke:#fff;fill:none;}
+    .asst-bub{font-size:13.5px;line-height:1.55;padding:10px 13px;border-radius:14px;max-width:300px;white-space:pre-wrap;word-wrap:break-word;}
+    .asst-row.bot .asst-bub{background:rgba(255,255,255,.04);border:1px solid var(--border-color);border-top-left-radius:4px;color:var(--text-main);}
+    .asst-row.me .asst-bub{background:linear-gradient(135deg,rgba(99,102,241,.92),rgba(79,70,229,.92));color:#fff;border-top-right-radius:4px;}
+    .asst-chips{display:flex;gap:7px;flex-wrap:wrap;margin-top:9px;}
+    .asst-chip{font-size:12px;color:var(--text-main);background:rgba(255,255,255,.04);border:1px solid var(--border-color);padding:6px 11px;border-radius:999px;cursor:pointer;transition:.15s;font-family:inherit;}
+    .asst-chip:hover{border-color:var(--color-primary);color:#fff;}
+    .asst-typing{display:flex;gap:4px;padding:12px 14px;}
+    .asst-typing span{width:6px;height:6px;border-radius:50%;background:var(--text-dark);animation:asstBlink 1.2s infinite both;}
+    .asst-typing span:nth-child(2){animation-delay:.2s;} .asst-typing span:nth-child(3){animation-delay:.4s;}
+    @keyframes asstBlink{0%,80%,100%{opacity:.25;}40%{opacity:1;}}
+    .asst-input{display:flex;align-items:flex-end;gap:9px;padding:12px 13px;border-top:1px solid var(--border-color);background:rgba(255,255,255,.015);}
+    .asst-input textarea{flex:1;background:rgba(0,0,0,.35);border:1px solid var(--border-color);border-radius:12px;padding:10px 13px;color:var(--text-main);font-family:inherit;font-size:13px;resize:none;max-height:90px;line-height:1.4;}
+    .asst-input textarea:focus{outline:none;border-color:var(--color-primary);}
+    .asst-send{width:38px;height:38px;border-radius:11px;background:var(--gradient-primary);border:0;display:flex;align-items:center;justify-content:center;flex-shrink:0;cursor:pointer;}
+    .asst-send svg{width:17px;height:17px;stroke:#fff;fill:none;}
+    .asst-send:disabled{opacity:.5;cursor:default;}
+  </style>
+  <button class="asst-fab" id="asst-fab" type="button" title="Ask SEO Buddy">
+    <svg viewBox="0 0 24 24" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+    <span>Ask SEO Buddy</span>
   </button>
+  <div class="asst-panel" id="asst-panel" role="dialog" aria-label="SEO Buddy Assistant">
+    <div class="asst-head">
+      <span class="av"><svg viewBox="0 0 24 24" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg></span>
+      <div class="t"><b>SEO Buddy Assistant</b><span>grounded in your live data</span></div>
+      <button class="x" id="asst-close" type="button" aria-label="Close">&times;</button>
+    </div>
+    <div class="asst-msgs" id="asst-msgs"></div>
+    <div class="asst-input">
+      <textarea id="asst-text" rows="1" placeholder="Ask about your SEO, or how to use a tool…"></textarea>
+      <button class="asst-send" id="asst-send" type="button" aria-label="Send"><svg viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg></button>
+    </div>
+  </div>
 
   <!-- Onboarding Setup Wizard -->
   <style>
