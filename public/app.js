@@ -1641,16 +1641,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
       if (data.kind === 'pitch') {
         if (data.unavailable) { panel.innerHTML = `<div class="cit-hint">${citEsc(data.message)}</div>`; return; }
-        const url = gmailComposeUrl(data.to, data.subject, data.body);
-        const emailText = `Subject: ${data.subject}\n\n${data.body}`;
-        const emailPrefill = (data.to && data.to.indexOf('@') > -1) ? data.to : '';
-        // When Gmail direct-send is connected, offer an editable recipient + one-click Send now.
-        const toCell = citGmailConfigured
-          ? `<span style="flex:1;"><input class="cit-to-input" type="email" value="${citEsc(emailPrefill)}" placeholder="editor@publication.com" style="width:100%;background:rgba(0,0,0,.3);border:1px solid var(--border-color);color:var(--text-main);border-radius:6px;padding:5px 8px;font-family:inherit;font-size:13px;"></span>`
-          : `<span>${citEsc(data.to)}</span>`;
+        const foundEmail = (data.email && data.email.indexOf('@') > -1) ? data.email : '';
+        const contactUrl = data.contactUrl || ('https://' + domain);
+        const emailText = `To: ${foundEmail || '(find recipient — see contact page)'}\nSubject: ${data.subject}\n\n${data.body}`;
+        // Always give an editable, pre-addressed recipient box — prefilled with the real email we found (if any).
+        const toCell = `<span style="flex:1;"><input class="cit-to-input" type="email" value="${citEsc(foundEmail)}" placeholder="name@publication.com" style="width:100%;background:rgba(0,0,0,.3);border:1px solid var(--border-color);color:var(--text-main);border-radius:6px;padding:5px 8px;font-family:inherit;font-size:13px;"></span>`;
+        // Send/open action: direct Gmail send when connected, otherwise open a Gmail draft addressed to whatever's in the box.
         const sendControl = citGmailConfigured
           ? `<button class="cit-pa send cit-send-now" type="button">✉ Send now</button>`
-          : `<a class="cit-pa send" href="${citEsc(url)}" target="_blank" rel="noopener">✉ Send via Gmail</a>`;
+          : `<button class="cit-pa send cit-open-gmail" type="button">✉ Open in Gmail</button>`;
+        const recipientHint = foundEmail
+          ? `Found this address published for ${citEsc(domain)} — double-check it’s the right desk before sending. `
+          : `No public email is listed for this site, so the box is blank — open the contact page to find the right person, then paste it above. `;
         panel.innerHTML =
           `<div class="cit-panel-tag">✦ AI-drafted outreach — personalized to this source</div>` +
           `<div class="cit-eml">` +
@@ -1658,14 +1660,21 @@ document.addEventListener('DOMContentLoaded', () => {
             `<div class="row"><span class="k">Subject</span><span>${citEsc(data.subject)}</span></div>` +
           `</div>` +
           `<div class="cit-body-txt">${citEsc(data.body)}</div>` +
-          `<div class="cit-hint">${citGmailConfigured ? 'Sends straight from your Gmail. ' : ''}Finding the recipient: ${citEsc(data.howToFind)}</div>` +
+          `<div class="cit-hint">${recipientHint}${citEsc(data.howToFind || '')}</div>` +
           `<div class="cit-panel-actions">` +
             sendControl +
+            `<a class="cit-pa open" href="${citEsc(contactUrl)}" target="_blank" rel="noopener">↗ Contact page</a>` +
             `<button class="cit-pa" type="button" onclick="window._citCopy(${citAttr(emailText)}, this)">Copy email</button>` +
             `<button class="cit-pa cit-regen" type="button">↻ Regenerate</button>` +
           `</div>`;
         const rg = panel.querySelector('.cit-regen');
         if (rg) rg.addEventListener('click', () => { panel.dataset.loaded = ''; citDoAction(btn); });
+        const og = panel.querySelector('.cit-open-gmail');
+        if (og) og.addEventListener('click', () => {
+          const toVal = ((panel.querySelector('.cit-to-input') || {}).value || '').trim();
+          if (toVal && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(toVal)) { alert('That doesn’t look like a valid email — fix it or leave it blank to fill in Gmail.'); return; }
+          window.open(gmailComposeUrl(toVal, data.subject, data.body), '_blank', 'noopener');
+        });
         const sn = panel.querySelector('.cit-send-now');
         if (sn) sn.addEventListener('click', async () => {
           const toVal = ((panel.querySelector('.cit-to-input') || {}).value || '').trim();
