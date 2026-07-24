@@ -3300,23 +3300,23 @@ document.addEventListener('DOMContentLoaded', () => {
     const gv = id => { const e = document.getElementById(id); return e ? e.value.trim() : ''; };
 
     function stepHTML(i) {
-      if (i === 0) return `<div class="setup-emoji">👋</div><h2>Welcome to SEO Buddy</h2><p class="lead">Let’s get you set up in about a minute — confirm your business details, your numbers, and connect the accounts that bring your data to life. Then you’re off to the races.</p>`;
-      if (i === 1) return `<h2>Your business</h2><p class="lead">This is the identity we keep consistent everywhere — Google, directories, and every AI answer. Getting it exactly right matters.</p>
+      if (i === 0) return `<div class="setup-emoji">👋</div><h2>Welcome to SEO Buddy</h2><p class="lead">SEO Buddy helps the right customers find you — on Google <b>and</b> in AI answers like ChatGPT and Gemini. This quick setup takes about a minute: confirm your business details, set a couple of numbers, and connect your accounts if you'd like. Nothing here is permanent — you can change it all later.</p>`;
+      if (i === 1) return `<h2>Your business details</h2><p class="lead">Google and AI trust businesses whose name, address, and phone match everywhere online — so it's worth getting these exactly right. This is the identity SEO Buddy keeps consistent for you across the web.</p>
         <div class="setup-field"><label>Business name</label><input class="form-input" id="setup-name" value="${sEsc(profile.name)}"></div>
         <div class="setup-field"><label>Street address</label><input class="form-input" id="setup-street" value="${sEsc(profile.streetAddress)}"></div>
         <div class="setup-row"><div class="setup-field"><label>City</label><input class="form-input" id="setup-city" value="${sEsc(profile.addressLocality)}"></div><div class="setup-field"><label>State</label><input class="form-input" id="setup-state" value="${sEsc(profile.addressRegion)}"></div></div>
         <div class="setup-row"><div class="setup-field"><label>ZIP</label><input class="form-input" id="setup-zip" value="${sEsc(profile.postalCode)}"></div><div class="setup-field"><label>Phone</label><input class="form-input" id="setup-phone" value="${sEsc(profile.phone)}"></div></div>
-        <div class="setup-field"><label>Website</label><input class="form-input" id="setup-website" value="${sEsc(profile.website)}"></div>`;
+        <div class="setup-field"><label>Website</label><input class="form-input" id="setup-website" value="${sEsc(profile.website)}"><small class="setup-hint">Use the exact name and number your customers should see — SEO Buddy will flag anywhere online that doesn't match.</small></div>`;
       if (i === 2) {
         const cv = localStorage.getItem('seo_client_value') || '1395', cr = localStorage.getItem('seo_conv_rate') || '2', cap = localStorage.getItem('seo_capture_rate') || '5';
-        return `<h2>Your numbers</h2><p class="lead">These power your value estimates on Home — “worth X new clients.” Use your real figures; you can change them anytime in Settings.</p>
-        <div class="setup-field"><label>Value of a new client ($)</label><input type="number" class="form-input" id="setup-clientvalue" value="${sEsc(cv)}"></div>
-        <div class="setup-row"><div class="setup-field"><label>Visitor → client conversion (%)</label><input type="number" class="form-input" id="setup-conv" value="${sEsc(cr)}"></div><div class="setup-field"><label>Search capture (%)</label><input type="number" class="form-input" id="setup-capture" value="${sEsc(cap)}"></div></div>`;
+        return `<h2>A couple of numbers</h2><p class="lead">These turn your search data into real dollars on your Home screen — like “this is worth about 3 new clients a month.” Rough estimates are perfectly fine, and you can tweak them anytime in Settings.</p>
+        <div class="setup-field"><label>What's a new client worth to you? ($)</label><input type="number" class="form-input" id="setup-clientvalue" value="${sEsc(cv)}"><small class="setup-hint">Roughly what one new member is worth in a year. Best Day's default is your $1,395 program.</small></div>
+        <div class="setup-row"><div class="setup-field"><label>How many visitors become clients? (%)</label><input type="number" class="form-input" id="setup-conv" value="${sEsc(cr)}"><small class="setup-hint">Out of 100 website visitors, how many sign up. 1–3% is typical.</small></div><div class="setup-field"><label>Share of missed searches you'd win (%)</label><input type="number" class="form-input" id="setup-capture" value="${sEsc(cap)}"><small class="setup-hint">Of the searches you show up for but get no clicks, the share you'd realistically capture. 3–8% is safe.</small></div></div>`;
       }
-      return `<h2>Connect your accounts</h2><p class="lead">These unlock your live data. Do it now in Settings, or later — SEO Buddy runs in demo mode until then.</p>
-        <div class="setup-connect-item"><div class="ci">🔑</div><div><b>Google Gemini</b><span>Powers AI content, audits, and citation finding.</span></div></div>
-        <div class="setup-connect-item"><div class="ci">🔍</div><div><b>Google Search Console</b><span>Your real rankings, clicks, and content gaps.</span></div></div>
-        <div class="setup-connect-item"><div class="ci">📇</div><div><b>GoHighLevel</b><span>Publish content and pull in your leads.</span></div></div>
+      return `<h2>Connect your accounts <span style="color:var(--text-dark);font-weight:400;">(optional)</span></h2><p class="lead">These bring in your live data. Connect them now, or skip and explore first — SEO Buddy runs on sample data until you're ready.</p>
+        <div class="setup-connect-item"><div class="ci">🔑</div><div><b>Google Gemini</b><span>The AI brain — writes your content, runs audits, and finds where to get listed.</span></div></div>
+        <div class="setup-connect-item"><div class="ci">🔍</div><div><b>Google Search Console</b><span>Your real Google rankings, clicks, and the searches you're missing.</span></div></div>
+        <div class="setup-connect-item"><div class="ci">📇</div><div><b>GoHighLevel</b><span>Publishes your content and pulls your leads into Reports.</span></div></div>
         <div style="margin-top:16px;"><button class="btn btn-secondary" id="setup-open-settings" type="button" style="width:auto;">Open Settings to connect →</button></div>`;
     }
     function render() {
