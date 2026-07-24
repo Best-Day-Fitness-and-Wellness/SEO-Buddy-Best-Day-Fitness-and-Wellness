@@ -881,7 +881,7 @@ function startAutopilotScheduler() {
 
 // 0. Save Configuration Settings
 app.post('/api/save-settings', requireAuth, (req, res) => {
-  const { geminiKey, ghlToken, ghlLocation, ghlBlog, siteUrl, blogPrefix, authorName, authorUrl, gscJson } = req.body;
+  const { geminiKey, openaiKey, perplexityKey, ghlToken, ghlLocation, ghlBlog, siteUrl, blogPrefix, authorName, authorUrl, gscJson } = req.body;
 
   try {
     let envContent = '';
@@ -905,6 +905,12 @@ app.post('/api/save-settings', requireAuth, (req, res) => {
     }
 
     if (geminiKey) envContent += `GEMINI_API_KEY=${geminiKey}\n`;
+    // Optional multi-engine keys. Preserve an existing value when the field is left blank
+    // so saving other settings never silently drops a key that was already set.
+    const openaiFinal = openaiKey || process.env.OPENAI_API_KEY;
+    if (openaiFinal) envContent += `OPENAI_API_KEY=${openaiFinal}\n`;
+    const perplexityFinal = perplexityKey || process.env.PERPLEXITY_API_KEY;
+    if (perplexityFinal) envContent += `PERPLEXITY_API_KEY=${perplexityFinal}\n`;
     if (ghlToken) envContent += `GHL_ACCESS_TOKEN=${ghlToken}\n`;
     if (ghlLocation) envContent += `GHL_LOCATION_ID=${ghlLocation}\n`;
     if (ghlBlog) envContent += `GHL_BLOG_ID=${ghlBlog}\n`;
