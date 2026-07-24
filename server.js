@@ -1892,6 +1892,10 @@ app.get('/api/usage', (req, res) => {
   const u = currentUsage();
   res.json({ month: usageMonthKey(), account: accountKey(), usage: u, budgetUSD: usageDb.budgetUSD, overBudget: usageOverBudget() });
 });
+// Storage status — is DATA_DIR pointed at a persistent volume (survives redeploys) or ephemeral?
+app.get('/api/storage-status', (req, res) => {
+  res.json({ persistent: !!process.env.DATA_DIR, dataDir: DATA_DIR });
+});
 app.post('/api/usage/budget', requireAuth, (req, res) => {
   const v = req.body && req.body.budgetUSD;
   usageDb.budgetUSD = (v === null || v === '' || v === undefined) ? null : Math.max(0, Number(v) || 0);
