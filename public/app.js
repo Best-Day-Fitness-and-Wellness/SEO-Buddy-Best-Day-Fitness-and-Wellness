@@ -239,8 +239,40 @@ document.addEventListener('DOMContentLoaded', () => {
       pageTitle.innerText = 'Settings';
       pageSubtitle.innerText = 'Connect your accounts, business info, and automation preferences';
       if (window.loadUsage) window.loadUsage();
+      if (window.loadStorageStatus) window.loadStorageStatus();
     }
   }
+
+  // --- Storage status badge (persistent volume vs ephemeral) ---
+  window.loadStorageStatus = async function () {
+    const badge = document.getElementById('storage-badge');
+    const dot = document.getElementById('storage-dot');
+    const label = document.getElementById('storage-label');
+    const help = document.getElementById('storage-help');
+    if (!badge || !dot || !label) return;
+    try {
+      const r = await fetch('/api/storage-status');
+      const d = await r.json();
+      if (d.persistent) {
+        dot.style.background = 'var(--color-success)';
+        badge.style.background = 'rgba(16,185,129,.12)';
+        badge.style.borderColor = 'rgba(16,185,129,.35)';
+        badge.style.color = 'var(--color-success)';
+        label.textContent = 'Persistent ✓';
+        if (help) help.textContent = 'Your history is saved to a volume and survives redeploys. You’re all set.';
+      } else {
+        dot.style.background = 'var(--color-warning)';
+        badge.style.background = 'rgba(245,158,11,.12)';
+        badge.style.borderColor = 'rgba(245,158,11,.35)';
+        badge.style.color = 'var(--color-warning)';
+        label.textContent = 'Ephemeral ⚠';
+        if (help) help.innerHTML = 'Data resets on every redeploy. Attach a Railway volume and set <b>DATA_DIR</b> to its mount path to keep your history.';
+      }
+    } catch (e) {
+      label.textContent = 'Unknown';
+      if (help) help.textContent = 'Could not check storage status.';
+    }
+  };
 
   // --- GSC DATA & SYNC SYSTEM ---
   async function syncGSCData() {
