@@ -270,7 +270,7 @@ const DEFAULT_VIS_PROMPTS = [
   'best fitness studio for injury recovery in St. Petersburg',
   'balance and mobility training for older adults St. Petersburg'
 ];
-let aiVisDb = { prompts: DEFAULT_VIS_PROMPTS.slice(), snapshots: [], updatedAt: null };
+let aiVisDb = { prompts: DEFAULT_VIS_PROMPTS.slice(), snapshots: [], updatedAt: null, autoEnabled: false, intervalDays: 7, lastRun: null };
 if (fs.existsSync(AI_VIS_FILE)) {
   try {
     const loaded = JSON.parse(fs.readFileSync(AI_VIS_FILE, 'utf8'));
@@ -278,13 +278,17 @@ if (fs.existsSync(AI_VIS_FILE)) {
       aiVisDb = {
         prompts: Array.isArray(loaded.prompts) && loaded.prompts.length ? loaded.prompts : DEFAULT_VIS_PROMPTS.slice(),
         snapshots: Array.isArray(loaded.snapshots) ? loaded.snapshots : [],
-        updatedAt: loaded.updatedAt || null
+        updatedAt: loaded.updatedAt || null,
+        autoEnabled: !!loaded.autoEnabled,
+        intervalDays: loaded.intervalDays || 7,
+        lastRun: loaded.lastRun || null
       };
     }
   } catch (e) { /* keep defaults */ }
 } else {
   try { fs.writeFileSync(AI_VIS_FILE, JSON.stringify(aiVisDb, null, 2)); } catch (e) {}
 }
+let aiVisRunning = false;   // guards against overlapping manual + scheduled runs
 function saveAiVis() {
   try { fs.writeFileSync(AI_VIS_FILE, JSON.stringify(aiVisDb, null, 2)); }
   catch (e) { console.error('[AI Visibility] save failed:', e.message); }
@@ -1448,8 +1452,21 @@ async function runAiVisibility(engineIds) {
   if (idx >= 0) aiVisDb.snapshots[idx] = snapshot; else aiVisDb.snapshots.push(snapshot);
   aiVisDb.snapshots = aiVisDb.snapshots.slice(-60);
   aiVisDb.updatedAt = snapshot.ranAt;
+  aiVisDb.lastRun = snapshot.ranAt;
   saveAiVis();
   return { snapshot };
+}
+
+// Scheduled auto-run: fills the trend on a cadence without the user clicking.
+async function maybeRunAiVisibility(force) {
+  if (aiVisRunning) return;
+  if (!force && !aiVisDb.autoEnabled) return;
+  if (!AI_ENGINES.some(e => engineConfigured(e.id))) return;   // nothing to query
+  if (!force && daysSince(aiVisDb.lastRun) < (aiVisDb.intervalDays || 7)) return;
+  aiVisRunning = true;
+  try { await runAiVisibility(null); }
+  catch (e) { console.error('[AI Visibility Autopilot] auto-run failed:', e.message); }
+  finally { aiVisRunning = false; }
 }
 
 // Build the trend series the dashboard chart needs: one line per brand
@@ -1479,7 +1496,9 @@ function visTrend() {
 }
 
 // GET current state: engine status, prompts, latest snapshot, deltas, trend.
+// Fire-and-forget a due-check so opening the tab nudges the weekly schedule.
 app.get('/api/ai-visibility', (req, res) => {
+  maybeRunAiVisibility(false).catch(() => {});
   const snaps = aiVisDb.snapshots;
   const latest = snaps[snaps.length - 1] || null;
   const prev = snaps.length > 1 ? snaps[snaps.length - 2] : null;
@@ -1496,22 +1515,39 @@ app.get('/api/ai-visibility', (req, res) => {
     latest, deltas,
     trend: visTrend(),
     updatedAt: aiVisDb.updatedAt,
-    anyConfigured: AI_ENGINES.some(e => engineConfigured(e.id))
+    anyConfigured: AI_ENGINES.some(e => engineConfigured(e.id)),
+    autoEnabled: !!aiVisDb.autoEnabled,
+    intervalDays: aiVisDb.intervalDays || 7,
+    lastRun: aiVisDb.lastRun,
+    running: aiVisRunning
   });
 });
 
 // POST run a fresh multi-engine visibility sweep (spends API credits).
 app.post('/api/ai-visibility/run', requireAuth, async (req, res) => {
+  if (aiVisRunning) return res.json({ success: true, busy: true, message: 'A visibility check is already running — hang tight.' });
   const { engines } = req.body || {};
+  aiVisRunning = true;
   try {
     const out = await runAiVisibility(Array.isArray(engines) ? engines : null);
     if (out.error) return res.status(400).json({ success: false, error: out.error });
-    return res.json({ success: true, snapshot: out.snapshot, deltas: null });
+    return res.json({ success: true, snapshot: out.snapshot });
   } catch (e) {
     console.error('[AI Visibility run] failed:', e.message);
     return res.status(502).json({ success: false, error: e.message });
-  }
+  } finally { aiVisRunning = false; }
 });
+
+// Toggle the weekly auto-check on/off.
+app.post('/api/ai-visibility/toggle', requireAuth, (req, res) => {
+  aiVisDb.autoEnabled = !!(req.body && req.body.enabled);
+  saveAiVis();
+  res.json({ success: true, enabled: aiVisDb.autoEnabled });
+});
+
+// Staggered startup catch-up + 12h heartbeat so the trend fills on schedule.
+setTimeout(() => { maybeRunAiVisibility(false).catch(() => {}); }, 90000);
+setInterval(() => { maybeRunAiVisibility(false).catch(() => {}); }, 12 * 60 * 60 * 1000);
 
 // POST update the tracked prompt list.
 app.post('/api/ai-visibility/prompts', requireAuth, (req, res) => {
