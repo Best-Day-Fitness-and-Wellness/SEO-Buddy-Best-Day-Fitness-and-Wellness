@@ -218,6 +218,9 @@ document.addEventListener('DOMContentLoaded', () => {
       pageTitle.innerText = 'AI Visibility Check';
       pageSubtitle.innerText = 'See whether AI assistants recommend and cite you, and build schema';
       if (window.loadAiVisibility) window.loadAiVisibility();
+      if (window.loadFactCheck) window.loadFactCheck();
+      if (window.loadCrawlers) window.loadCrawlers();
+      if (window.loadReddit) window.loadReddit();
       fetchAioHistory();
       fetchAioSchemas();
     } else if (tabId === 'citations-tab') {
@@ -1697,6 +1700,146 @@ document.addEventListener('DOMContentLoaded', () => {
       avPromptsPanel.style.display = 'none';
     } catch (e) { alert('Could not save prompts: ' + e.message); }
     finally { avPromptsSave.disabled = false; avPromptsSave.innerText = 'Save prompts'; }
+  });
+
+  // --- FACTCHECK / BRAND-ACCURACY MONITOR (P4a) ---
+  let fcState = null, fcPollTimer = null;
+  function fcAccClass(a) { return a == null ? 'na' : a >= 85 ? 'good' : a >= 50 ? 'warn' : 'bad'; }
+  function fcRender() {
+    if (!fcState) return;
+    const upd = avEl('fc-updated'); if (upd) upd.innerText = fcState.updatedAt ? ('Checked ' + avAgo(fcState.updatedAt)) : '';
+    const runBtn = avEl('fc-run');
+    if (runBtn) { if (fcState.running) { runBtn.disabled = true; runBtn.innerHTML = 'Checking…'; if (!fcPollTimer) fcStartPolling(); } else if (!runBtn.dataset.busy) { runBtn.disabled = false; runBtn.innerHTML = '&#128269; Run FactCheck'; } }
+    const body = avEl('fc-body'); if (!body) return;
+    const latest = fcState.latest;
+    if (!latest) {
+      body.innerHTML = `<div class="fc-empty">${fcState.anyConfigured
+        ? 'Click <b>Run FactCheck</b> to see what each AI engine believes about your business — and where it&rsquo;s wrong.'
+        : 'Connect an AI engine (add <b>GEMINI_API_KEY</b> in Settings) to run FactCheck.'}</div>`;
+      return;
+    }
+    body.innerHTML = (latest.results || []).map(r => {
+      if (r.error) return `<div class="fc-engine"><div class="fc-engine-top"><span class="fc-engine-name">${avEsc(r.label)}</span><span class="fc-acc na">unavailable</span></div><div class="fc-summary">${avEsc(r.error)}</div></div>`;
+      const wrong = (r.issues || []).filter(i => !i.correct);
+      const right = (r.issues || []).filter(i => i.correct);
+      const accTxt = r.accuracy == null ? 'No firm claims' : (r.accuracy + '% accurate');
+      const wrongHtml = wrong.map(i => `<div class="fc-issue wrong"><span class="ic">&#9888;</span><span><b>${avEsc(i.aiClaim)}</b>${i.truth ? ` &rarr; <span class="truth">${avEsc(i.truth)}</span>` : ''}${i.note ? ` <span style="color:var(--text-dark)">(${avEsc(i.note)})</span>` : ''}</span></div>`).join('');
+      const rightLine = right.length ? `<div class="fc-issue ok"><span class="ic">&#10003;</span><span>${right.length} claim${right.length > 1 ? 's' : ''} verified correct</span></div>` : '';
+      return `<div class="fc-engine">
+        <div class="fc-engine-top"><span class="fc-engine-name">${avEsc(r.label)}</span><span class="fc-acc ${fcAccClass(r.accuracy)}">${wrong.length ? wrong.length + ' issue' + (wrong.length > 1 ? 's' : '') + ' · ' : ''}${accTxt}</span></div>
+        ${r.summary ? `<div class="fc-summary">${avEsc(r.summary)}</div>` : ''}
+        ${wrongHtml}${rightLine}
+      </div>`;
+    }).join('') || '<div class="fc-empty">No engine responses.</div>';
+  }
+  function fcStartPolling() {
+    if (fcPollTimer) return;
+    fcPollTimer = setInterval(async () => {
+      try { const r = await fetch('/api/ai-factcheck'); const d = await r.json(); if (!d.running) { clearInterval(fcPollTimer); fcPollTimer = null; const rb = avEl('fc-run'); if (rb) delete rb.dataset.busy; fcState = d; fcRender(); } }
+      catch (e) { clearInterval(fcPollTimer); fcPollTimer = null; }
+    }, 5000);
+  }
+  async function loadFactCheck() {
+    try { const r = await fetch('/api/ai-factcheck'); fcState = await r.json(); fcRender(); } catch (e) { /* leave */ }
+  }
+  window.loadFactCheck = loadFactCheck;
+  const fcRunBtn = avEl('fc-run');
+  if (fcRunBtn) fcRunBtn.addEventListener('click', async () => {
+    if (fcState && !fcState.anyConfigured) { alert('No AI engines are connected. Add GEMINI_API_KEY (and optionally OPENAI_API_KEY / PERPLEXITY_API_KEY) in Railway, then run again.'); return; }
+    fcRunBtn.disabled = true; fcRunBtn.dataset.busy = '1'; fcRunBtn.innerHTML = 'Checking…';
+    try {
+      const r = await authFetch('/api/ai-factcheck/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+      const d = await r.json();
+      if (!r.ok || !d.success) throw new Error(d.error || 'Run failed');
+      delete fcRunBtn.dataset.busy; await loadFactCheck();
+    } catch (e) { delete fcRunBtn.dataset.busy; alert('FactCheck failed: ' + e.message); await loadFactCheck(); }
+  });
+
+  // --- AI CRAWLER ACCESS AUDIT (P4b) ---
+  let acState = null, acPollTimer = null;
+  function acPill(status) { return status === 'blocked' ? 'bad' : status === 'partial' ? 'warn' : 'good'; }
+  function acPillText(status) { return status === 'blocked' ? 'Blocked' : status === 'partial' ? 'Partial' : 'Allowed'; }
+  function acRender() {
+    if (!acState) return;
+    const upd = avEl('ac-updated'); if (upd) upd.innerText = acState.updatedAt ? ('Checked ' + avAgo(acState.updatedAt)) : '';
+    const runBtn = avEl('ac-run');
+    if (runBtn) { if (acState.running) { runBtn.disabled = true; runBtn.innerHTML = 'Checking…'; if (!acPollTimer) acStartPolling(); } else if (!runBtn.dataset.busy) { runBtn.disabled = false; runBtn.innerHTML = '&#129302; Check crawler access'; } }
+    const body = avEl('ac-body'); if (!body) return;
+    const l = acState.latest;
+    if (!l) { body.innerHTML = `<div class="fc-empty">Click <b>Check crawler access</b> to scan <b>${avEsc(acState.site || 'your site')}/robots.txt</b> and confirm the AI engines are allowed to read your site.</div>`; return; }
+    const banner = l.blocked > 0
+      ? `<div class="ac-banner bad">&#9888; ${l.blocked} of ${l.total} AI crawlers are BLOCKED in robots.txt — those engines can't read your site. Fix this first.</div>`
+      : `<div class="ac-banner good">&#10003; All ${l.total} major AI crawlers are allowed to read ${avEsc(l.site)}.</div>`;
+    const grid = `<div class="ac-grid">` + (l.bots || []).map(b =>
+      `<div class="ac-bot"><div><div class="ac-bot-name">${avEsc(b.label)}</div><div class="ac-bot-purpose">${avEsc(b.purpose)}</div></div><span class="ac-pill ${acPill(b.status)}">${acPillText(b.status)}</span></div>`
+    ).join('') + `</div>`;
+    const note = !l.hadRobots
+      ? `<div class="ac-note">No <b>robots.txt</b> was found at ${avEsc(l.robotsUrl)} — that means the site is open to all crawlers (fine for AI visibility). ${l.fetchError ? '(' + avEsc(l.fetchError) + ')' : ''}</div>`
+      : (l.blocked > 0 ? `<div class="ac-note">To unblock, remove the <code>Disallow: /</code> rule for the blocked bots in your robots.txt (in GoHighLevel site settings), or replace it with <code>Allow: /</code>.</div>` : `<div class="ac-note">Checked ${avEsc(l.robotsUrl)}. Re-run after any robots.txt change.</div>`);
+    body.innerHTML = banner + grid + note;
+  }
+  function acStartPolling() {
+    if (acPollTimer) return;
+    acPollTimer = setInterval(async () => {
+      try { const r = await fetch('/api/ai-crawlers'); const d = await r.json(); if (!d.running) { clearInterval(acPollTimer); acPollTimer = null; const rb = avEl('ac-run'); if (rb) delete rb.dataset.busy; acState = d; acRender(); } }
+      catch (e) { clearInterval(acPollTimer); acPollTimer = null; }
+    }, 4000);
+  }
+  async function loadCrawlers() {
+    try { const r = await fetch('/api/ai-crawlers'); acState = await r.json(); acRender(); } catch (e) { /* leave */ }
+  }
+  window.loadCrawlers = loadCrawlers;
+  const acRunBtn = avEl('ac-run');
+  if (acRunBtn) acRunBtn.addEventListener('click', async () => {
+    acRunBtn.disabled = true; acRunBtn.dataset.busy = '1'; acRunBtn.innerHTML = 'Checking…';
+    try {
+      const r = await authFetch('/api/ai-crawlers/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+      const d = await r.json();
+      if (!r.ok || !d.success) throw new Error(d.error || 'Check failed');
+      delete acRunBtn.dataset.busy; await loadCrawlers();
+    } catch (e) { delete acRunBtn.dataset.busy; alert('Crawler check failed: ' + e.message); await loadCrawlers(); }
+  });
+
+  // --- REDDIT VISIBILITY ENGINE (P4c) ---
+  let rdState = null, rdPollTimer = null;
+  function rdRender() {
+    if (!rdState) return;
+    const upd = avEl('rd-updated'); if (upd) upd.innerText = rdState.updatedAt ? ('Found ' + avAgo(rdState.updatedAt)) : '';
+    const runBtn = avEl('rd-run');
+    if (runBtn) { if (rdState.running) { runBtn.disabled = true; runBtn.innerHTML = 'Searching Reddit…'; if (!rdPollTimer) rdStartPolling(); } else if (!runBtn.dataset.busy) { runBtn.disabled = false; runBtn.innerHTML = '&#128269; Find Reddit threads'; } }
+    const body = avEl('rd-body'); if (!body) return;
+    const l = rdState.latest;
+    if (!l) { body.innerHTML = `<div class="fc-empty">${rdState.anyConfigured ? 'Click <b>Find Reddit threads</b> to surface real discussions where you can add value and get cited by AI.' : 'Add your <b>Gemini API key</b> in Settings — Reddit discovery uses live Google Search.'}</div>`; return; }
+    if (!l.threads || !l.threads.length) { body.innerHTML = `<div class="fc-empty">No clear Reddit threads surfaced this time. Try again later — new discussions appear all the time.</div>`; return; }
+    body.innerHTML = l.threads.map(t => `
+      <div class="rd-thread">
+        <div class="rd-thread-top">${t.subreddit ? `<span class="rd-sub">${avEsc(t.subreddit)}</span>` : ''}<a class="rd-title" href="${avEsc(t.url)}" target="_blank" rel="noopener">${avEsc(t.title)} &#8599;</a></div>
+        ${t.why ? `<div class="rd-why">${avEsc(t.why)}</div>` : ''}
+        ${t.angle ? `<div class="rd-angle"><b>How to add value:</b> ${avEsc(t.angle)}</div>` : ''}
+      </div>`).join('') +
+      `<div class="rd-note">Engage as a real person: be genuinely helpful, disclose that you run Best Day Fitness, and follow each subreddit&rsquo;s self-promotion rules. Spammy posts get removed and hurt you.</div>`;
+  }
+  function rdStartPolling() {
+    if (rdPollTimer) return;
+    rdPollTimer = setInterval(async () => {
+      try { const r = await fetch('/api/reddit-threads'); const d = await r.json(); if (!d.running) { clearInterval(rdPollTimer); rdPollTimer = null; const rb = avEl('rd-run'); if (rb) delete rb.dataset.busy; rdState = d; rdRender(); } }
+      catch (e) { clearInterval(rdPollTimer); rdPollTimer = null; }
+    }, 5000);
+  }
+  async function loadReddit() {
+    try { const r = await fetch('/api/reddit-threads'); rdState = await r.json(); rdRender(); } catch (e) { /* leave */ }
+  }
+  window.loadReddit = loadReddit;
+  const rdRunBtn = avEl('rd-run');
+  if (rdRunBtn) rdRunBtn.addEventListener('click', async () => {
+    if (rdState && !rdState.anyConfigured) { alert('Add your Gemini API key in Settings to search Reddit (uses live Google Search grounding).'); return; }
+    rdRunBtn.disabled = true; rdRunBtn.dataset.busy = '1'; rdRunBtn.innerHTML = 'Searching Reddit…';
+    try {
+      const r = await authFetch('/api/reddit-threads/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+      const d = await r.json();
+      if (!r.ok || !d.success) throw new Error(d.error || 'Search failed');
+      delete rdRunBtn.dataset.busy; await loadReddit();
+    } catch (e) { delete rdRunBtn.dataset.busy; alert('Reddit search failed: ' + e.message); await loadReddit(); }
   });
 
 

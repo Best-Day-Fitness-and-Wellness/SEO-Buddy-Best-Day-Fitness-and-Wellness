@@ -879,6 +879,53 @@
           #aio-tab .av-prompts h4{margin:0 0 4px;font-size:14px;}
           #aio-tab .av-prompts textarea{width:100%;min-height:120px;background:rgba(0,0,0,.3);border:1px solid var(--border-color);color:var(--text-main);border-radius:8px;padding:10px;font-family:inherit;font-size:13px;line-height:1.6;resize:vertical;}
           #aio-tab .av-prompts-actions{display:flex;gap:10px;margin-top:10px;}
+          #aio-tab .fc-card{margin-bottom:22px;border:1px solid rgba(245,158,11,.25);}
+          #aio-tab .fc-head{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;margin-bottom:12px;}
+          #aio-tab .fc-title{font-family:var(--font-heading);font-size:var(--font-lg);font-weight:600;margin:0 0 4px;}
+          #aio-tab .fc-sub{font-size:12.5px;color:var(--text-muted);margin:0;max-width:560px;line-height:1.5;}
+          #aio-tab .fc-head-right{display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+          #aio-tab .fc-updated{font-size:12px;color:var(--text-dark);}
+          #aio-tab .fc-engine{border:1px solid var(--border-color);border-radius:12px;padding:14px 16px;margin-top:12px;}
+          #aio-tab .fc-engine-top{display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap;}
+          #aio-tab .fc-engine-name{font-weight:700;font-size:13.5px;color:var(--text-main);}
+          #aio-tab .fc-acc{font-size:12px;font-weight:700;padding:3px 10px;border-radius:999px;}
+          #aio-tab .fc-acc.good{background:rgba(16,185,129,.15);color:var(--color-success);}
+          #aio-tab .fc-acc.warn{background:rgba(245,158,11,.15);color:var(--color-warning);}
+          #aio-tab .fc-acc.bad{background:rgba(244,63,94,.15);color:var(--color-accent);}
+          #aio-tab .fc-acc.na{background:rgba(148,163,184,.12);color:var(--text-muted);}
+          #aio-tab .fc-summary{font-size:12.5px;color:var(--text-muted);margin:8px 0 0;line-height:1.5;}
+          #aio-tab .fc-issue{display:flex;gap:9px;align-items:flex-start;padding:8px 0;border-top:1px solid var(--border-color);font-size:12.5px;line-height:1.5;}
+          #aio-tab .fc-issue:first-of-type{margin-top:8px;}
+          #aio-tab .fc-issue .ic{flex-shrink:0;font-size:13px;line-height:1.4;}
+          #aio-tab .fc-issue.wrong .ic{color:var(--color-accent);}
+          #aio-tab .fc-issue.ok .ic{color:var(--color-success);}
+          #aio-tab .fc-issue b{color:var(--text-main);}
+          #aio-tab .fc-issue .truth{color:var(--color-success);}
+          #aio-tab .fc-empty{font-size:13px;color:var(--text-muted);padding:14px 0;line-height:1.6;}
+          #aio-tab .ac-card{margin-bottom:22px;}
+          #aio-tab .ac-banner{border-radius:10px;padding:11px 14px;font-size:13px;font-weight:600;margin-bottom:14px;}
+          #aio-tab .ac-banner.good{background:rgba(16,185,129,.12);color:var(--color-success);border:1px solid rgba(16,185,129,.3);}
+          #aio-tab .ac-banner.bad{background:rgba(244,63,94,.12);color:#fda4af;border:1px solid rgba(244,63,94,.3);}
+          #aio-tab .ac-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;}
+          @media(max-width:760px){#aio-tab .ac-grid{grid-template-columns:1fr;}}
+          #aio-tab .ac-bot{display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid var(--border-color);border-radius:10px;padding:10px 13px;}
+          #aio-tab .ac-bot-name{font-size:13px;font-weight:700;color:var(--text-main);}
+          #aio-tab .ac-bot-purpose{font-size:11px;color:var(--text-dark);margin-top:2px;}
+          #aio-tab .ac-pill{font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;white-space:nowrap;flex-shrink:0;}
+          #aio-tab .ac-pill.good{background:rgba(16,185,129,.15);color:var(--color-success);}
+          #aio-tab .ac-pill.bad{background:rgba(244,63,94,.15);color:var(--color-accent);}
+          #aio-tab .ac-pill.warn{background:rgba(245,158,11,.15);color:var(--color-warning);}
+          #aio-tab .ac-note{font-size:12px;color:var(--text-muted);margin-top:12px;line-height:1.5;}
+          #aio-tab .rd-card{margin-bottom:22px;}
+          #aio-tab .rd-thread{border:1px solid var(--border-color);border-radius:12px;padding:13px 15px;margin-top:11px;}
+          #aio-tab .rd-thread-top{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:5px;}
+          #aio-tab .rd-sub{font-size:11px;font-weight:700;color:#f59e0b;background:rgba(245,158,11,.12);padding:2px 8px;border-radius:999px;}
+          #aio-tab .rd-thread a.rd-title{font-size:13.5px;font-weight:700;color:var(--text-main);text-decoration:none;}
+          #aio-tab .rd-thread a.rd-title:hover{color:var(--color-secondary);text-decoration:underline;}
+          #aio-tab .rd-why{font-size:12.5px;color:var(--text-muted);margin:2px 0 8px;line-height:1.5;}
+          #aio-tab .rd-angle{font-size:12.5px;color:var(--text-main);background:rgba(6,182,212,.07);border-left:2px solid var(--color-secondary);padding:7px 11px;border-radius:0 6px 6px 0;line-height:1.5;}
+          #aio-tab .rd-angle b{color:var(--color-secondary);}
+          #aio-tab .rd-note{font-size:12px;color:var(--text-dark);margin-top:14px;line-height:1.5;font-style:italic;}
         </style>
 
         <div class="av-toolbar">
@@ -925,6 +972,48 @@
             <div class="av-lb-title">All brands &middot; who AI recommends</div>
             <div class="av-leaderboard" id="av-leaderboard"></div>
           </div>
+        </div>
+
+        <div class="content-card fc-card" id="fc-card">
+          <div class="fc-head">
+            <div>
+              <h3 class="fc-title">&#128269; FactCheck &mdash; what AI gets wrong about you</h3>
+              <p class="fc-sub">Asks each engine what it knows about your business, then flags claims that don&rsquo;t match your real details so you can correct them.</p>
+            </div>
+            <div class="fc-head-right">
+              <span class="fc-updated" id="fc-updated"></span>
+              <button class="btn btn-primary btn-xs" id="fc-run" type="button">&#128269; Run FactCheck</button>
+            </div>
+          </div>
+          <div class="fc-body" id="fc-body"></div>
+        </div>
+
+        <div class="content-card ac-card" id="ac-card">
+          <div class="fc-head">
+            <div>
+              <h3 class="fc-title">&#129302; AI crawler access</h3>
+              <p class="fc-sub">Can the AI engines actually read your site? This checks your <b>robots.txt</b> &mdash; if a bot is blocked there, you&rsquo;re invisible to that engine no matter how good your content is.</p>
+            </div>
+            <div class="fc-head-right">
+              <span class="fc-updated" id="ac-updated"></span>
+              <button class="btn btn-primary btn-xs" id="ac-run" type="button">&#129302; Check crawler access</button>
+            </div>
+          </div>
+          <div class="ac-body" id="ac-body"></div>
+        </div>
+
+        <div class="content-card rd-card" id="rd-card">
+          <div class="fc-head">
+            <div>
+              <h3 class="fc-title">&#128172; Reddit visibility</h3>
+              <p class="fc-sub">AI answer engines cite Reddit heavily. Find real, high-intent threads where you can genuinely help &mdash; and get mentioned right where AI is looking.</p>
+            </div>
+            <div class="fc-head-right">
+              <span class="fc-updated" id="rd-updated"></span>
+              <button class="btn btn-primary btn-xs" id="rd-run" type="button">&#128269; Find Reddit threads</button>
+            </div>
+          </div>
+          <div class="rd-body" id="rd-body"></div>
         </div>
 
         <div class="av-divider">Spot-check a single search</div>
