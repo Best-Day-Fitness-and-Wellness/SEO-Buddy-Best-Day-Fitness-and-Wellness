@@ -1959,16 +1959,25 @@ app.post('/api/citation-outreach', requireAuth, async (req, res) => {
   }
   try {
     const client = new GoogleGenAI({ apiKey: geminiKey });
-    const p = `You are drafting a short outreach email to get a local business included in a third-party ${t}.
+    const p = `You are helping a local business get included in a third-party ${t}.
 Business: Best Day Fitness — a holistic health & wellness studio in St. Petersburg, FL for adults 50+, seniors, and injury recovery. Phone ${kit.phone}. Owner's first name: Chris.
 Target site: "${domain}". It shows up in AI answers for searches like: ${qList.join('; ') || 'best gyms / senior fitness in St. Petersburg'}.
-Using current web information about "${domain}", write a warm, specific pitch for inclusion. Reference what the site or article actually covers so it's clearly not a template. Under 130 words, one clear ask, friendly sign-off from Chris.
-Return ONLY raw JSON, no markdown: {"to":"who to contact, e.g. 'Features editor' or a real email if found","subject":"","body":"","howToFind":"one line on how to find the real recipient (byline, contact page)"}`;
+Do BOTH of the following using current web information about "${domain}":
+1) Find the single best REAL way to reach them to pitch inclusion: an actual publicly-listed email address if one exists (prefer editorial / tips / news / submissions / contact / info in that order), and the URL of the page where a pitch or listing submission is made (their contact, "submit a tip", "write for us", or about page). Only return an email you can actually find published — never invent one.
+2) Write a warm, specific pitch for inclusion. Reference what the site or article actually covers so it's clearly not a template. Under 130 words, one clear ask, friendly sign-off from Chris.
+Return ONLY raw JSON, no markdown: {"email":"the best real, publicly-listed email address, or empty string if none is published","contactUrl":"the URL to submit/pitch or the site's contact page (empty if none)","to":"a short human label for who this reaches, e.g. 'Features editor'","subject":"","body":"","howToFind":"one short line on how to reach or confirm the right recipient"}`;
     const r = await client.models.generateContent({ model: GEMINI_MODEL, contents: p, config: { tools: [{ googleSearch: {} }] } });
     const parsed = parseGeminiJson(r.text) || {};
+    const emailRe = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+    const foundEmail = parsed.email && emailRe.test(String(parsed.email).trim()) ? String(parsed.email).trim() : '';
+    let contactUrl = '';
+    if (parsed.contactUrl && /^https?:\/\//i.test(String(parsed.contactUrl).trim())) contactUrl = String(parsed.contactUrl).trim();
+    else contactUrl = `https://${domain}`;
     return res.json({
       success: true, kind: 'pitch', domain,
-      to: parsed.to || 'Editor',
+      email: foundEmail,
+      contactUrl,
+      to: parsed.to || (foundEmail || 'Editor'),
       subject: parsed.subject || `Best Day Fitness — a senior-focused studio for ${domain}`,
       body: parsed.body || '',
       howToFind: parsed.howToFind || 'Check the article byline or the site’s contact/about page for the right person.'
