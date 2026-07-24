@@ -398,7 +398,10 @@
       <section class="tab-content" id="performance-tab">
         <div class="perf-bar">
           <div class="perf-bar-left">Comparing the <b>last 28 days</b> vs the <b>previous 28 days</b> &middot; updated <span id="perf-updated">&mdash;</span><span class="perf-badge" id="perf-badge">&hellip;</span></div>
-          <button class="perf-refresh" id="perf-refresh">&#8635; Refresh</button>
+          <div style="display:flex;gap:8px;">
+            <button class="perf-refresh" id="perf-download-pdf" type="button">&#11015; Download PDF report</button>
+            <button class="perf-refresh" id="perf-refresh">&#8635; Refresh</button>
+          </div>
         </div>
 
         <div class="content-card pd-card" id="pd-card" style="display:none;">
@@ -1823,6 +1826,8 @@
     </div>
   </div>
 
+  <script src="jspdf.umd.min.js"></script>
+  <script src="jspdf.plugin.autotable.min.js"></script>
   <script src="mock-data.js"></script>
   <script src="app.js"></script>
 </body>

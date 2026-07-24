@@ -3039,7 +3039,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (ch.dataset.tour) { close(); const b = document.getElementById('btn-start-wizard'); if (b) b.click(); return; }
         send(ch.dataset.send);
       }));
-      if (action && action.endpoint) renderAction(r.querySelector('.asst-botwrap'), action);
+      if (action && (action.endpoint || action.clientAction)) renderAction(r.querySelector('.asst-botwrap'), action);
     }
     function replaceBtns(card, html) { const b = card.querySelector('.asst-action-btns'); if (b) b.outerHTML = html; }
     function htmlToText(h) { const d = document.createElement('div'); d.innerHTML = h || ''; return (d.textContent || d.innerText || '').replace(/\s+/g, ' ').trim(); }
@@ -3071,6 +3071,12 @@ document.addEventListener('DOMContentLoaded', () => {
       card.querySelector('[data-act="go"]').addEventListener('click', async (e) => {
         const go = e.currentTarget; go.disabled = true; go.innerText = 'Working…';
         try {
+          // Client-side actions (e.g. build a PDF) run in the browser, no endpoint.
+          if (action.clientAction === 'pdf') {
+            if (window.generateSeoReportPdf) await window.generateSeoReportPdf();
+            replaceBtns(card, `<div class="asst-result">&#10003; ${esc(action.done)}</div>`);
+            return;
+          }
           const r = await authFetch(action.endpoint, { method: action.method || 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(action.body || {}) });
           const d = await r.json().catch(() => ({}));
           if (d && d.budgetReached) { replaceBtns(card, `<div class="asst-result warn">&#9888; ${esc(d.message || 'Monthly usage budget reached.')}</div>`); return; }
@@ -3162,6 +3168,121 @@ document.addEventListener('DOMContentLoaded', () => {
       loadUsage();
     } catch (e) { alert('Could not save the cap: ' + e.message); }
     finally { ubSave.disabled = false; ubSave.innerText = o; }
+  });
+
+  // --- PDF REPORT (client-side, jsPDF) ---
+  async function generateSeoReportPdf() {
+    if (!window.jspdf || !window.jspdf.jsPDF) { alert('The PDF library is still loading — try again in a moment.'); return; }
+    const { jsPDF } = window.jspdf;
+    const g = (u) => fetch(u).then(r => r.json()).catch(() => ({}));
+    const [hs, av, perf, nmRaw, bp] = await Promise.all([g('/api/health-score'), g('/api/ai-visibility'), g('/api/performance'), g('/api/next-moves'), g('/api/business-profile')]);
+    const prof = (bp && bp.profile) || {};
+    const bizName = prof.name || 'Best Day Fitness';
+    const domain = (prof.website || 'bestdayfitness.com').replace(/^https?:\/\//, '');
+    const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+    const IND = [99, 102, 241], CY = [6, 182, 212], MUT = [100, 116, 139], DK = [30, 41, 59];
+    const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+    const W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight();
+    // Header band
+    doc.setFillColor.apply(doc, IND); doc.rect(0, 0, W, 92, 'F');
+    doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(22);
+    doc.text('SEO & AEO Report', 40, 44);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(11);
+    doc.text(`${bizName}  ·  ${domain}`, 40, 66);
+    doc.text(today, 40, 82);
+    let y = 128;
+    // Optimization Score
+    const score = (hs && hs.overall != null) ? hs.overall : null;
+    doc.setTextColor.apply(doc, DK); doc.setFont('helvetica', 'bold'); doc.setFontSize(13);
+    doc.text('Optimization Score', 40, y);
+    doc.setFontSize(40); doc.setTextColor.apply(doc, IND);
+    doc.text(score != null ? String(score) : '—', 40, y + 44);
+    doc.setFontSize(11); doc.setTextColor.apply(doc, MUT); doc.setFont('helvetica', 'normal');
+    let scoreNote = score != null ? 'out of 100' : 'Connect your data to measure';
+    if (hs && hs.delta != null) scoreNote += `   (${hs.delta >= 0 ? '+' : ''}${hs.delta} in 28 days)`;
+    doc.text(scoreNote, 92, y + 44);
+    y += 78;
+    // Health pillars table
+    if (hs && Array.isArray(hs.pillars) && hs.pillars.length) {
+      doc.autoTable({
+        startY: y, theme: 'grid', styles: { fontSize: 9, cellPadding: 5 }, headStyles: { fillColor: DK, textColor: 255 },
+        head: [['Health pillar', 'Score', 'Status']],
+        body: hs.pillars.map(p => [p.label, p.measured ? (p.score + '/100') : 'Not measured', p.detail || '']),
+        margin: { left: 40, right: 40 }, columnStyles: { 1: { cellWidth: 70 } }
+      });
+      y = doc.lastAutoTable.finalY + 24;
+    }
+    // AI Visibility
+    const vis = av && av.latest;
+    doc.setTextColor.apply(doc, DK); doc.setFont('helvetica', 'bold'); doc.setFontSize(13);
+    doc.text('AI Visibility', 40, y); y += 8;
+    if (vis) {
+      doc.autoTable({
+        startY: y, theme: 'plain', styles: { fontSize: 10, cellPadding: 4 },
+        body: [['Visibility Score', vis.visibilityScore + '%'], ['Share of Voice', vis.shareOfVoice + '%'], ['Sentiment', vis.sentimentScore == null ? '—' : String(vis.sentimentScore)]],
+        margin: { left: 40, right: 40 }, columnStyles: { 0: { fontStyle: 'bold', cellWidth: 160 } }
+      });
+      y = doc.lastAutoTable.finalY + 12;
+      const lb = (vis.leaderboard || []).slice(0, 6);
+      if (lb.length) {
+        doc.autoTable({
+          startY: y, theme: 'grid', styles: { fontSize: 9, cellPadding: 5 }, headStyles: { fillColor: CY, textColor: 255 },
+          head: [['#', 'Brand (who AI recommends)', 'Score']],
+          body: lb.map((l, i) => [String(i + 1), l.name + (l.isBrand ? '  (you)' : ''), l.score + '%']),
+          margin: { left: 40, right: 40 }, columnStyles: { 0: { cellWidth: 30 }, 2: { cellWidth: 60 } }
+        });
+        y = doc.lastAutoTable.finalY + 24;
+      }
+    } else {
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor.apply(doc, MUT);
+      doc.text('Run an AI visibility check to populate this section.', 40, y + 16); y += 40;
+    }
+    // Search performance
+    if (y > H - 160) { doc.addPage(); y = 60; }
+    doc.setTextColor.apply(doc, DK); doc.setFont('helvetica', 'bold'); doc.setFontSize(13);
+    doc.text('Search Performance (last 28 days)', 40, y); y += 8;
+    if (perf && perf.current && perf.source === 'live_gsc') {
+      const c = perf.current;
+      doc.autoTable({
+        startY: y, theme: 'plain', styles: { fontSize: 10, cellPadding: 4 },
+        body: [['Impressions', Number(c.impressions).toLocaleString()], ['Clicks', Number(c.clicks).toLocaleString()], ['Avg Google rank', String(c.avgPosition)]],
+        margin: { left: 40, right: 40 }, columnStyles: { 0: { fontStyle: 'bold', cellWidth: 160 } }
+      });
+      y = doc.lastAutoTable.finalY + 20;
+    } else {
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor.apply(doc, MUT);
+      doc.text('Connect Google Search Console for live performance numbers.', 40, y + 16); y += 40;
+    }
+    // Next moves
+    const moves = Array.isArray(nmRaw) ? nmRaw : (nmRaw && nmRaw.moves) || [];
+    if (moves.length) {
+      if (y > H - 160) { doc.addPage(); y = 60; }
+      doc.setTextColor.apply(doc, DK); doc.setFont('helvetica', 'bold'); doc.setFontSize(13);
+      doc.text('Your Next Moves', 40, y); y += 8;
+      doc.autoTable({
+        startY: y, theme: 'grid', styles: { fontSize: 9, cellPadding: 5 }, headStyles: { fillColor: IND, textColor: 255 },
+        head: [['Priority', 'Action', 'Why it matters']],
+        body: moves.slice(0, 6).map(m => [(m.impact || '').toUpperCase(), m.title || '', m.why || '']),
+        margin: { left: 40, right: 40 }, columnStyles: { 0: { cellWidth: 62 } }
+      });
+    }
+    // Footer on every page
+    const pages = doc.internal.getNumberOfPages();
+    for (let i = 1; i <= pages; i++) {
+      doc.setPage(i); doc.setFontSize(8); doc.setTextColor.apply(doc, MUT); doc.setFont('helvetica', 'normal');
+      doc.text(`Generated by SEO Buddy · ${today}`, 40, H - 24);
+      doc.text(`Page ${i} of ${pages}`, W - 40, H - 24, { align: 'right' });
+    }
+    const fname = `${bizName.replace(/[^a-z0-9]+/gi, '-')}-SEO-Report-${new Date().toISOString().slice(0, 10)}.pdf`;
+    doc.save(fname);
+    return fname;
+  }
+  window.generateSeoReportPdf = generateSeoReportPdf;
+  const pdfBtn = document.getElementById('perf-download-pdf');
+  if (pdfBtn) pdfBtn.addEventListener('click', async () => {
+    pdfBtn.disabled = true; const o = pdfBtn.innerHTML; pdfBtn.innerHTML = 'Building…';
+    try { await generateSeoReportPdf(); } catch (e) { alert('Could not build the PDF: ' + e.message); }
+    finally { pdfBtn.disabled = false; pdfBtn.innerHTML = o; }
   });
 
   // --- ONBOARDING SETUP WIZARD ---
