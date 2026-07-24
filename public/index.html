@@ -822,6 +822,89 @@
 
       <!-- TAB 4: AI SEARCH AUDIT -->
       <section class="tab-content" id="aio-tab">
+        <style>
+          #aio-tab .av-toolbar{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:16px;}
+          #aio-tab .av-engines{display:flex;gap:8px;flex-wrap:wrap;}
+          #aio-tab .av-chip{display:flex;align-items:center;gap:7px;font-size:12.5px;padding:6px 12px;border-radius:999px;border:1px solid var(--border-color);background:var(--bg-card);color:var(--text-muted);}
+          #aio-tab .av-chip .dot{width:8px;height:8px;border-radius:50%;background:var(--text-dark);}
+          #aio-tab .av-chip.on{color:var(--text-main);border-color:rgba(16,185,129,.4);}
+          #aio-tab .av-chip.on .dot{background:var(--color-success);box-shadow:0 0 0 3px rgba(16,185,129,.15);}
+          #aio-tab .av-chip.off{opacity:.7;}
+          #aio-tab .av-toolbar-right{display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+          #aio-tab .av-updated{font-size:12px;color:var(--text-dark);}
+          #aio-tab .av-main{display:grid;grid-template-columns:1fr 320px;gap:16px;margin-bottom:22px;}
+          @media(max-width:980px){#aio-tab .av-main{grid-template-columns:1fr;}}
+          #aio-tab .av-hero{padding:22px 24px;}
+          #aio-tab .av-mtabs{display:inline-flex;background:rgba(0,0,0,.25);border:1px solid var(--border-color);border-radius:10px;padding:3px;gap:2px;margin-bottom:18px;}
+          #aio-tab .av-mtab{background:transparent;border:0;color:var(--text-muted);font-family:inherit;font-size:12.5px;font-weight:600;padding:7px 14px;border-radius:8px;cursor:pointer;transition:.15s;}
+          #aio-tab .av-mtab.active{background:var(--color-primary);color:#fff;}
+          #aio-tab .av-score-row{display:flex;align-items:baseline;gap:14px;}
+          #aio-tab .av-score{font-family:var(--font-heading);font-size:3.2rem;font-weight:800;line-height:1;color:var(--text-main);}
+          #aio-tab .av-delta{font-size:14px;font-weight:700;padding:3px 10px;border-radius:999px;}
+          #aio-tab .av-delta.up{background:rgba(16,185,129,.15);color:var(--color-success);}
+          #aio-tab .av-delta.down{background:rgba(244,63,94,.15);color:var(--color-accent);}
+          #aio-tab .av-delta.flat{background:rgba(148,163,184,.12);color:var(--text-muted);}
+          #aio-tab .av-metric-desc{font-size:13px;color:var(--text-muted);margin:6px 0 16px;}
+          #aio-tab .av-chart{width:100%;overflow:hidden;}
+          #aio-tab .av-chart svg{width:100%;height:auto;display:block;}
+          #aio-tab .av-legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:12px;font-size:12px;color:var(--text-muted);}
+          #aio-tab .av-legend .lg{display:flex;align-items:center;gap:6px;}
+          #aio-tab .av-legend .lg i{width:12px;height:3px;border-radius:2px;display:inline-block;}
+          #aio-tab .av-eng-break{margin-top:16px;display:flex;flex-direction:column;gap:10px;}
+          #aio-tab .av-eng-row{display:grid;grid-template-columns:110px 1fr 44px;align-items:center;gap:10px;font-size:12.5px;color:var(--text-main);}
+          #aio-tab .av-eng-track{height:8px;background:rgba(255,255,255,.06);border-radius:999px;overflow:hidden;}
+          #aio-tab .av-eng-fill{height:100%;border-radius:999px;background:var(--gradient-primary);}
+          #aio-tab .av-lb-title{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);font-weight:600;margin-bottom:10px;}
+          #aio-tab .av-lb-row{display:flex;align-items:center;gap:11px;padding:10px 0;border-bottom:1px solid var(--border-color);}
+          #aio-tab .av-lb-row:last-child{border-bottom:none;}
+          #aio-tab .av-lb-row.me{background:rgba(99,102,241,.08);margin:0 -12px;padding:10px 12px;border-radius:8px;border-bottom:1px solid var(--border-color);}
+          #aio-tab .av-lb-rank{width:20px;color:var(--text-dark);font-size:12px;font-weight:700;text-align:center;}
+          #aio-tab .av-lb-name{flex:1;font-size:13px;color:var(--text-main);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+          #aio-tab .av-lb-name .youtag{font-size:9px;background:var(--color-primary);color:#fff;padding:1px 5px;border-radius:4px;margin-left:6px;vertical-align:middle;}
+          #aio-tab .av-lb-score{font-family:var(--font-heading);font-weight:700;font-size:14px;color:var(--text-main);}
+          #aio-tab .av-lb-delta{font-size:11px;font-weight:700;min-width:38px;text-align:right;}
+          #aio-tab .av-lb-delta.up{color:var(--color-success);} #aio-tab .av-lb-delta.down{color:var(--color-accent);} #aio-tab .av-lb-delta.flat{color:var(--text-dark);}
+          #aio-tab .av-empty{border:1px dashed var(--border-color);border-radius:14px;padding:28px;text-align:center;color:var(--text-muted);font-size:14px;line-height:1.6;margin-bottom:22px;}
+          #aio-tab .av-divider{display:flex;align-items:center;gap:12px;margin:26px 0 18px;color:var(--text-dark);font-size:12px;text-transform:uppercase;letter-spacing:.5px;}
+          #aio-tab .av-divider::before,#aio-tab .av-divider::after{content:'';flex:1;height:1px;background:var(--border-color);}
+        </style>
+
+        <div class="av-toolbar">
+          <div class="av-engines" id="av-engines"></div>
+          <div class="av-toolbar-right">
+            <span class="av-updated" id="av-updated"></span>
+            <button class="btn btn-primary btn-xs" id="av-run" type="button">&#8635; Run AI visibility check</button>
+          </div>
+        </div>
+
+        <div class="av-empty" id="av-empty" style="display:none;"></div>
+
+        <div class="av-main" id="av-main" style="display:none;">
+          <div class="av-left">
+            <div class="content-card av-hero">
+              <div class="av-mtabs">
+                <button class="av-mtab active" type="button" data-metric="visibility">Visibility Score</button>
+                <button class="av-mtab" type="button" data-metric="shareOfVoice">Share of Voice</button>
+                <button class="av-mtab" type="button" data-metric="sentiment">Sentiment</button>
+              </div>
+              <div class="av-score-row">
+                <div class="av-score" id="av-score">&mdash;</div>
+                <div class="av-delta flat" id="av-delta" style="display:none;"></div>
+              </div>
+              <div class="av-metric-desc" id="av-metric-desc">Percentage of AI answers that mention your brand</div>
+              <div class="av-chart" id="av-chart"></div>
+              <div class="av-legend" id="av-legend"></div>
+            </div>
+            <div class="content-card av-eng-break" id="av-eng-break" style="margin-top:16px;"></div>
+          </div>
+          <div class="content-card av-right">
+            <div class="av-lb-title">All brands &middot; who AI recommends</div>
+            <div class="av-leaderboard" id="av-leaderboard"></div>
+          </div>
+        </div>
+
+        <div class="av-divider">Spot-check a single search</div>
+
         <div class="grid-2-col">
           <!-- Left Column: Auditor -->
           <div class="content-card">

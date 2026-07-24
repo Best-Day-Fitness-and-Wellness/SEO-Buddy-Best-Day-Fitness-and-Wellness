@@ -217,6 +217,7 @@ document.addEventListener('DOMContentLoaded', () => {
     } else if (tabId === 'aio-tab') {
       pageTitle.innerText = 'AI Visibility Check';
       pageSubtitle.innerText = 'See whether AI assistants recommend and cite you, and build schema';
+      if (window.loadAiVisibility) window.loadAiVisibility();
       fetchAioHistory();
       fetchAioSchemas();
     } else if (tabId === 'citations-tab') {
@@ -1455,6 +1456,196 @@ document.addEventListener('DOMContentLoaded', () => {
       btnRunAioAudit.disabled = false;
       btnRunAioAudit.innerText = 'Run Live Google-AI Audit';
     }
+  });
+
+  // --- MULTI-ENGINE AI VISIBILITY DASHBOARD (Phase 1/2) ---
+  let avState = null;
+  let avMetric = 'visibility';
+  const AV_METRIC_META = {
+    visibility: { label: 'Visibility Score', desc: 'Percentage of AI answers that mention your brand.' },
+    shareOfVoice: { label: 'Share of Voice', desc: 'Your share of all brand mentions vs competitors in AI answers.' },
+    sentiment: { label: 'Sentiment', desc: 'How positively AI describes you when it mentions you (100 = all positive).' }
+  };
+  const avEl = id => document.getElementById(id);
+  function avEsc(s) { const d = document.createElement('div'); d.innerText = s == null ? '' : String(s); return d.innerHTML; }
+
+  function avMetricValue(snap, metric) {
+    if (!snap) return null;
+    if (metric === 'visibility') return snap.visibilityScore;
+    if (metric === 'shareOfVoice') return snap.shareOfVoice;
+    if (metric === 'sentiment') return snap.sentimentScore;
+    return null;
+  }
+  function avDeltaVal(metric) {
+    if (!avState || !avState.deltas) return null;
+    return avState.deltas[metric];
+  }
+
+  function avRenderEngines() {
+    const wrap = avEl('av-engines'); if (!wrap) return;
+    wrap.innerHTML = (avState.engines || []).map(e =>
+      `<span class="av-chip ${e.configured ? 'on' : 'off'}" title="${e.configured ? 'Connected' : 'Add ' + avEsc(e.id.toUpperCase()) + '_API_KEY in Railway to enable'}"><span class="dot"></span>${avEsc(e.label)}${e.configured ? '' : ' &middot; off'}</span>`
+    ).join('');
+  }
+
+  // Simple responsive SVG multi-line chart. series=[{name,isBrand,color,points:[{date,score}]}]
+  function avLineChart(series, dates) {
+    const W = 640, H = 220, padL = 30, padR = 12, padT = 12, padB = 22;
+    const n = dates.length;
+    const maxY = 100;
+    const x = i => padL + (n <= 1 ? (W - padL - padR) / 2 : (i * (W - padL - padR) / (n - 1)));
+    const y = v => padT + (H - padT - padB) * (1 - (Math.max(0, Math.min(maxY, v)) / maxY));
+    let g = '';
+    // horizontal gridlines at 0/25/50/75/100
+    for (const gv of [0, 25, 50, 75, 100]) {
+      g += `<line x1="${padL}" y1="${y(gv)}" x2="${W - padR}" y2="${y(gv)}" stroke="rgba(255,255,255,.06)" stroke-width="1"/>`;
+      g += `<text x="${padL - 6}" y="${y(gv) + 3}" text-anchor="end" font-size="9" fill="#64748b">${gv}</text>`;
+    }
+    series.forEach(s => {
+      const pts = s.points.map((p, i) => `${x(i)},${y(p.score)}`);
+      const col = s.color || (s.isBrand ? '#6366f1' : '#64748b');
+      if (pts.length > 1) g += `<polyline points="${pts.join(' ')}" fill="none" stroke="${col}" stroke-width="${s.isBrand ? 3 : 1.6}" stroke-linecap="round" stroke-linejoin="round" opacity="${s.isBrand ? 1 : .75}"/>`;
+      s.points.forEach((p, i) => { g += `<circle cx="${x(i)}" cy="${y(p.score)}" r="${s.isBrand ? 3.5 : 2.5}" fill="${col}"/>`; });
+    });
+    // x labels (first + last)
+    if (n) {
+      g += `<text x="${x(0)}" y="${H - 6}" text-anchor="start" font-size="9" fill="#64748b">${avEsc(dates[0])}</text>`;
+      if (n > 1) g += `<text x="${x(n - 1)}" y="${H - 6}" text-anchor="end" font-size="9" fill="#64748b">${avEsc(dates[n - 1])}</text>`;
+    }
+    return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="AI visibility trend">${g}</svg>`;
+  }
+
+  const AV_PALETTE = ['#6366f1', '#06b6d4', '#f59e0b', '#f43f5e', '#10b981', '#a855f7'];
+  function avRenderChart() {
+    const box = avEl('av-chart'), legend = avEl('av-legend'); if (!box) return;
+    const trend = avState.trend || { series: [], dates: [], metricLines: {} };
+    const dates = trend.dates || [];
+    if (!dates.length) { box.innerHTML = '<div class="text-muted" style="font-size:13px;padding:20px 0;">Run a check to start the trend. It builds a line over time as checks accrue.</div>'; legend.innerHTML = ''; return; }
+    if (avMetric === 'visibility') {
+      // multi-brand: you vs top competitors
+      const series = (trend.series || []).map((s, i) => ({ ...s, color: s.isBrand ? '#6366f1' : AV_PALETTE[(i % (AV_PALETTE.length - 1)) + 1] }));
+      box.innerHTML = avLineChart(series, dates);
+      legend.innerHTML = series.map(s => `<span class="lg"><i style="background:${s.color}"></i>${avEsc(s.name)}${s.isBrand ? ' (you)' : ''}</span>`).join('');
+    } else {
+      const line = (trend.metricLines && trend.metricLines[avMetric]) || [];
+      const series = [{ name: avState.brand, isBrand: true, color: '#6366f1', points: line.map(p => ({ date: p.date, score: p.value == null ? 0 : p.value })) }];
+      box.innerHTML = avLineChart(series, dates);
+      legend.innerHTML = `<span class="lg"><i style="background:#6366f1"></i>${avEsc(AV_METRIC_META[avMetric].label)}</span>`;
+    }
+  }
+
+  function avRenderScore() {
+    const snap = avState.latest;
+    const val = avMetricValue(snap, avMetric);
+    avEl('av-score').innerHTML = (val == null ? '&mdash;' : val + (avMetric === 'sentiment' ? '' : '%'));
+    avEl('av-metric-desc').innerText = AV_METRIC_META[avMetric].desc;
+    const d = avDeltaVal(avMetric);
+    const dEl = avEl('av-delta');
+    if (d == null || !snap) { dEl.style.display = 'none'; }
+    else {
+      dEl.style.display = '';
+      const cls = d > 0 ? 'up' : d < 0 ? 'down' : 'flat';
+      dEl.className = 'av-delta ' + cls;
+      dEl.innerText = (d > 0 ? '▲ +' : d < 0 ? '▼ ' : '± ') + d + (avMetric === 'sentiment' ? '' : '%');
+    }
+    // metric tab active state
+    document.querySelectorAll('#aio-tab .av-mtab').forEach(b => b.classList.toggle('active', b.dataset.metric === avMetric));
+  }
+
+  function avRenderEngineBreakdown() {
+    const box = avEl('av-eng-break'); if (!box) return;
+    const snap = avState.latest;
+    if (!snap || !snap.perEngine || !snap.perEngine.length) { box.style.display = 'none'; return; }
+    box.style.display = '';
+    box.innerHTML = `<div class="av-lb-title">Visibility by engine &middot; latest check</div>` + snap.perEngine.map(pe =>
+      `<div class="av-eng-row"><span>${avEsc(pe.label || pe.engine)}</span><span class="av-eng-track"><span class="av-eng-fill" style="width:${pe.score}%"></span></span><span style="text-align:right;font-weight:700;">${pe.score}%</span></div>`
+    ).join('');
+  }
+
+  function avRenderLeaderboard() {
+    const box = avEl('av-leaderboard'); if (!box) return;
+    const snap = avState.latest;
+    const lb = (snap && snap.leaderboard) || [];
+    // build a prev-map for deltas
+    const snaps = (avState.trend && avState.trend.series) || [];
+    const prevScore = {};
+    (avState.trend && avState.trend.dates || []);
+    if (!lb.length) { box.innerHTML = '<div class="text-muted" style="font-size:13px;">No brands detected yet — run a check.</div>'; return; }
+    box.innerHTML = lb.slice(0, 8).map((row, i) => {
+      // delta from the brand's own trend line if available
+      let deltaHtml = '<span class="av-lb-delta flat">—</span>';
+      const sTrend = (avState.trend.series || []).find(s => s.name.toLowerCase() === row.name.toLowerCase());
+      if (sTrend && sTrend.points.length > 1) {
+        const dv = sTrend.points[sTrend.points.length - 1].score - sTrend.points[sTrend.points.length - 2].score;
+        const cls = dv > 0 ? 'up' : dv < 0 ? 'down' : 'flat';
+        deltaHtml = `<span class="av-lb-delta ${cls}">${dv > 0 ? '▲' : dv < 0 ? '▼' : ''}${dv === 0 ? '—' : Math.abs(dv) + '%'}</span>`;
+      }
+      return `<div class="av-lb-row ${row.isBrand ? 'me' : ''}">
+        <span class="av-lb-rank">${i + 1}</span>
+        <span class="av-lb-name">${avEsc(row.name)}${row.isBrand ? '<span class="youtag">YOU</span>' : ''}</span>
+        <span class="av-lb-score">${row.score}%</span>
+        ${deltaHtml}
+      </div>`;
+    }).join('');
+  }
+
+  function avRender() {
+    if (!avState) return;
+    avRenderEngines();
+    const anyConfigured = avState.anyConfigured;
+    const hasData = !!avState.latest;
+    const emptyEl = avEl('av-empty'), mainEl = avEl('av-main');
+    if (avEl('av-updated')) avEl('av-updated').innerText = avState.updatedAt ? ('Last check ' + avAgo(avState.updatedAt)) : 'Never run';
+    if (!hasData) {
+      mainEl.style.display = 'none';
+      emptyEl.style.display = '';
+      emptyEl.innerHTML = anyConfigured
+        ? `Track how often <b>${avEsc(avState.brand)}</b> is recommended across AI answer engines. Click <b>Run AI visibility check</b> to run your tracked prompts across ${avState.engines.filter(e => e.configured).map(e => e.label).join(', ')} and build your first score.`
+        : `No AI engines are connected yet. Add <b>GEMINI_API_KEY</b> in Settings/Railway to check Google's AI now — and <b>OPENAI_API_KEY</b> / <b>PERPLEXITY_API_KEY</b> to also track ChatGPT and Perplexity. Each engine lights up automatically once its key is set.`;
+      return;
+    }
+    emptyEl.style.display = 'none';
+    mainEl.style.display = '';
+    avRenderScore();
+    avRenderChart();
+    avRenderEngineBreakdown();
+    avRenderLeaderboard();
+  }
+
+  function avAgo(iso) {
+    try {
+      const then = new Date(iso).getTime(); const s = Math.max(0, (Date.now() - then) / 1000);
+      if (s < 60) return 'just now';
+      if (s < 3600) return Math.floor(s / 60) + 'm ago';
+      if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+      if (s < 86400 * 7) return Math.floor(s / 86400) + 'd ago';
+      return new Date(iso).toLocaleDateString();
+    } catch (e) { return ''; }
+  }
+
+  async function loadAiVisibility() {
+    try {
+      const res = await fetch('/api/ai-visibility');
+      avState = await res.json();
+      avRender();
+    } catch (e) { /* leave as-is */ }
+  }
+  window.loadAiVisibility = loadAiVisibility;
+
+  document.querySelectorAll('#aio-tab .av-mtab').forEach(btn => {
+    btn.addEventListener('click', () => { avMetric = btn.dataset.metric; if (avState && avState.latest) { avRenderScore(); avRenderChart(); } });
+  });
+  const avRunBtn = avEl('av-run');
+  if (avRunBtn) avRunBtn.addEventListener('click', async () => {
+    if (avState && !avState.anyConfigured) { alert('No AI engines are connected. Add GEMINI_API_KEY (and optionally OPENAI_API_KEY / PERPLEXITY_API_KEY) in Railway, then run again.'); return; }
+    avRunBtn.disabled = true; const orig = avRunBtn.innerHTML; avRunBtn.innerHTML = 'Checking engines…';
+    try {
+      const r = await authFetch('/api/ai-visibility/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+      const d = await r.json();
+      if (!r.ok || !d.success) throw new Error(d.error || 'Run failed');
+      await loadAiVisibility();
+    } catch (e) { alert('AI visibility check failed: ' + e.message); }
+    finally { avRunBtn.disabled = false; avRunBtn.innerHTML = orig; }
   });
 
 
