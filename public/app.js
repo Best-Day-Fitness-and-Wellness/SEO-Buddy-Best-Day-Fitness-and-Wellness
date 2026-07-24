@@ -2850,48 +2850,54 @@ document.addEventListener('DOMContentLoaded', () => {
       tab: 'performance-tab',
       highlight: '.perf-kpis',
       title: 'Step 3 · Reports — is it working?',
-      text: 'Reports proves the payoff: impressions, clicks and Google rank this period vs last, your AI-visibility trend, new leads, and a plain-English <b>Weekly Digest</b>. This is where you confirm the work is paying off.'
+      text: 'From here down, the sidebar groups tools into <b>Insights</b> (understand where you stand) and <b>Optimize</b> (go improve it). Reports — your first Insight — proves the payoff: impressions, clicks and rank vs last period, your AI-visibility trend, new leads, and a plain-English <b>Weekly Digest</b>.'
+    },
+    {
+      tab: 'aio-tab',
+      highlight: '#av-run',
+      title: 'Step 4 · AI Visibility — do the engines recommend you?',
+      text: 'This is the headline feature. Click <b>Run</b> and SEO Buddy asks the AI engines (Google now; ChatGPT &amp; Perplexity too once you connect them) the searches your customers use, then scores how often <i>you</i> come up — with <b>Share of Voice</b> and <b>Sentiment</b> views, a trend over time, and a <b>leaderboard</b> of you vs your competitors.'
+    },
+    {
+      tab: 'aio-tab',
+      highlight: '#fc-card',
+      title: 'Step 5 · AI Visibility — accuracy, access &amp; Reddit',
+      text: 'Just below the dashboard: <b>FactCheck</b> flags what AI gets <i>wrong</i> about you (wrong city, old phone) so you can correct it; <b>AI crawler access</b> confirms the engines are even allowed to read your site; and <b>Reddit</b> surfaces real threads where joining the conversation gets you cited by AI.'
     },
     {
       tab: 'gsc-tab',
       highlight: '#gsc-table',
-      title: 'Step 4 · Searches You’re Missing',
-      text: 'The next tools live under <b>Advanced Tools</b> in the sidebar. This one shows searches where Google already displays you but you get no clicks — your quickest wins. Pick one and click <b>Generate Page</b>.'
+      title: 'Step 6 · Searches You’re Missing',
+      text: 'Still under Insights: searches where Google already shows you but you get no clicks — your quickest wins. Pick one and click <b>Generate Page</b> to turn it into content.'
     },
     {
       tab: 'ai-tab',
       highlight: '.creator-form-panel',
-      title: 'Step 5 · Create a Post',
-      text: 'Have AI write a structured, SEO-ready article for you. Add a <b>real client story</b> for extra credibility, then preview it and either copy the HTML or send it straight to <b>Publish</b>.'
+      title: 'Step 7 · Create a Post',
+      text: 'Now the <b>Optimize</b> group — where you take action. Create a Post has AI write a structured, SEO-ready article; add a <b>real client story</b> for credibility, then copy it or send it straight to <b>Publish</b>.'
     },
     {
       tab: 'publish-tab',
       highlight: '.deploy-controls-card',
-      title: 'Step 6 · Publish',
+      title: 'Step 8 · Publish',
       text: 'Push a page live, then paste its URL to request a Google crawl within hours. You can also switch on the <b>content autopilot</b> here to publish fresh pages on a schedule — hands-off.'
-    },
-    {
-      tab: 'aio-tab',
-      highlight: '#btn-run-aio-audit',
-      title: 'Step 7 · AI Visibility Check',
-      text: 'See whether AI assistants actually recommend you. Pick a local search and run a live audit — you’ll see if you’re cited, who’s recommended instead, and the real sources behind the answer.'
     },
     {
       tab: 'citations-tab',
       highlight: '#btn-find-citations',
-      title: 'Step 8 · Where to Get Listed',
-      text: 'AI trusts directories, review sites and “best-of” lists more than your own pages. This finds the exact sources AI pulls from and tells you where to get listed to win those answers.'
+      title: 'Step 9 · Where to Get Listed',
+      text: 'AI trusts directories, review sites and “best-of” lists more than your own pages. This finds the exact sources AI pulls from and preps your listings and pitches to win those answers.'
     },
     {
       tab: 'local-tab',
       highlight: '#btn-nap-check',
-      title: 'Step 9 · Local Presence',
+      title: 'Step 10 · Local Presence',
       text: 'Checks that your Name, Address &amp; Phone match everywhere, drafts review replies and requests, creates Google Business Profile posts, and scores your local fundamentals.'
     },
     {
       tab: 'onsite-tab',
       highlight: '#btn-os-keywords',
-      title: 'Step 10 · Site Optimization',
+      title: 'Step 11 · Site Optimization',
       text: 'The technical polish: fresh keyword ideas, sharper title tags and meta descriptions, internal-link suggestions, and richer schema — the details that help you rank.'
     }
   ];
