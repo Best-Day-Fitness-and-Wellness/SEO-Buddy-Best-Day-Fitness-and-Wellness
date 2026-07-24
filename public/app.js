@@ -3020,9 +3020,10 @@ document.addEventListener('DOMContentLoaded', () => {
       r.innerHTML = `<div class="asst-bub">${esc(text)}</div>`;
       msgsEl.appendChild(r); scrollDown();
     }
-    function addBot(html, chips) {
+    function fmt(text) { return esc(text).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>'); }
+    function addBot(html, chips, action) {
       const r = document.createElement('div'); r.className = 'asst-row bot';
-      let inner = `<div><div class="asst-bub">${html}</div>`;
+      let inner = `<div class="asst-botwrap"><div class="asst-bub">${html}</div>`;
       if (chips && chips.length) inner += `<div class="asst-chips">${chips.map(c => `<button class="asst-chip" type="button" data-send="${esc(c.send || c.label)}"${c.tour ? ' data-tour="1"' : ''}>${esc(c.label)}</button>`).join('')}</div>`;
       inner += `</div>`;
       r.innerHTML = BOT_AV + inner;
@@ -3031,6 +3032,33 @@ document.addEventListener('DOMContentLoaded', () => {
         if (ch.dataset.tour) { close(); const b = document.getElementById('btn-start-wizard'); if (b) b.click(); return; }
         send(ch.dataset.send);
       }));
+      if (action && action.endpoint) renderAction(r.querySelector('.asst-botwrap'), action);
+    }
+    function replaceBtns(card, html) { const b = card.querySelector('.asst-action-btns'); if (b) b.outerHTML = html; }
+    function renderAction(wrap, action) {
+      const card = document.createElement('div'); card.className = 'asst-action';
+      const icon = action.kind === 'content' ? '&#9998;' : '&#9889;';
+      let html = `<div class="asst-action-h">${icon} ${esc(action.title)}</div>`;
+      if (action.kind === 'content' && action.preview) html += `<div class="asst-action-body preview">${esc(action.preview)}</div>`;
+      else if (action.note) html += `<div class="asst-action-body">${esc(action.note)}</div>`;
+      html += `<div class="asst-action-btns"><button class="asst-btn primary" data-act="go" type="button">${esc(action.confirmLabel)}</button>${action.kind === 'content' ? '<button class="asst-btn" data-act="copy" type="button">Copy</button>' : ''}<button class="asst-btn" data-act="cancel" type="button">Cancel</button></div>`;
+      card.innerHTML = html;
+      wrap.appendChild(card); scrollDown();
+      card.querySelector('[data-act="cancel"]').addEventListener('click', () => replaceBtns(card, '<div class="asst-result" style="color:var(--text-dark)">Cancelled — nothing happened.</div>'));
+      const copyBtn = card.querySelector('[data-act="copy"]');
+      if (copyBtn) copyBtn.addEventListener('click', () => { try { navigator.clipboard.writeText(action.preview); } catch (e) {} copyBtn.innerText = 'Copied ✓'; });
+      card.querySelector('[data-act="go"]').addEventListener('click', async (e) => {
+        const go = e.currentTarget; go.disabled = true; go.innerText = 'Working…';
+        try {
+          const r = await authFetch(action.endpoint, { method: action.method || 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(action.body || {}) });
+          const d = await r.json().catch(() => ({}));
+          if (d && d.needsSetup) { replaceBtns(card, `<div class="asst-result warn">&#9888; ${esc(d.message || 'This needs a quick setup first.')}${action.kind === 'content' ? ' Your draft is above — copy it and paste it in.' : ''}</div>`); return; }
+          if (!r.ok || d.success === false) throw new Error((d && d.error) || "It didn't go through.");
+          const link = action.tab ? ` <a data-open="${esc(action.tab)}">Open the tab &rarr;</a>` : '';
+          replaceBtns(card, `<div class="asst-result">&#10003; ${esc(action.done)}${link}</div>`);
+          const a = card.querySelector('a[data-open]'); if (a) a.addEventListener('click', () => { close(); const n = document.querySelector('.nav-item[data-tab="' + a.dataset.open + '"]'); if (n) n.click(); });
+        } catch (err) { replaceBtns(card, `<div class="asst-result warn">&#9888; ${esc(err.message)}</div>`); }
+      });
     }
     let typingRow = null;
     function showTyping() { typingRow = document.createElement('div'); typingRow.className = 'asst-row bot'; typingRow.innerHTML = BOT_AV + '<div class="asst-typing"><span></span><span></span><span></span></div>'; msgsEl.appendChild(typingRow); scrollDown(); }
@@ -3057,7 +3085,7 @@ document.addEventListener('DOMContentLoaded', () => {
         hideTyping();
         if (!r.ok || !d.success) throw new Error(d.error || 'Something went wrong.');
         const reply = d.reply || "I'm not sure how to answer that.";
-        addBot(esc(reply));
+        addBot(fmt(reply), null, d.action);
         history.push({ role: 'assistant', content: reply });
       } catch (e) {
         hideTyping();
