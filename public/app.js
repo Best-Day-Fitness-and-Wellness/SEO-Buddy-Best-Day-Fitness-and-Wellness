@@ -3317,6 +3317,7 @@ document.addEventListener('DOMContentLoaded', () => {
         <div class="setup-connect-item"><div class="ci">🔑</div><div><b>Google Gemini</b><span>The AI brain — writes your content, runs audits, and finds where to get listed.</span></div></div>
         <div class="setup-connect-item"><div class="ci">🔍</div><div><b>Google Search Console</b><span>Your real Google rankings, clicks, and the searches you're missing.</span></div></div>
         <div class="setup-connect-item"><div class="ci">📇</div><div><b>GoHighLevel</b><span>Publishes your content and pulls your leads into Reports.</span></div></div>
+        <p class="setup-hint" style="margin-top:14px;">Want to track ChatGPT &amp; Perplexity too? You can add them anytime from the AI Visibility Check tab — no setup needed here.</p>
         <div style="margin-top:16px;"><button class="btn btn-secondary" id="setup-open-settings" type="button" style="width:auto;">Open Settings to connect →</button></div>`;
     }
     function render() {
