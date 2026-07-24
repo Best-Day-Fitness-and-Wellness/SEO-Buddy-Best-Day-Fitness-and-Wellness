@@ -1642,6 +1642,16 @@
               <input type="password" id="settings-gemini-key" class="form-input" placeholder="AI Studio Key (leaves server env unchanged if empty)">
               <small class="text-muted">Required for live article writing. Get one at <a href="https://aistudio.google.com/" target="_blank">Google AI Studio</a>.</small>
             </div>
+            <div class="form-group">
+              <label for="settings-openai-key">OpenAI API Key <span class="text-muted" style="font-weight:400;">(optional)</span></label>
+              <input type="password" id="settings-openai-key" class="form-input" placeholder="sk-... (leaves server env unchanged if empty)">
+              <small class="text-muted">Only needed to also track <b>ChatGPT</b> in AI Visibility Check. Requires a paid <a href="https://platform.openai.com/api-keys" target="_blank">OpenAI</a> key. On Railway, set <code>OPENAI_API_KEY</code> in the Variables tab so it survives redeploys.</small>
+            </div>
+            <div class="form-group">
+              <label for="settings-perplexity-key">Perplexity API Key <span class="text-muted" style="font-weight:400;">(optional)</span></label>
+              <input type="password" id="settings-perplexity-key" class="form-input" placeholder="pplx-... (leaves server env unchanged if empty)">
+              <small class="text-muted">Only needed to also track <b>Perplexity</b> in AI Visibility Check. Requires a paid <a href="https://docs.perplexity.ai/" target="_blank">Perplexity</a> key. On Railway, set <code>PERPLEXITY_API_KEY</code> in the Variables tab so it survives redeploys.</small>
+            </div>
 
             <div class="settings-section-title">GoHighLevel Integration</div>
             <div class="form-group">

@@ -727,6 +727,8 @@ document.addEventListener('DOMContentLoaded', () => {
     e.preventDefault();
 
     const geminiKey = settingsGeminiKey.value.trim();
+    const openaiKey = (document.getElementById('settings-openai-key')?.value || '').trim();
+    const perplexityKey = (document.getElementById('settings-perplexity-key')?.value || '').trim();
     const ghlToken = settingsGhlToken.value.trim();
     const ghlLocation = settingsGhlLocation.value.trim();
     const ghlBlog = settingsGhlBlog.value.trim();
@@ -761,7 +763,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const response = await authFetch('/api/save-settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ geminiKey, ghlToken, ghlLocation, ghlBlog, siteUrl, blogPrefix, authorName, authorUrl, gscJson })
+        body: JSON.stringify({ geminiKey, openaiKey, perplexityKey, ghlToken, ghlLocation, ghlBlog, siteUrl, blogPrefix, authorName, authorUrl, gscJson })
       });
       const data = await response.json();
       if (response.ok && data.success) {
@@ -3317,7 +3319,7 @@ document.addEventListener('DOMContentLoaded', () => {
         <div class="setup-connect-item"><div class="ci">🔑</div><div><b>Google Gemini</b><span>The AI brain — writes your content, runs audits, and finds where to get listed.</span></div></div>
         <div class="setup-connect-item"><div class="ci">🔍</div><div><b>Google Search Console</b><span>Your real Google rankings, clicks, and the searches you're missing.</span></div></div>
         <div class="setup-connect-item"><div class="ci">📇</div><div><b>GoHighLevel</b><span>Publishes your content and pulls your leads into Reports.</span></div></div>
-        <p class="setup-hint" style="margin-top:14px;">Want to track ChatGPT &amp; Perplexity too? You can add them anytime from the AI Visibility Check tab — no setup needed here.</p>
+        <p class="setup-hint" style="margin-top:14px;">Want to track ChatGPT &amp; Perplexity too? Add their API keys anytime under <b>Settings → Generative AI API</b>. Both are optional paid upgrades — Google's AI works on its own.</p>
         <div style="margin-top:16px;"><button class="btn btn-secondary" id="setup-open-settings" type="button" style="width:auto;">Open Settings to connect →</button></div>`;
     }
     function render() {
