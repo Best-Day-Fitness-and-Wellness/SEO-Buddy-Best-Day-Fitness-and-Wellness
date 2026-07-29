@@ -33,17 +33,17 @@ The sidebar leads with the everyday flow (**Home**, **Grow**), then groups every
 
 ### Insights — *where do I stand?*
 
-3. **Reports** — *is it working?* Search performance this period vs the previous (impressions, clicks, average rank + top keyword movers), an AI‑visibility trend, a daily traffic trend, new leads from GoHighLevel, a **"What we handled for you this week"** activity feed, and a plain‑English **Weekly Digest**. The detailed KPI cards, stats, and published‑content list live here too.
+3. **Reports** — *is it working?* Search performance this period vs the previous (impressions, clicks, average rank + top keyword movers), the two most trustworthy **AI‑visibility metrics** (**branded search** — real, from GSC — and **AI‑referral traffic**), an AI‑visibility trend, a daily traffic trend, new leads from GoHighLevel, a **"What we handled for you this week"** activity feed, and a plain‑English **Weekly Digest**. Framed as a **measurement pyramid** (Search Performance → AI Visibility → Business Impact). The detailed KPI cards, stats, and published‑content list live here too.
 4. **AI Visibility Check** *(the AEO command center)* — the flagship AEO view. Runs your tracked searches across **multiple AI engines** (Google now; **ChatGPT** and **Perplexity** when their keys are added) and scores how often you're recommended, with **Visibility Score / Share of Voice / Sentiment** views, a **trend over time**, and a **competitor leaderboard** (you vs the businesses AI names instead). Below the dashboard sit three more tools: **FactCheck** (flags inaccurate/outdated claims each engine makes about you, with the correction), **AI crawler access** (checks your `robots.txt` actually lets GPTBot/PerplexityBot/ClaudeBot/etc. read your site), and **Reddit visibility** (finds high‑intent threads where joining in gets you cited by AI). A single‑search **spot‑check auditor** (live Google‑grounded) and a **JSON‑LD schema builder** round it out.
-5. **Searches You're Missing** *(GSC content gaps)* — queries with high impressions but **zero clicks** ("leaks") straight from Search Console; generate a page for one in a click.
+5. **Searches You're Missing** *(GSC content gaps)* — queries with high impressions but **zero clicks** ("leaks") straight from Search Console; generate a page for one in a click, or hit **❓ Questions** to reveal the **query fan‑out** — the sub‑questions a single, citable page must answer to earn AI citations.
 
 ### Optimize — *go improve it*
 
-6. **Create a Post** *(AI article creator)* — Gemini writes a structured HTML article (H1–H3 outline, step lists, comparison table, case‑study block, CTA, internal‑link placeholders, FAQ).
+6. **Create a Post** *(AI article creator)* — Gemini writes an **answer‑first, AEO‑optimized** HTML article: a 40–60‑word direct answer up top, **question‑style headers**, self‑contained sections, a freshness date, step lists, a comparison table, a case‑study block (information gain + brand tie‑in), CTA, internal‑link placeholders, and an answer‑first **FAQ** — the structure AI answer engines extract and cite.
 7. **Publish** *(publish & index + content autopilot)* — publishes to the GoHighLevel Blogs module, injects **JSON‑LD schema** (LocalBusiness, FAQPage, Author), resolves internal links, submits the URL to Google's Indexing API, and hosts the **content autopilot** (with a topic queue and cadence controls).
 8. **Where to Get Listed** *(citation outreach engine)* — a background scan finds the real third‑party sources AI cites (directories, review sites, "best‑of" lists) and turns them into an **action worklist**: a canonical **Listing Kit**, one‑click **AI‑drafted pitch emails** (send directly via Gmail or open pre‑filled with a real recipient + contact page), **copy‑paste listing payloads + claim links**, and a **status tracker** (To‑do → Submitted/Pitched → Live) that survives redeploys.
 9. **Local Presence** *(local SEO)* — a **NAP consistency auditor**, a **review response/request** writer, a **Google Business Profile post generator** (and one‑tap posting when GBP API access is approved), and a scored local checklist.
-10. **Site Optimization** *(on‑site SEO)* — a grounded **keyword & topic idea generator**, a **title & meta optimizer** with live character counts, an **internal‑link suggester**, and an **extended schema pack** (Service, Review template, Breadcrumb).
+10. **Site Optimization** *(on‑site SEO)* — the **🎯 AEO Readiness Check** (paste any page URL → it fetches the page and scores it against the 7‑point AEO checklist, with a *AEO‑ready / Quick‑win / Needs‑rewrite* verdict and the specific fixes), a grounded **keyword & topic idea generator**, a **title & meta optimizer** with live character counts, an **internal‑link suggester**, and an **extended schema pack** — the AEO‑priority types **FAQ Page, Article, How‑To** plus Service, Review template, and Breadcrumb — with a one‑click **Google Rich Results validator**.
 
 ### Footer
 
@@ -69,7 +69,7 @@ SEO Buddy is built to run itself between logins. Each autopilot keeps its own st
 ## Onboarding & guidance
 
 - **Setup wizard** — a first‑run modal (Welcome → Business info → Your numbers → Connect) that captures your business identity and value assumptions. Re‑open anytime from **🚀 Setup & business info** in the sidebar footer.
-- **Quick Guide** — a floating interactive 11‑step tour that walks Home → Grow → the Insights tools (including two steps on the AI Visibility command center) → the Optimize tools, switching tabs and highlighting each area in plain English.
+- **Quick Guide** — a floating interactive 12‑step tour that walks Home → Grow → the Insights tools (including two steps on the AI Visibility command center) → the Optimize tools (highlighting the AEO Readiness Check) → and finishes on the **SEO Buddy Assistant**, switching tabs and highlighting each area in plain English.
 - **Light / Dark theme** — toggle in the sidebar footer; preference is remembered.
 
 ---
@@ -225,7 +225,7 @@ Deploying by hand (GitHub web upload): the whole app is one bundle — `server.j
 | GET | `/api/health-score` | — | Optimization Score: five pillars, weighted avg of measured pillars, weekly snapshot + 28‑day delta. |
 | GET | `/api/next-moves` | — | Ranked next‑best actions for Home / Grow. |
 | GET | `/api/gsc-data` | — | Search Console queries (live or mock). |
-| GET | `/api/performance` | — | Period‑over‑period trends, snapshots, AI‑visibility trend, leads. |
+| GET | `/api/performance` | — | Period‑over‑period trends, snapshots, AI‑visibility trend, **branded search** (real, from GSC) + **AI‑referral** state, leads. |
 | GET | `/api/history` | — | Published‑content history. |
 | GET | `/api/business-profile` | — | Saved business identity + configured flag. |
 | POST | `/api/business-profile` | 🔒 | Save business identity (name/address/phone/socials). |
@@ -234,7 +234,7 @@ Deploying by hand (GitHub web upload): the whole app is one bundle — `server.j
 ### Content
 | Method | Endpoint | Auth | Purpose |
 |---|---|:---:|---|
-| POST | `/api/generate-article` | 🔒 | Generate an article with Gemini. |
+| POST | `/api/generate-article` | 🔒 | Generate an **answer‑first, AEO‑optimized** article with Gemini. |
 | POST | `/api/publish-ghl` | 🔒 | Publish to GoHighLevel + inject schema. |
 | POST | `/api/index-url` | 🔒 | Submit a URL to Google's Indexing API. |
 
@@ -284,8 +284,8 @@ Deploying by hand (GitHub web upload): the whole app is one bundle — `server.j
 ### Site optimization
 | Method | Endpoint | Auth | Purpose |
 |---|---|:---:|---|
-| POST | `/api/onsite` | 🔒 | Keyword ideas / title‑meta / internal links. |
-| GET | `/api/onsite-schema` | — | Service, Review (template), Breadcrumb JSON‑LD. |
+| POST | `/api/onsite` | 🔒 | Tools: keyword ideas / title‑meta / internal links / **`aeoReadiness`** (score a page URL vs the 7‑point AEO checklist) / **`fanout`** (sub‑questions for a search gap). |
+| GET | `/api/onsite-schema` | — | JSON‑LD: **FAQPage, Article, HowTo** (AEO‑priority) + Service, Review (template), Breadcrumb. |
 | GET | `/api/onsite-autopilot` | — | On‑site autopilot state + last run. |
 | POST | `/api/onsite-autopilot/toggle` · `/run` · `/seen` | 🔒 | Enable/disable, run now, clear badge. |
 
