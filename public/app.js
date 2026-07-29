@@ -2808,6 +2808,36 @@ document.addEventListener('DOMContentLoaded', () => {
     </div>`).join('');
   });
 
+  // AEO Readiness Check — score a real page against the course's AEO checklist
+  const btnOsAeo = document.getElementById('btn-os-aeo');
+  if (btnOsAeo) btnOsAeo.addEventListener('click', async () => {
+    const url = (document.getElementById('os-aeo-url').value || '').trim();
+    if (!url) { alert('Enter a page URL to check.'); return; }
+    const out = document.getElementById('os-aeo-out');
+    out.innerHTML = '<div class="os-empty">Fetching the page and scoring it against the AEO checklist… (~10–20s)</div>';
+    const data = await osPost({ tool: 'aeoReadiness', url }, btnOsAeo);
+    if (!data) { out.innerHTML = ''; return; }
+    if (data.fetchError) { out.innerHTML = `<div class="os-empty">${citEsc(data.fetchError)}</div>`; return; }
+    const score = Math.max(0, Math.min(100, Math.round(Number(data.overallScore) || 0)));
+    const bucket = data.bucket || '';
+    const bl = bucket.toLowerCase();
+    const scoreColor = score >= 75 ? 'var(--color-success)' : score >= 45 ? 'var(--color-warning)' : 'var(--color-accent)';
+    const bucketStyle = bl.includes('ready') ? 'background:rgba(16,185,129,.15);color:var(--color-success);'
+      : bl.includes('quick') ? 'background:rgba(245,158,11,.15);color:var(--color-warning);'
+      : 'background:rgba(244,63,94,.15);color:var(--color-accent);';
+    const checks = (data.checklist || []).map(c => `<div class="aeo-check ${c.pass ? 'ok' : 'no'}"><span class="ic">${c.pass ? '✓' : '✗'}</span><span><span class="lbl">${citEsc(c.label || c.key || '')}</span>${c.note ? ` — <span class="nt">${citEsc(c.note)}</span>` : ''}</span></div>`).join('');
+    const fixes = (data.topFixes || []).filter(Boolean);
+    out.innerHTML = `<div class="aeo-result">
+      <div class="aeo-head">
+        <div class="aeo-score" style="color:${scoreColor}">${score}<span style="font-size:1rem;color:var(--text-muted);font-weight:600;">/100</span></div>
+        ${bucket ? `<span class="aeo-bucket" style="${bucketStyle}">${citEsc(bucket)}</span>` : ''}
+        <div class="text-muted" style="font-size:var(--font-xs);flex:1;min-width:160px;word-break:break-word;">${citEsc(data.pageTitle || data.url || '')}</div>
+      </div>
+      ${checks}
+      ${fixes.length ? `<div class="aeo-fixes"><b>Top fixes:</b><ul style="margin:6px 0 0;padding-left:18px;">${fixes.map(f => `<li style="margin:4px 0;">${citEsc(f)}</li>`).join('')}</ul></div>` : ''}
+    </div>`;
+  });
+
   // Title & meta optimizer
   let osTM = { titles: [], metas: [] };
   const osTMOut = document.getElementById('os-titlemeta-out');

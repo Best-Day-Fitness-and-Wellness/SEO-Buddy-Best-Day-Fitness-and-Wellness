@@ -1458,6 +1458,18 @@
         #onsite-tab .oa-actions{display:flex;align-items:center;gap:12px;margin-top:16px;flex-wrap:wrap;}
         #onsite-tab .oa-actions .btn{width:auto;}
         #onsite-tab .oa-cp{font-size:10px;color:var(--color-secondary);cursor:pointer;font-weight:700;border:none;background:none;padding:0;}
+        #onsite-tab .aeo-result{margin-top:14px;background:var(--panel);border:1px solid var(--border-color);border-radius:12px;padding:16px 18px;}
+        #onsite-tab .aeo-head{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:12px;}
+        #onsite-tab .aeo-score{font-family:var(--font-heading);font-size:2.2rem;font-weight:800;line-height:1;}
+        #onsite-tab .aeo-bucket{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;padding:5px 12px;border-radius:999px;}
+        #onsite-tab .aeo-check{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--border-color);font-size:var(--font-sm);}
+        #onsite-tab .aeo-check:last-child{border-bottom:none;}
+        #onsite-tab .aeo-check .ic{flex-shrink:0;font-weight:700;width:16px;text-align:center;}
+        #onsite-tab .aeo-check.ok .ic{color:var(--color-success);}
+        #onsite-tab .aeo-check.no .ic{color:var(--color-accent);}
+        #onsite-tab .aeo-check .lbl{font-weight:600;color:var(--text-main);}
+        #onsite-tab .aeo-check .nt{color:var(--text-muted);font-size:var(--font-xs);}
+        #onsite-tab .aeo-fixes{margin-top:14px;padding:12px 14px;background:rgba(6,182,212,.06);border-left:3px solid var(--color-secondary);border-radius:6px;font-size:var(--font-sm);color:var(--text-main);}
       </style>
       <section class="tab-content" id="onsite-tab">
         <!-- On-Site SEO Autopilot -->
@@ -1501,6 +1513,19 @@
             <div class="form-group"><button class="btn btn-primary" id="btn-os-keywords">Get Ideas</button></div>
           </div>
           <div id="os-keywords-out"></div>
+        </div>
+
+        <div class="content-card">
+          <h2>🎯 AEO Readiness Check</h2>
+          <p class="text-muted mb-4">Paste one of your page URLs and SEO Buddy scores it against the 7-point checklist AI answer engines (ChatGPT, Perplexity, Google AI Overviews) use to decide what to quote &mdash; then tells you exactly what to fix. Uses your Gemini key.</p>
+          <div class="os-row">
+            <div class="form-group" style="flex:2;min-width:240px;">
+              <label for="os-aeo-url">Page URL</label>
+              <input type="text" id="os-aeo-url" class="form-input" placeholder="e.g. bestdayfitness.com/blog/balance-training-for-seniors">
+            </div>
+            <div class="form-group"><button class="btn btn-primary" id="btn-os-aeo">Check readiness</button></div>
+          </div>
+          <div id="os-aeo-out"></div>
         </div>
 
         <div class="os-grid">
