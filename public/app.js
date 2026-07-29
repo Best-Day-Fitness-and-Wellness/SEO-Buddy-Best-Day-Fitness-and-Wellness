@@ -342,7 +342,7 @@ document.addEventListener('DOMContentLoaded', () => {
         : `<span class="status-badge clean">Ranking</span>`;
 
       const actionBtn = row.leak
-        ? `<button class="btn btn-primary btn-xs btn-gen-trigger" data-query="${row.query}">Generate Page</button>`
+        ? `<button class="btn btn-primary btn-xs btn-gen-trigger" data-query="${row.query}">Generate Page</button><button class="btn btn-secondary btn-xs btn-fanout-trigger" data-query="${row.query}" title="See the questions a citable page should answer">&#10067; Questions</button>`
         : `<button class="btn btn-secondary btn-xs" disabled>Optimized</button>`;
 
       tr.innerHTML = `
@@ -362,6 +362,34 @@ document.addEventListener('DOMContentLoaded', () => {
       btn.addEventListener('click', () => {
         const query = btn.getAttribute('data-query');
         loadKeywordIntoCreator(query);
+      });
+    });
+
+    // "❓ Questions" — reveal the query fan-out (sub-questions) for a gap.
+    document.querySelectorAll('.btn-fanout-trigger').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const query = btn.getAttribute('data-query');
+        const tr = btn.closest('tr');
+        const next = tr.nextElementSibling;
+        if (next && next.classList.contains('fanout-row')) { next.remove(); return; } // toggle off
+        const detail = document.createElement('tr');
+        detail.className = 'fanout-row';
+        detail.innerHTML = `<td colspan="7"><div class="fanout-box"><div class="fanout-empty">Finding the questions people ask about &ldquo;${citEsc(query)}&rdquo;&hellip;</div></div></td>`;
+        tr.after(detail);
+        const box = detail.querySelector('.fanout-box');
+        const orig = btn.innerHTML; btn.disabled = true; btn.innerHTML = '&hellip;';
+        try {
+          const res = await authFetch('/api/onsite', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tool: 'fanout', query }) });
+          const d = await res.json();
+          if (!res.ok || !d.success) throw new Error(d.error || 'Request failed');
+          if (d.unavailable) { box.innerHTML = `<div class="fanout-empty">${citEsc(d.message || 'Add your Gemini API key in Settings to use this.')}</div>`; return; }
+          const qs = (d.data && d.data.questions) || [];
+          box.innerHTML = qs.length
+            ? `<div class="fanout-title">&#10067; Questions a citable page on &ldquo;${citEsc(query)}&rdquo; should answer:</div><ul class="fanout-list">${qs.map(x => `<li>${citEsc(x)}</li>`).join('')}</ul><div class="fanout-hint">Cover several of these in one article &mdash; AI engines cite pages that answer a cluster of related questions, not just one.</div>`
+            : `<div class="fanout-empty">No related questions came back &mdash; try Generate Page instead.</div>`;
+        } catch (e) {
+          box.innerHTML = `<div class="fanout-empty">Couldn't load questions: ${citEsc(e.message)}</div>`;
+        } finally { btn.disabled = false; btn.innerHTML = orig; }
       });
     });
   }
