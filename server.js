@@ -381,23 +381,29 @@ function getGoogleAuth() {
 
 // 1. Generation Helper
 async function generateArticleHelper(keyword, caseStudy, ctaText, ctaUrl) {
-  const prompt = `Write a high-quality, professional, and SEO-optimized blog article targeting the keyword: "${keyword}".
+  const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const _now = new Date();
+  const freshDate = `${MONTHS[_now.getMonth()]} ${_now.getFullYear()}`;
+  const prompt = `Write a high-quality, professional article targeting the keyword: "${keyword}", optimized for BOTH traditional Google ranking AND Answer Engine Optimization (AEO) — so ChatGPT, Perplexity, and Google's AI Overviews can extract and cite it.
 The article is for a business called "Best Day Fitness", a specialized longevity, mobility, and functional movement training gym in St. Petersburg, Florida. Their focus is adults 50+, seniors, and people recovering from injuries, with a core philosophy of: Energy = Mobility + Posture + Strength.
 
-Follow these strict structural and formatting guidelines to ensure maximum Google and AI Overview search visibility:
-1. Return the output in structured HTML (inside a container <div class="seo-article-content">).
-2. The article must start with an engaging, optimized <h1> title.
-3. Include an introduction that outlines the problem and introduces Best Day Fitness.
-4. Organize content logically with optimized <h2> and <h3> subheadings containing the keyword or related synonyms.
-5. Provide step-by-step instructions (ordered or unordered lists) for exercises or routines related to "${keyword}".
-6. Include a comparison/summary table (e.g. Traditional Gym vs Longevity Movement Center, or Mobility vs Flexibility).
-7. Incorporate this specific case study information naturally to show information gain and authority:
+Follow these structural and formatting guidelines. The AEO rules (answer-first, question headers, self-contained sections) are the priority — they are what makes AI engines cite the page:
+1. Return the output in structured HTML (inside a container <div class="seo-article-content">). Do NOT use markdown.
+2. Start with an engaging <h1> title. When natural, phrase it as the question a reader would ask.
+3. Directly under the <h1>, add a freshness line: <p class="article-meta">Updated ${freshDate} · Best Day Fitness</p>.
+4. ANSWER-FIRST (critical): the very first paragraph must be <p class="aeo-answer"> that directly and completely answers the article's core question in 40–60 words — a self-contained answer an AI could quote verbatim. State the answer first, THEN expand with context below it.
+5. If the topic has a key term, include one clean, standalone one-sentence definition of it early (extractable on its own).
+6. Use <h2> and <h3> subheadings PHRASED AS THE REAL QUESTIONS people ask (e.g. "How does balance training help prevent falls?", "How often should seniors do mobility work?"), naturally including the keyword or synonyms. Each section must make sense on its own if read in isolation, and should open with its own 1–2 sentence direct answer before the detail.
+7. QUERY FAN-OUT: identify the natural sub-questions someone has about "${keyword}" and make sure the article answers several of those related questions — the most-cited pages answer a cluster of questions, not just one.
+8. Provide step-by-step instructions (ordered or unordered lists) for relevant exercises or routines.
+9. Include one comparison/summary table (e.g. Traditional Gym vs Longevity Movement Center, or Mobility vs Flexibility) — tables are highly extractable.
+10. INFORMATION GAIN + brand tie-in: weave in this specific, first-hand result naturally, and connect the topic back to how Best Day's program helps (so AI associates this topic with Best Day, not just the topic in general):
    "${caseStudy || "At Best Day Fitness, our trainer-led programs have helped seniors regain functional mobility, reduce pain, and get their active lifestyles back."}"
-8. Integrate a Call to Action (CTA) banner/section highlighting this link:
+11. Integrate a Call to Action (CTA) banner/section highlighting this link:
    <a href="${ctaUrl || "#"}" class="article-cta-btn">${ctaText || "Schedule a Consultation"}</a>
-9. Add 2-3 internal link placeholders where we can link to other posts (formatted as [Link: Page Name] e.g. [Link: Personal Training for Seniors] or [Link: Float Therapy St Pete]).
-10. Add a detailed FAQ section at the bottom containing 3-4 frequently asked questions with clear, direct answers (ideal for ranking in Google's People Also Ask).
-11. The content must feel natural, authoritative, and written by an expert trainer/wellness coach. Avoid generic AI fluff.
+12. Add 2-3 internal link placeholders (formatted as [Link: Page Name], e.g. [Link: Personal Training for Seniors]).
+13. End with an FAQ section: 3-4 real questions people ask, each with a clear, direct answer in the first sentence (ideal for Google's People Also Ask and AI extraction).
+14. Write as an expert trainer/wellness coach — authoritative, specific, current. Avoid generic AI fluff and outdated references.
 
 Return the HTML directly. Do not include markdown block markers like \`\`\`html.`;
 
