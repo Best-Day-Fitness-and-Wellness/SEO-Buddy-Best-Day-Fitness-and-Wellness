@@ -1360,3 +1360,39 @@ body.light { --focus-ring:rgba(79,70,229,.15); }
 
 /* Scrollbars — quieter */
 * { scrollbar-width:thin; scrollbar-color:var(--border-color) transparent; }
+
+/* ============================================================
+   CALM SKIN v3 — deeper cross-screen restyle (cascade only).
+   Unifies radius, spacing, headings, tables, sub-tabs and
+   reading width so every tool screen matches Today/Explore.
+   ============================================================ */
+
+/* Card / panel corners softened + consistent */
+.content-card { border-radius:20px; padding:1.85rem 2rem; }
+.perf-kpi, .sum-kpi, .stat-card { border-radius:18px; }
+.sum-substat, .table-container, .fc-card { border-radius:15px; }
+.oa-panel { border-radius:14px; }
+
+/* Section headings — consistent calm hierarchy */
+.card-header h2, .perf-title, .fc-title, .sum-panel-title { font-size:1.16rem; letter-spacing:-.01em; }
+.settings-section-title { font-size:11.5px; text-transform:uppercase; letter-spacing:.12em; color:var(--text-dark); font-weight:600; }
+
+/* Breathing room */
+.form-group { margin-bottom:1.15rem; }
+.card-header { margin-bottom:1.3rem; }
+.content-card + .content-card { margin-top:1.3rem; }
+
+/* Sub-tab pill groups — calm */
+.av-mtabs { background:rgba(128,128,128,.10); border-radius:12px; padding:4px; }
+.av-mtab { border-radius:9px; }
+
+/* Data tables — calm rows, quiet dividers */
+.data-table { width:100%; border-collapse:separate; border-spacing:0; }
+.data-table th { font-size:11px; text-transform:uppercase; letter-spacing:.07em; color:var(--text-muted); font-weight:600; padding:11px 14px; text-align:left; border-bottom:1px solid var(--border-color); }
+.data-table td { padding:13px 14px; border-bottom:1px solid var(--border-color); font-size:var(--font-sm); vertical-align:middle; }
+.data-table tbody tr:last-child td { border-bottom:none; }
+.data-table tbody tr { transition:background .15s; }
+.data-table tbody tr:hover { background:rgba(128,128,128,.06); }
+
+/* Comfortable reading width on wide screens (tools only; Today/Explore manage their own) */
+.tab-content:not(#today-tab):not(#explore-tab) { max-width:1160px; }
