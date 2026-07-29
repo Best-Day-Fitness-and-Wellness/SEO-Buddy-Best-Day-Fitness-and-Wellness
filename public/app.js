@@ -2970,7 +2970,7 @@ document.addEventListener('DOMContentLoaded', () => {
       tab: 'performance-tab',
       highlight: '.perf-kpis',
       title: 'Step 3 · Reports — is it working?',
-      text: 'From here down, the sidebar groups tools into <b>Insights</b> (understand where you stand) and <b>Optimize</b> (go improve it). Reports — your first Insight — proves the payoff: impressions, clicks and rank vs last period, your AI-visibility trend, new leads, and a plain-English <b>Weekly Digest</b>.'
+      text: 'From here down, the sidebar groups tools into <b>Insights</b> (understand where you stand) and <b>Optimize</b> (go improve it). Reports — your first Insight — proves the payoff: impressions, clicks and rank vs last period, your <b>AI-visibility metrics</b> (branded search &amp; AI-referral traffic), the AI-visibility trend, new leads, and a plain-English <b>Weekly Digest</b>.'
     },
     {
       tab: 'aio-tab',
@@ -2988,13 +2988,13 @@ document.addEventListener('DOMContentLoaded', () => {
       tab: 'gsc-tab',
       highlight: '#gsc-table',
       title: 'Step 6 · Searches You’re Missing',
-      text: 'Still under Insights: searches where Google already shows you but you get no clicks — your quickest wins. Pick one and click <b>Generate Page</b> to turn it into content.'
+      text: 'Still under Insights: searches where Google already shows you but you get no clicks — your quickest wins. Pick one and click <b>Generate Page</b> to turn it into content, or hit <b>❓ Questions</b> to see the exact sub-questions a page must answer to get cited by AI.'
     },
     {
       tab: 'ai-tab',
       highlight: '.creator-form-panel',
       title: 'Step 7 · Create a Post',
-      text: 'Now the <b>Optimize</b> group — where you take action. Create a Post has AI write a structured, SEO-ready article; add a <b>real client story</b> for credibility, then copy it or send it straight to <b>Publish</b>.'
+      text: 'Now the <b>Optimize</b> group — where you take action. Create a Post has AI write an <b>answer-first, AEO-optimized</b> article — a direct answer up top, question-style headers, and an FAQ, which is the structure AI engines actually quote. Add a <b>real client story</b> for credibility, then copy it or send it straight to <b>Publish</b>.'
     },
     {
       tab: 'publish-tab',
@@ -3016,9 +3016,9 @@ document.addEventListener('DOMContentLoaded', () => {
     },
     {
       tab: 'onsite-tab',
-      highlight: '#btn-os-keywords',
+      highlight: '#btn-os-aeo',
       title: 'Step 11 · Site Optimization',
-      text: 'The technical polish: fresh keyword ideas, sharper title tags and meta descriptions, internal-link suggestions, and richer schema — the details that help you rank.'
+      text: 'The technical polish. The standout is the <b>🎯 AEO Readiness Check</b>: paste any page URL and SEO Buddy scores it against the 7-point checklist AI engines use to decide what to quote, then tells you exactly what to fix. Plus fresh keyword ideas, sharper titles &amp; meta, internal-link suggestions, and ready-made <b>schema</b> (FAQ Page, Article, How-To) with a one-click Google validator.'
     },
     {
       tab: 'summary-tab',
