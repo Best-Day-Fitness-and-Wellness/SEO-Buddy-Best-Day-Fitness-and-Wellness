@@ -2225,7 +2225,10 @@ async function queryGscRange(auth, siteUrl, startDate, endDate) {
 async function computePerformance() {
   const day = 24 * 3600 * 1000;
   const fmt = ms => new Date(ms).toISOString().split('T')[0];
-  const out = { source: 'mock', current: null, previous: null, movers: { gainers: [], losers: [] }, snapshots: perfSnapshots, aioTrend: [], leads: null };
+  const out = { source: 'mock', current: null, previous: null, movers: { gainers: [], losers: [] }, snapshots: perfSnapshots, aioTrend: [], leads: null,
+    // Course's two most-trustworthy ("directly observable") AI-visibility metrics.
+    brandedSearch: { available: false, reason: 'Connect Search Console to see your branded-search volume.' },
+    aiReferral: { available: false, reason: 'Connect Google Analytics (GA4) to track visits coming from ChatGPT, Perplexity, and Claude. These AI referrals tend to convert about 3× higher than typical search visits.' } };
 
   const auth = getGoogleAuth();
   const siteUrl = process.env.GSC_SITE_URL;
@@ -2255,6 +2258,18 @@ async function computePerformance() {
       out.movers.gainers = moves.filter(m => m.posChange > 0.3).sort((a, b) => b.posChange - a.posChange).slice(0, 5);
       out.movers.losers = moves.filter(m => m.posChange < -0.3).sort((a, b) => a.posChange - b.posChange).slice(0, 5);
 
+      // Branded search — a "directly observable" AI-visibility signal: when AI systems
+      // mention your brand, more people search for you by name. Real data from GSC.
+      const brandTerms = ['best day', 'bestdayfitness', 'best-day'];
+      const isBranded = q => { const s = (q || '').toLowerCase(); return brandTerms.some(t => s.includes(t)); };
+      const brandSum = byQuery => {
+        let impressions = 0, clicks = 0;
+        Object.keys(byQuery).forEach(q => { if (isBranded(q)) { impressions += byQuery[q].impressions || 0; clicks += byQuery[q].clicks || 0; } });
+        return { impressions, clicks };
+      };
+      const brCur = brandSum(cur.byQuery), brPrev = brandSum(prev.byQuery);
+      out.brandedSearch = { available: true, current: brCur, previous: brPrev };
+
       // Daily snapshot (idempotent per day) — durable trend history.
       const today = fmt(Date.now());
       const recRate = aioAuditsDb.length ? Math.round(aioAuditsDb.filter(a => a.recommended).length / aioAuditsDb.length * 100) : null;
@@ -2264,6 +2279,7 @@ async function computePerformance() {
         clicks: cur.clicks,
         avgPosition: +cur.avgPosition.toFixed(1),
         leaks: Object.values(cur.byQuery).filter(x => x.clicks === 0 && x.impressions > 10).length,
+        brandedImpressions: brCur.impressions,
         recommendedRate: recRate
       };
       const idx = perfSnapshots.findIndex(s => s.date === today);
