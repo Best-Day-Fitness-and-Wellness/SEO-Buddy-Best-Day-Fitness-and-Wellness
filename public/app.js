@@ -3450,7 +3450,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const gv = id => { const e = document.getElementById(id); return e ? e.value.trim() : ''; };
 
     function stepHTML(i) {
-      if (i === 0) return `<div class="setup-emoji">👋</div><h2>Welcome to SEO Buddy</h2><p class="lead">SEO Buddy helps the right customers find you — on Google <b>and</b> in AI answers like ChatGPT and Gemini. This quick setup takes about a minute: confirm your business details, set a couple of numbers, and connect your accounts if you'd like. Nothing here is permanent — you can change it all later.</p>`;
+      if (i === 0) return `<div class="setup-emoji">🚀</div><h2>Is this location ready to run on its own?</h2><p class="lead">SEO Buddy checks the six things every location needs to run hands-off. Green means it's wired up — fix anything flagged and this profile is fully self-driving. You can revisit this anytime from <b>Setup &amp; business info</b>.</p><div id="setup-readiness"><div class="rd-loading">Checking this location…</div></div>`;
       if (i === 1) return `<h2>Your business details</h2><p class="lead">Google and AI trust businesses whose name, address, and phone match everywhere online — so it's worth getting these exactly right. This is the identity SEO Buddy keeps consistent for you across the web.</p>
         <div class="setup-field"><label>Business name</label><input class="form-input" id="setup-name" value="${sEsc(profile.name)}"></div>
         <div class="setup-field"><label>Street address</label><input class="form-input" id="setup-street" value="${sEsc(profile.streetAddress)}"></div>
@@ -3470,13 +3470,38 @@ document.addEventListener('DOMContentLoaded', () => {
         <p class="setup-hint" style="margin-top:14px;">Want to track ChatGPT &amp; Perplexity too? Add their API keys anytime under <b>Settings → Generative AI API</b>. Both are optional paid upgrades — Google's AI works on its own.</p>
         <div style="margin-top:16px;"><button class="btn btn-secondary" id="setup-open-settings" type="button" style="width:auto;">Open Settings to connect →</button></div>`;
     }
+    function goSettings() { closeWiz(); const n = document.querySelector('.nav-item[data-tab="settings-tab"]'); if (n) n.click(); }
+    async function loadReadinessBoard() {
+      const host = document.getElementById('setup-readiness');
+      if (!host) return;
+      try {
+        const d = await (await fetch('/api/deploy-readiness')).json();
+        const checks = (d && d.checks) || [];
+        const pct = d.total ? Math.round(d.ready / d.total * 100) : 0;
+        const head = d.allReady
+          ? `<b>Fully self-driving — ${d.ready} of ${d.total} ready</b><span>Every autopilot has what it needs. This location runs on its own.</span>`
+          : `<b>${d.ready} of ${d.total} ready</b><span>${d.blockersLeft ? `${d.blockersLeft} must-fix before it's fully autonomous.` : 'Just a couple of recommendations left.'}</span>`;
+        const rows = checks.map(c => {
+          const cls = c.ok ? 'ok' : (c.severity === 'block' ? 'bad' : 'warn');
+          const sym = c.ok ? '&#10003;' : (c.severity === 'block' ? '&#10007;' : '!');
+          const badge = c.ok ? 'Ready' : (c.severity === 'block' ? 'Needed' : 'Recommended');
+          const fix = c.ok ? '' : `<div class="rd-fix" data-fix="1">${sEsc(c.fixLabel || 'Fix this')} &rarr;</div>`;
+          return `<div class="rd-item"><div class="rd-stat ${cls}">${sym}</div><div class="rd-ic">${c.icon || ''}</div><div class="rd-main"><div class="rd-name">${sEsc(c.label)} <span class="rd-badge ${cls}">${badge}</span></div><div class="rd-sub">${sEsc(c.ok ? c.okText : c.badText)}</div>${fix}</div></div>`;
+        }).join('');
+        host.innerHTML = `<div class="rd-progress"><div class="rd-ring" style="--pct:${pct}"><b>${d.ready}/${d.total}</b></div><div class="rp-txt">${head}</div></div>${rows}`;
+        host.querySelectorAll('.rd-fix').forEach(el => el.addEventListener('click', goSettings));
+      } catch (e) {
+        host.innerHTML = `<div class="rd-loading">Couldn’t check readiness right now — you can still continue setup.</div>`;
+      }
+    }
     function render() {
       bodyEl.innerHTML = stepHTML(step);
       dotsEl.innerHTML = Array.from({ length: TOTAL }, (_, i) => `<span class="setup-dot ${i === step ? 'on' : ''}"></span>`).join('');
       backBtn.style.visibility = step === 0 ? 'hidden' : 'visible';
       nextBtn.innerText = step === TOTAL - 1 ? 'Finish' : (step === 0 ? "Let’s go" : 'Next');
+      if (step === 0) loadReadinessBoard();
       const os = document.getElementById('setup-open-settings');
-      if (os) os.addEventListener('click', () => { closeWiz(); const n = document.querySelector('.nav-item[data-tab="settings-tab"]'); if (n) n.click(); });
+      if (os) os.addEventListener('click', goSettings);
     }
     function collect() {
       if (step === 1) {
