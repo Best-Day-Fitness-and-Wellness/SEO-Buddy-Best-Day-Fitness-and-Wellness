@@ -367,6 +367,10 @@
         #performance-tab .perf-kpi-note{font-size:var(--font-xs);color:var(--text-dark);margin-top:5px;}
         #performance-tab .perf-panels{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:18px;}
         @media(max-width:900px){#performance-tab .perf-panels{grid-template-columns:1fr;}}
+        #performance-tab .perf-aiv-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:12px;}
+        @media(max-width:700px){#performance-tab .perf-aiv-grid{grid-template-columns:1fr;}}
+        #performance-tab .perf-aiv-off{font-size:var(--font-sm);color:var(--text-muted);line-height:1.5;}
+        #performance-tab .perf-aiv-off code{background:var(--panel);border:1px solid var(--border-color);border-radius:5px;padding:1px 6px;font-size:.85em;color:#a5f3d0;}
         #performance-tab .perf-title{font-family:var(--font-heading);font-size:var(--font-lg);font-weight:600;margin:0 0 4px;color:var(--text-main);}
         #performance-tab .perf-hint{font-size:var(--font-sm);color:var(--text-muted);margin:0 0 14px;line-height:1.45;}
         #performance-tab .perf-sub{font-size:var(--font-xs);color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;font-weight:600;margin:0 0 6px;}
@@ -433,6 +437,24 @@
           <div class="perf-kpi"><div class="perf-kpi-label">Clicks</div><div class="perf-kpi-val" id="perf-clicks">&mdash;</div><div class="perf-delta flat" id="perf-clicks-d"></div><div class="perf-kpi-note">visits from search</div></div>
           <div class="perf-kpi"><div class="perf-kpi-label">Avg Google Rank</div><div class="perf-kpi-val" id="perf-rank">&mdash;</div><div class="perf-delta flat" id="perf-rank-d"></div><div class="perf-kpi-note">lower is better</div></div>
           <div class="perf-kpi"><div class="perf-kpi-label">New Leads</div><div class="perf-kpi-val" id="perf-leads">&mdash;</div><div class="perf-delta flat" id="perf-leads-d"></div><div class="perf-kpi-note" id="perf-leads-note">from GoHighLevel</div></div>
+        </div>
+
+        <div class="content-card">
+          <h3 class="perf-title">&#127919; AI visibility metrics</h3>
+          <p class="perf-hint">The two most <b>trustworthy</b> signs that AI answer engines are sending people your way &mdash; grounded in real searches and visits, not estimates. Your dashboard reads bottom-up: <b>Search Performance</b> (above) &rarr; <b>AI Visibility</b> (here) &rarr; <b>Business Impact</b> (leads &amp; value).</p>
+          <div class="perf-aiv-grid">
+            <div class="perf-kpi">
+              <div class="perf-kpi-label">Branded search</div>
+              <div class="perf-kpi-val" id="perf-branded">&mdash;</div>
+              <div class="perf-delta flat" id="perf-branded-d"></div>
+              <div class="perf-kpi-note" id="perf-branded-note">searches for your name &mdash; rising means AI is driving awareness</div>
+            </div>
+            <div class="perf-kpi">
+              <div class="perf-kpi-label">AI referral traffic</div>
+              <div class="perf-kpi-val" id="perf-airef">&mdash;</div>
+              <div class="perf-kpi-note" id="perf-airef-note">visits from ChatGPT, Perplexity &amp; Claude</div>
+            </div>
+          </div>
         </div>
 
         <div class="perf-panels">

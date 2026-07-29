@@ -2638,6 +2638,27 @@ document.addEventListener('DOMContentLoaded', () => {
         $('perf-leads-note').innerText = (leads && leads.reason) ? leads.reason : 'GoHighLevel not connected';
       }
 
+      // Branded search — real Tier-1 AI-visibility signal (from GSC)
+      const br = d.brandedSearch;
+      if (br && br.available && br.current) {
+        $('perf-branded').innerText = (br.current.impressions || 0).toLocaleString();
+        perfDelta($('perf-branded-d'), br.current.impressions, br.previous ? br.previous.impressions : null, {});
+        $('perf-branded-note').innerText = `${(br.current.clicks || 0).toLocaleString()} clicks · rising = AI driving awareness`;
+      } else {
+        $('perf-branded').innerText = '—'; $('perf-branded-d').innerText = ''; $('perf-branded-d').className = 'perf-delta flat';
+        $('perf-branded-note').innerText = (br && br.reason) ? br.reason : 'Connect Search Console to see this.';
+      }
+
+      // AI referral traffic — honest "not connected" state (needs GA4; never fabricated)
+      const ar = d.aiReferral;
+      if (ar && ar.available && ar.current != null) {
+        $('perf-airef').innerText = Number(ar.current).toLocaleString();
+        $('perf-airef-note').innerText = 'visits from ChatGPT, Perplexity & Claude';
+      } else {
+        $('perf-airef').innerHTML = '<span style="font-size:0.95rem;color:var(--text-muted);font-weight:600;">Connect GA4</span>';
+        $('perf-airef-note').innerText = (ar && ar.reason) ? ar.reason : 'Connect Google Analytics (GA4) to track this.';
+      }
+
       const g = (d.movers && d.movers.gainers) || [], l = (d.movers && d.movers.losers) || [];
       $('perf-gainers').innerHTML = g.length ? g.map(m => `<div class="perf-mover"><span>${citEsc(m.query)}</span><span class="up">▲ ${m.posChange} (now #${m.position})</span></div>`).join('') : '<div class="perf-empty">No clear gainers this period yet.</div>';
       $('perf-losers').innerHTML = l.length ? l.map(m => `<div class="perf-mover"><span>${citEsc(m.query)}</span><span class="down">▼ ${Math.abs(m.posChange)} (now #${m.position})</span></div>`).join('') : '<div class="perf-empty">No clear drops this period. 👍</div>';
