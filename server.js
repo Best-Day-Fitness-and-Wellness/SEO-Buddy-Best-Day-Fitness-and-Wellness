@@ -3298,6 +3298,16 @@ app.post('/api/gbp-post', requireAuth, async (req, res) => {
     return res.status(502).json({ success: false, error: `GBP post failed: ${err.message}` });
   }
 });
+// Manual confirmation: the owner posted this week's GBP post to Google themselves
+// (the usual path, since direct posting needs approved GBP API access). This clears
+// the "post it" nudge and gives the same score credit as an auto-post.
+app.post('/api/gbp-mark-posted', requireAuth, (req, res) => {
+  if (!localDb.gbpDraft) return res.json({ success: true, note: 'No current post to mark.' });
+  localDb.gbpDraft.posted = true;
+  localDb.gbpDraft.postedAt = new Date().toISOString();
+  saveLocal();
+  return res.json({ success: true });
+});
 
 // ============================================================
 // 19. Performance weekly digest — a scheduled snapshot of search performance
@@ -3538,7 +3548,14 @@ app.get('/api/next-moves', (req, res) => {
     moves.push({ key: 'nap', impact: 'high', title: `Fix your business info on ${where}`, why: 'Google trusts businesses whose name, address and phone match everywhere. A mismatch quietly hurts your local ranking.', effort: '~2 min', tab: 'local-tab', cta: 'Show me how' });
   }
   if (localDb && localDb.gbpDraft && !localDb.gbpDraft.posted) {
-    moves.push({ key: 'gbp', impact: 'med', title: "Approve this week's Google post", why: 'We wrote a fresh Google Business Profile post. Google rewards active profiles — post it in one tap.', effort: '~30 sec', tab: 'local-tab', cta: 'Post it', action: 'post-gbp' });
+    const gbpApi = gbpConfigured();
+    moves.push({ key: 'gbp', impact: 'med', title: "Approve this week's Google post",
+      why: gbpApi
+        ? 'We wrote a fresh Google Business Profile post. Google rewards active profiles — post it in one tap.'
+        : 'We wrote a fresh Google Business Profile post. Copy it into your Google Business Profile, then tap "Mark as posted" so this clears.',
+      effort: '~30 sec', tab: 'local-tab',
+      cta: gbpApi ? 'Post it' : 'Review & post',
+      action: 'post-gbp' });
   }
   if (citationsDb && citationsDb.targets && citationsDb.targets.length) {
     const st = citationsDb.statuses || {};
