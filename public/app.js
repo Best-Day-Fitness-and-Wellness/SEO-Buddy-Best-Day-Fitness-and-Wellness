@@ -2883,9 +2883,15 @@ document.addEventListener('DOMContentLoaded', () => {
   function osShowSchema(type, btn) {
     osLoadSchema().then(ok => { if (ok && osSchemaOut) osSchemaOut.value = osSchemas[type] || ''; });
   }
+  const btnOsFaqpage = document.getElementById('btn-os-faqpage');
+  const btnOsArticle = document.getElementById('btn-os-article');
+  const btnOsHowto = document.getElementById('btn-os-howto');
   const btnOsService = document.getElementById('btn-os-service');
   const btnOsReview = document.getElementById('btn-os-review');
   const btnOsBreadcrumb = document.getElementById('btn-os-breadcrumb');
+  if (btnOsFaqpage) btnOsFaqpage.addEventListener('click', () => osShowSchema('faqpage'));
+  if (btnOsArticle) btnOsArticle.addEventListener('click', () => osShowSchema('article'));
+  if (btnOsHowto) btnOsHowto.addEventListener('click', () => osShowSchema('howto'));
   if (btnOsService) btnOsService.addEventListener('click', () => osShowSchema('service'));
   if (btnOsReview) btnOsReview.addEventListener('click', () => osShowSchema('review'));
   if (btnOsBreadcrumb) btnOsBreadcrumb.addEventListener('click', () => osShowSchema('breadcrumb'));

@@ -1551,14 +1551,21 @@
         <div class="content-card mt-4">
           <h2>Extended Schema Pack</h2>
           <p class="text-muted mb-4">Richer JSON‑LD beyond your LocalBusiness/FAQ, to help Google and AI understand your pages. Pick a type, then paste it into the relevant page's settings.</p>
+          <p class="text-muted" style="font-size:var(--font-xs);margin:-8px 0 8px;">⭐ AEO-priority (what AI answer engines use most): <b>FAQ Page</b>, <b>Article</b>, <b>How-To</b>.</p>
           <div class="os-row" style="gap:8px;">
+            <button class="btn btn-secondary btn-xs" id="btn-os-faqpage">FAQ Page</button>
+            <button class="btn btn-secondary btn-xs" id="btn-os-article">Article</button>
+            <button class="btn btn-secondary btn-xs" id="btn-os-howto">How-To</button>
             <button class="btn btn-secondary btn-xs" id="btn-os-service">Service</button>
             <button class="btn btn-secondary btn-xs" id="btn-os-review">Review / Rating</button>
             <button class="btn btn-secondary btn-xs" id="btn-os-breadcrumb">Breadcrumb</button>
             <button class="btn btn-secondary btn-xs" id="btn-os-schema-copy" style="margin-left:auto;">Copy</button>
           </div>
           <textarea id="os-schema-out" class="os-schema-box" readonly placeholder="Pick a schema type above..."></textarea>
-          <p class="text-muted" style="font-size:var(--font-xs);margin-top:8px;">&#9888;&#65039; For Review/Rating: replace the placeholders with your REAL Google rating and review count. Never invent ratings &mdash; Google penalizes fake review markup.</p>
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-top:8px;">
+            <p class="text-muted" style="font-size:var(--font-xs);margin:0;">&#9888;&#65039; Replace every <code>REPLACE…</code> placeholder with your real info before using. Never invent ratings, dates, or Q&amp;As &mdash; Google penalizes fake markup.</p>
+            <a href="https://search.google.com/test/rich-results" target="_blank" rel="noopener" class="btn btn-secondary btn-xs" style="white-space:nowrap;">✓ Validate with Google →</a>
+          </div>
         </div>
       </section>
 
