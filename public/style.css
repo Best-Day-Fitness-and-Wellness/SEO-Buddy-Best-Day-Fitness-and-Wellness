@@ -1327,3 +1327,36 @@ input:checked + .slider:before {
   margin-right: 0.5rem;
 }
 
+
+/* ============================================================
+   CALM POLISH LAYER (v2) — unifies buttons, inputs, cards,
+   focus states and motion across every screen so the deeper
+   tools match the Today / Explore aesthetic. Cascade-only:
+   no per-screen markup changes.
+   ============================================================ */
+:root { --radius-btn:12px; --radius-card:18px; --ease-calm:cubic-bezier(.2,.8,.2,1); --focus-ring:rgba(139,135,255,.20); }
+body.light { --focus-ring:rgba(79,70,229,.15); }
+
+/* Buttons — solid calm accent, gentle press feedback, everywhere */
+.btn { border-radius:var(--radius-btn); font-family:var(--font-body); transition:transform .12s var(--ease-calm), filter .15s, box-shadow .2s, background .2s; }
+.btn:active:not(:disabled) { transform:scale(.97); }
+.btn-primary { background:var(--color-primary); box-shadow:0 6px 16px -6px rgba(99,102,241,.45); }
+.btn-primary:hover { filter:brightness(1.07); transform:translateY(-1px); box-shadow:0 10px 22px -8px rgba(99,102,241,.5); }
+.btn-secondary { border-radius:var(--radius-btn); }
+.btn-sm { border-radius:10px; } .btn-xs { border-radius:9px; }
+
+/* Inputs — calmer radius + soft focus ring */
+.form-input { border-radius:var(--radius-btn); transition:border-color .15s, box-shadow .2s, background .2s; }
+.form-input:focus { box-shadow:0 0 0 3px var(--focus-ring); }
+
+/* Cards / panels — softer corners + gentle lift on interactive stat cards */
+.content-card, .stat-card, .sum-kpi { border-radius:var(--radius-card); }
+.stat-card { transition:transform .18s var(--ease-calm), border-color .18s, box-shadow .18s; }
+.stat-card:hover { transform:translateY(-2px); box-shadow:var(--shadow-lg); border-color:var(--border-color); }
+
+/* Tab transition — a touch calmer */
+.tab-content { animation-duration:.32s; animation-timing-function:var(--ease-calm); }
+@keyframes fadeIn { from { opacity:0; transform:translateY(6px);} to { opacity:1; transform:none;} }
+
+/* Scrollbars — quieter */
+* { scrollbar-width:thin; scrollbar-color:var(--border-color) transparent; }

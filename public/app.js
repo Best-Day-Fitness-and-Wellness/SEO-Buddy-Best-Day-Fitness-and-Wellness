@@ -184,7 +184,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // Keep "Explore" highlighted while inside any tool reached through it.
-    const EXPLORE_TABS = ['gsc-tab', 'ai-tab', 'publish-tab', 'aio-tab', 'citations-tab', 'local-tab', 'onsite-tab', 'settings-tab', 'summary-tab', 'grow-tab'];
+    const EXPLORE_TABS = ['gsc-tab', 'ai-tab', 'publish-tab', 'aio-tab', 'citations-tab', 'local-tab', 'onsite-tab', 'summary-tab', 'grow-tab'];
     const navExp = document.getElementById('nav-explore');
     if (navExp && EXPLORE_TABS.includes(tabId)) navExp.classList.add('active');
 
