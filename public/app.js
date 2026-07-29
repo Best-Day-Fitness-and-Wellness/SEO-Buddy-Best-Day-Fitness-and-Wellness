@@ -993,18 +993,33 @@ document.addEventListener('DOMContentLoaded', () => {
   function sumEsc(s) {
     return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   }
+  function sumAgo(iso) {
+    if (!iso) return '';
+    const t = new Date(iso).getTime(); if (isNaN(t)) return '';
+    const s = Math.max(0, (Date.now() - t) / 1000);
+    if (s < 90) return 'just now';
+    const m = s / 60; if (m < 60) return Math.round(m) + ' min ago';
+    const h = m / 60; if (h < 24) return Math.round(h) + 'h ago';
+    const d = h / 24; return Math.round(d) + 'd ago';
+  }
 
   async function loadAutopilotDigest() {
     const wrap = document.getElementById('sum-autopilot');
     const grid = document.getElementById('sum-ap-grid');
     const sub = document.getElementById('sum-ap-sub');
+    const recapEl = document.getElementById('sum-ap-recap');
     if (!wrap || !grid) return;
     try {
       const d = await (await fetch('/api/autopilot-digest')).json();
       const items = (d && d.items) || [];
-      if (!items.length) { wrap.style.display = 'none'; return; }
+      if (!items.length && !(d && d.recap)) { wrap.style.display = 'none'; return; }
       wrap.style.display = 'block';
       if (sub) sub.innerText = d.newCount ? `${d.newCount} new since you last looked` : 'Up to date';
+      if (recapEl) {
+        const la = d.lastActivityAt ? ` <span class="sum-ap-live">Last activity ${sumAgo(d.lastActivityAt)}.</span>` : '';
+        recapEl.innerHTML = d.recap ? (sumEsc(d.recap) + la) : '';
+        recapEl.style.display = d.recap ? 'block' : 'none';
+      }
       grid.innerHTML = items.map(it => `<div class="sum-ap-item ${it.tone === 'warn' ? 'warn' : ''}" data-tab="${sumEsc(it.tab)}">
         <div class="sum-ap-label"><span>${it.icon || ''} ${sumEsc(it.label)}</span>${it.isNew ? '<span class="sum-ap-new">NEW</span>' : ''}</div>
         <div class="sum-ap-text">${sumEsc(it.text)}</div>

@@ -259,6 +259,8 @@
         .sum-ap-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:14px;}
         .sum-ap-title{font-family:var(--font-heading);font-size:1.05rem;font-weight:700;color:var(--text-main);}
         .sum-ap-sub{font-size:var(--font-xs);color:var(--text-muted);}
+        .sum-ap-recap{font-size:var(--font-sm);color:var(--text-main);line-height:1.55;margin:10px 0 14px;padding:11px 14px;border-radius:10px;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.22);}
+        .sum-ap-recap .sum-ap-live{color:var(--color-success);font-weight:600;}
         .sum-ap-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;}
         @media(max-width:1100px){.sum-ap-grid{grid-template-columns:repeat(2,1fr);}}
         @media(max-width:560px){.sum-ap-grid{grid-template-columns:1fr;}}
@@ -429,6 +431,7 @@
             <span class="sum-ap-title">&#129302; What we handled for you this week</span>
             <span class="sum-ap-sub" id="sum-ap-sub"></span>
           </div>
+          <div class="sum-ap-recap" id="sum-ap-recap"></div>
           <div class="sum-ap-grid" id="sum-ap-grid"></div>
         </div>
 
