@@ -10,12 +10,12 @@
   --font-body: 'Inter', sans-serif;
 
   /* Color Palette */
-  --bg-primary: #090b0e;
-  --bg-secondary: #11151d;
-  --bg-card: rgba(20, 26, 38, 0.55);
-  --border-color: rgba(255, 255, 255, 0.07);
-  
-  --color-primary: #6366f1; /* Indigo */
+  --bg-primary: #0b0c10;
+  --bg-secondary: #16181d;
+  --bg-card: rgba(28, 30, 37, 0.60);
+  --border-color: rgba(255, 255, 255, 0.08);
+
+  --color-primary: #8b87ff; /* Soft indigo (calm) */
   --color-secondary: #06b6d4; /* Cyan */
   --color-accent: #f43f5e; /* Rose */
   --color-success: #10b981; /* Emerald */

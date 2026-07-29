@@ -2,7 +2,7 @@
 document.addEventListener('DOMContentLoaded', () => {
   // --- APPLICATION STATE ---
   const state = {
-    activeTab: 'summary-tab',
+    activeTab: 'today-tab',
     gscData: [],
     filterMode: 'leaks', // 'leaks' or 'all'
     generatedArticle: null, // { title, slug, content }
@@ -183,6 +183,11 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
 
+    // Keep "Explore" highlighted while inside any tool reached through it.
+    const EXPLORE_TABS = ['gsc-tab', 'ai-tab', 'publish-tab', 'aio-tab', 'citations-tab', 'local-tab', 'onsite-tab', 'settings-tab', 'summary-tab', 'grow-tab'];
+    const navExp = document.getElementById('nav-explore');
+    if (navExp && EXPLORE_TABS.includes(tabId)) navExp.classList.add('active');
+
     // Auto-expand the Advanced Tools group when landing on one of its tools.
     if (['gsc-tab', 'ai-tab', 'publish-tab', 'aio-tab', 'citations-tab', 'local-tab', 'onsite-tab'].includes(tabId)) {
       const ag = document.getElementById('nav-adv-group'); const at = document.getElementById('nav-adv-toggle');
@@ -190,8 +195,16 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Update Header Text dynamically
-    if (tabId === 'summary-tab') {
-      pageTitle.innerText = 'Home';
+    if (tabId === 'today-tab') {
+      pageTitle.innerText = 'Today';
+      pageSubtitle.innerText = 'What needs you — and what SEO Buddy handled on its own';
+      if (window.loadToday) window.loadToday();
+    } else if (tabId === 'explore-tab') {
+      pageTitle.innerText = 'Explore';
+      pageSubtitle.innerText = 'All of SEO Buddy’s tools, grouped — dip in when you want to go deeper';
+      if (window.loadExplore) window.loadExplore();
+    } else if (tabId === 'summary-tab') {
+      pageTitle.innerText = 'Full dashboard';
       pageSubtitle.innerText = 'Your SEO & AEO at a glance — score, what we did, and what to do next';
       loadSummary();
     } else if (tabId === 'grow-tab') {
@@ -199,7 +212,7 @@ document.addEventListener('DOMContentLoaded', () => {
       pageSubtitle.innerText = 'Your prioritized to-do list, plus quick access to every tool';
       if (window.loadGrow) window.loadGrow();
     } else if (tabId === 'performance-tab') {
-      pageTitle.innerText = 'Reports';
+      pageTitle.innerText = 'Progress';
       pageSubtitle.innerText = 'Is it working? Your weekly digest, what we automated, search trends, and leads';
       loadPerformance();
       if (window.loadPerfDigest) window.loadPerfDigest();
@@ -1021,7 +1034,7 @@ document.addEventListener('DOMContentLoaded', () => {
         recapEl.style.display = d.recap ? 'block' : 'none';
       }
       grid.innerHTML = items.map(it => `<div class="sum-ap-item ${it.tone === 'warn' ? 'warn' : ''}" data-tab="${sumEsc(it.tab)}">
-        <div class="sum-ap-label"><span>${it.icon || ''} ${sumEsc(it.label)}</span>${it.isNew ? '<span class="sum-ap-new">NEW</span>' : ''}</div>
+        <div class="sum-ap-label"><span>${sumEsc(it.label)}</span>${it.isNew ? '<span class="sum-ap-new">NEW</span>' : ''}</div>
         <div class="sum-ap-text">${sumEsc(it.text)}</div>
         <div class="sum-ap-arrow">Open &rarr;</div>
       </div>`).join('');
@@ -1046,7 +1059,7 @@ document.addEventListener('DOMContentLoaded', () => {
       try {
         const r = await authFetch('/api/autopilot-toggle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: true, intervalHours: 168 }) });
         const d = await r.json();
-        if (d && d.success) { btn.innerText = 'Turned on ✓'; setTimeout(() => { if (window.loadHome) window.loadHome(); if (window.loadGrow) window.loadGrow(); }, 900); return; }
+        if (d && d.success) { btn.innerText = 'Turned on ✓'; setTimeout(() => { if (window.loadHome) window.loadHome(); if (window.loadGrow) window.loadGrow(); if (window.loadToday) window.loadToday(); }, 900); return; }
         throw new Error('failed');
       } catch (e) { btn.disabled = false; btn.innerText = o; homeGoTab(m.tab); }
       return;
@@ -1057,7 +1070,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const r = await authFetch('/api/gbp-post', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
         const d = await r.json();
         if (d && d.needsSetup) { btn.disabled = false; btn.innerText = o; homeGoTab(m.tab); return; }
-        if (d && d.success) { btn.innerText = 'Posted ✓'; setTimeout(() => { if (window.loadHome) window.loadHome(); if (window.loadGrow) window.loadGrow(); }, 900); return; }
+        if (d && d.success) { btn.innerText = 'Posted ✓'; setTimeout(() => { if (window.loadHome) window.loadHome(); if (window.loadGrow) window.loadGrow(); if (window.loadToday) window.loadToday(); }, 900); return; }
         throw new Error((d && d.error) || 'failed');
       } catch (e) { btn.disabled = false; btn.innerText = o; homeGoTab(m.tab); }
       return;
@@ -1122,6 +1135,136 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   window.loadHome = loadHome;
 
+  // --- TODAY: calm landing (score + "needs you" cards + running strip) ---
+  const TD_ICONS = {
+    edit:'<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>',
+    phone:'<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>',
+    link:'<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+    globe:'<circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>',
+    table:'<rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/>',
+    check:'<polyline points="20 6 9 17 4 12"/>'
+  };
+  function tdIcn(n){ return '<svg class="td-icn" viewBox="0 0 24 24">' + (TD_ICONS[n] || TD_ICONS.edit) + '</svg>'; }
+  function tdMoveIcon(m){
+    const t = m.tab || '', k = m.key || '';
+    if (k === 'gbp' || k === 'autopilot') return 'edit';
+    if (k === 'nap') return 'phone';
+    if (k === 'listed' || t === 'citations-tab') return 'link';
+    if (k === 'ai' || t === 'aio-tab') return 'globe';
+    if (k === 'gsc' || t === 'gsc-tab') return 'table';
+    if (t === 'local-tab') return 'phone';
+    return 'edit';
+  }
+  function tdAgo(iso){ const t = new Date(iso).getTime(); if (isNaN(t)) return ''; const s = Math.max(0, (Date.now() - t) / 1000); if (s < 90) return 'just now'; const m = s / 60; if (m < 60) return Math.round(m) + ' min ago'; const h = m / 60; if (h < 24) return Math.round(h) + 'h ago'; return Math.round(h / 24) + 'd ago'; }
+  function renderTodayHero(hs, nm){
+    const hero = document.getElementById('td-hero'); if (!hero) return;
+    const moves = ((nm && nm.moves) || []).slice(0, 3);
+    const sec = document.getElementById('td-needs-sec');
+    const pct = (hs && hs.overall != null) ? hs.overall : null;
+    if (!moves.length) {
+      hero.innerHTML = '<div class="td-allset"><div class="big">' + tdIcn('check') + '</div><h4>You’re all set this week</h4><p>Nothing needs you. SEO Buddy is running your marketing in the background — check back anytime.</p></div>';
+      if (sec) sec.style.display = 'none';
+      return;
+    }
+    if (sec) sec.style.display = 'flex';
+    const trend = (hs && hs.delta) ? '<span class="trend">' + (hs.delta > 0 ? '▲ climbing' : 'this month') + '</span>' : '';
+    const scoreBlock = '<div class="td-kick">Your visibility</div><div class="td-score"><b>' + (pct != null ? pct : '—') + '</b><span class="of">/ 100</span>' + trend + '</div><div class="td-bar"><i style="width:' + (pct != null ? pct : 0) + '%"></i></div>';
+    hero.innerHTML = scoreBlock + '<div class="td-line"><b>Everything’s handled.</b> ' + moves.length + ' quick thing' + (moves.length > 1 ? 's' : '') + ' need' + (moves.length > 1 ? '' : 's') + ' your ok below — then you’re done.</div>';
+  }
+  function renderTodayNeeds(nm){
+    const el = document.getElementById('td-needs'); if (!el) return;
+    const moves = ((nm && nm.moves) || []).slice(0, 3);
+    const cnt = document.getElementById('td-count'); if (cnt) cnt.innerText = moves.length ? moves.length + ' left' : '';
+    el.innerHTML = moves.map(function(m){
+      const warn = m.impact === 'high';
+      return '<div class="td-card"><div class="td-card-top"><div class="td-ic' + (warn ? ' warn' : '') + '">' + tdIcn(tdMoveIcon(m)) + '</div><span class="td-tag">' + sumEsc(m.effort || '') + '</span></div><h4>' + sumEsc(m.title) + '</h4><p>' + sumEsc(m.why) + '</p><button class="td-btn" type="button">' + sumEsc(m.cta) + '</button></div>';
+    }).join('');
+    el.querySelectorAll('.td-btn').forEach(function(b, i){ b.addEventListener('click', function(){ runMoveAction(moves[i], b); }); });
+  }
+  function renderTodayRunning(dg){
+    const el = document.getElementById('td-running'); if (!el) return;
+    if (!dg || !dg.recap) { el.style.display = 'none'; return; }
+    el.style.display = 'block';
+    const la = dg.lastActivityAt ? ' <b>Last activity ' + tdAgo(dg.lastActivityAt) + '.</b>' : '';
+    el.innerHTML = '<div class="td-rk"><span class="td-pulse"></span> Running on its own</div><p>' + sumEsc(dg.recap) + la + '</p><a id="td-see">See everything it did →</a>';
+    const a = document.getElementById('td-see'); if (a) a.addEventListener('click', function(){ switchTab('performance-tab'); });
+  }
+  async function loadToday(){
+    try {
+      const r = await Promise.all([
+        fetch('/api/health-score').then(function(x){return x.json();}).catch(function(){return {};}),
+        fetch('/api/next-moves').then(function(x){return x.json();}).catch(function(){return { moves: [] };}),
+        fetch('/api/autopilot-digest').then(function(x){return x.json();}).catch(function(){return {};}),
+        fetch('/api/business-profile').then(function(x){return x.json();}).catch(function(){return {};})
+      ]);
+      const hs = r[0], nm = r[1], dg = r[2], bp = r[3];
+      if (bp && bp.profile) {
+        const nmEl = document.getElementById('td-biz'); if (nmEl && bp.profile.name) nmEl.innerText = bp.profile.name;
+        const locEl = document.getElementById('td-loc'); if (locEl) { const loc = [bp.profile.addressLocality, bp.profile.addressRegion].filter(Boolean).join(', '); if (loc) locEl.innerText = loc; }
+      }
+      renderTodayHero(hs, nm); renderTodayNeeds(nm); renderTodayRunning(dg);
+    } catch (e) { /* leave as-is */ }
+  }
+  window.loadToday = loadToday;
+
+  // --- EXPLORE: grouped menu of every tool (routes to existing tabs) ---
+  const EXP_ICONS = {
+    table:'<rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/>',
+    link:'<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+    globe:'<circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>',
+    dollar:'<path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>',
+    upload:'<path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/>',
+    code:'<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>',
+    pin:'<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>',
+    bars:'<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>',
+    todo:'<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>',
+    brief:'<rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>',
+    compass:'<circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/>',
+    chat:'<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>',
+    gear:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
+    chev:'<polyline points="9 6 15 12 9 18"/>'
+  };
+  function expIc(n){ return '<svg viewBox="0 0 24 24">' + (EXP_ICONS[n] || '') + '</svg>'; }
+  const EXPLORE_GROUPS = [
+    { g: 'Get found', items: [
+      { icon: 'table', b: "Searches you're missing", s: 'Where you show up but get no clicks', tab: 'gsc-tab' },
+      { icon: 'link', b: 'Where to get listed', s: 'Sites AI pulls from', tab: 'citations-tab' } ] },
+    { g: 'Your content', items: [
+      { icon: 'dollar', b: 'Create a post', s: 'Have AI write an article', tab: 'ai-tab' },
+      { icon: 'upload', b: 'Publish & index', s: 'Push content live, ask Google to index', tab: 'publish-tab' },
+      { icon: 'code', b: 'Site optimization', s: 'Titles, links, schema', tab: 'onsite-tab' } ] },
+    { g: 'Your presence', items: [
+      { icon: 'pin', b: 'Local presence', s: 'Listings, reviews, Google posts', tab: 'local-tab' },
+      { icon: 'globe', b: 'AI visibility', s: "Do ChatGPT & Google's AI recommend you", tab: 'aio-tab' } ] },
+    { g: 'More detail', items: [
+      { icon: 'bars', b: 'Full dashboard', s: 'The detailed metrics view', tab: 'summary-tab' },
+      { icon: 'todo', b: 'All to-dos', s: 'Your full prioritized list', tab: 'grow-tab' } ] },
+    { g: 'Setup & help', items: [
+      { icon: 'brief', b: 'Setup & business info', s: 'Your details + readiness check', act: 'setup' },
+      { icon: 'compass', b: 'Quick guide', s: 'The 1-minute guided tour', act: 'guide' },
+      { icon: 'chat', b: 'Ask SEO Buddy', s: 'Chat with your AI assistant', act: 'ask' },
+      { icon: 'gear', b: 'Settings', s: 'Connections & account', tab: 'settings-tab' } ] }
+  ];
+  function loadExplore(){
+    const host = document.getElementById('exp-groups'); if (!host) return;
+    host.innerHTML = EXPLORE_GROUPS.map(function(grp){
+      return '<div class="exp-group"><div class="exp-gl">' + grp.g + '</div><div class="exp-list">' + grp.items.map(function(it){
+        const key = it.tab ? ('tab:' + it.tab) : ('act:' + it.act);
+        return '<div class="exp-row" data-go="' + key + '"><div class="exp-ic">' + expIc(it.icon) + '</div><div class="exp-t"><b>' + it.b + '</b><span>' + it.s + '</span></div><div class="exp-chev">' + expIc('chev') + '</div></div>';
+      }).join('') + '</div></div>';
+    }).join('');
+    host.querySelectorAll('.exp-row').forEach(function(row){
+      row.addEventListener('click', function(){
+        const go = row.getAttribute('data-go') || '';
+        if (go.indexOf('tab:') === 0) { switchTab(go.slice(4)); }
+        else if (go === 'act:setup') { const b = document.getElementById('btn-open-setup'); if (b) b.click(); }
+        else if (go === 'act:guide') { const b = document.getElementById('btn-start-wizard'); if (b) b.click(); }
+        else if (go === 'act:ask') { const b = document.getElementById('asst-fab'); if (b) b.click(); }
+      });
+    });
+  }
+  window.loadExplore = loadExplore;
+
   // --- GROW: full prioritized action list + tool shortcuts ---
   async function loadGrow() {
     const el = document.getElementById('grow-moves');
@@ -1130,7 +1273,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const nm = await (await fetch('/api/next-moves')).json();
       const moves = (nm && nm.moves) || [];
       const tagLabel = { high: 'High impact', med: 'Quick win', opportunity: 'Opportunity' };
-      if (!moves.length) { el.innerHTML = '<div class="text-muted" style="font-size:var(--font-sm);">You’re all caught up — nothing needs your attention right now. 🎉</div>'; return; }
+      if (!moves.length) { el.innerHTML = '<div class="text-muted" style="font-size:var(--font-sm);">You’re all caught up — nothing needs your attention right now. </div>'; return; }
       el.innerHTML = moves.map(m => `<div class="gmove ${m.impact === 'high' ? 'high' : ''}">
         <div><div class="gmove-t">${sumEsc(m.title)}</div><div class="gmove-w">${sumEsc(m.why)}</div></div>
         <div class="gmove-r"><span class="gmtag ${m.impact}">${tagLabel[m.impact] || ''}</span><button class="btn btn-primary" type="button">${sumEsc(m.cta)}</button></div>
@@ -1307,6 +1450,7 @@ document.addEventListener('DOMContentLoaded', () => {
   fetchHistory();
   fetchAutopilotStatus();
   loadSummary();
+  loadToday();
   const sumRefreshBtn = document.getElementById('sum-refresh');
   if (sumRefreshBtn) sumRefreshBtn.addEventListener('click', loadSummary);
   const sumEditAssump = document.getElementById('sum-edit-assump');
@@ -1787,7 +1931,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!fcState) return;
     const upd = avEl('fc-updated'); if (upd) upd.innerText = fcState.updatedAt ? ('Checked ' + avAgo(fcState.updatedAt)) : '';
     const runBtn = avEl('fc-run');
-    if (runBtn) { if (fcState.running) { runBtn.disabled = true; runBtn.innerHTML = 'Checking…'; if (!fcPollTimer) fcStartPolling(); } else if (!runBtn.dataset.busy) { runBtn.disabled = false; runBtn.innerHTML = '&#128269; Run FactCheck'; } }
+    if (runBtn) { if (fcState.running) { runBtn.disabled = true; runBtn.innerHTML = 'Checking…'; if (!fcPollTimer) fcStartPolling(); } else if (!runBtn.dataset.busy) { runBtn.disabled = false; runBtn.innerHTML = 'Run FactCheck'; } }
     const body = avEl('fc-body'); if (!body) return;
     const latest = fcState.latest;
     if (!latest) {
@@ -1841,7 +1985,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!acState) return;
     const upd = avEl('ac-updated'); if (upd) upd.innerText = acState.updatedAt ? ('Checked ' + avAgo(acState.updatedAt)) : '';
     const runBtn = avEl('ac-run');
-    if (runBtn) { if (acState.running) { runBtn.disabled = true; runBtn.innerHTML = 'Checking…'; if (!acPollTimer) acStartPolling(); } else if (!runBtn.dataset.busy) { runBtn.disabled = false; runBtn.innerHTML = '&#129302; Check crawler access'; } }
+    if (runBtn) { if (acState.running) { runBtn.disabled = true; runBtn.innerHTML = 'Checking…'; if (!acPollTimer) acStartPolling(); } else if (!runBtn.dataset.busy) { runBtn.disabled = false; runBtn.innerHTML = 'Check crawler access'; } }
     const body = avEl('ac-body'); if (!body) return;
     const l = acState.latest;
     if (!l) { body.innerHTML = `<div class="fc-empty">Click <b>Check crawler access</b> to scan <b>${avEsc(acState.site || 'your site')}/robots.txt</b> and confirm the AI engines are allowed to read your site.</div>`; return; }
@@ -1884,7 +2028,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!rdState) return;
     const upd = avEl('rd-updated'); if (upd) upd.innerText = rdState.updatedAt ? ('Found ' + avAgo(rdState.updatedAt)) : '';
     const runBtn = avEl('rd-run');
-    if (runBtn) { if (rdState.running) { runBtn.disabled = true; runBtn.innerHTML = 'Searching Reddit…'; if (!rdPollTimer) rdStartPolling(); } else if (!runBtn.dataset.busy) { runBtn.disabled = false; runBtn.innerHTML = '&#128269; Find Reddit threads'; } }
+    if (runBtn) { if (rdState.running) { runBtn.disabled = true; runBtn.innerHTML = 'Searching Reddit…'; if (!rdPollTimer) rdStartPolling(); } else if (!runBtn.dataset.busy) { runBtn.disabled = false; runBtn.innerHTML = 'Find Reddit threads'; } }
     const body = avEl('rd-body'); if (!body) return;
     const l = rdState.latest;
     if (!l) { body.innerHTML = `<div class="fc-empty">${rdState.anyConfigured ? 'Click <b>Find Reddit threads</b> to surface real discussions where you can add value and get cited by AI.' : 'Add your <b>Gemini API key</b> in Settings — Reddit discovery uses live Google Search.'}</div>`; return; }
@@ -2720,7 +2864,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       const g = (d.movers && d.movers.gainers) || [], l = (d.movers && d.movers.losers) || [];
       $('perf-gainers').innerHTML = g.length ? g.map(m => `<div class="perf-mover"><span>${citEsc(m.query)}</span><span class="up">▲ ${m.posChange} (now #${m.position})</span></div>`).join('') : '<div class="perf-empty">No clear gainers this period yet.</div>';
-      $('perf-losers').innerHTML = l.length ? l.map(m => `<div class="perf-mover"><span>${citEsc(m.query)}</span><span class="down">▼ ${Math.abs(m.posChange)} (now #${m.position})</span></div>`).join('') : '<div class="perf-empty">No clear drops this period. 👍</div>';
+      $('perf-losers').innerHTML = l.length ? l.map(m => `<div class="perf-mover"><span>${citEsc(m.query)}</span><span class="down">▼ ${Math.abs(m.posChange)} (now #${m.position})</span></div>`).join('') : '<div class="perf-empty">No clear drops this period. </div>';
 
       const aio = d.aioTrend || [];
       $('perf-aio-chart').innerHTML = aio.length
@@ -3049,7 +3193,7 @@ document.addEventListener('DOMContentLoaded', () => {
       tab: 'onsite-tab',
       highlight: '#btn-os-aeo',
       title: 'Step 11 · Site Optimization',
-      text: 'The technical polish. The standout is the <b>🎯 AEO Readiness Check</b>: paste any page URL and SEO Buddy scores it against the 7-point checklist AI engines use to decide what to quote, then tells you exactly what to fix. Plus fresh keyword ideas, sharper titles &amp; meta, internal-link suggestions, and ready-made <b>schema</b> (FAQ Page, Article, How-To) with a one-click Google validator.'
+      text: 'The technical polish. The standout is the <b>AEO Readiness Check</b>: paste any page URL and SEO Buddy scores it against the 7-point checklist AI engines use to decide what to quote, then tells you exactly what to fix. Plus fresh keyword ideas, sharper titles &amp; meta, internal-link suggestions, and ready-made <b>schema</b> (FAQ Page, Article, How-To) with a one-click Google validator.'
     },
     {
       tab: 'summary-tab',
@@ -3136,7 +3280,7 @@ document.addEventListener('DOMContentLoaded', () => {
     clearHighlights();
     switchTab('summary-tab');
     wizardStepText.innerHTML = `
-      <h4>You’re all set &#127881;</h4>
+      <h4>You’re all set </h4>
       <p style="font-size: 13px; color: var(--text-muted); margin-top: 5px;">That’s the tour. Start on <b>Home</b>, work through <b>Your next moves</b>, then check <b>Reports</b> to watch it pay off. You can reopen this anytime with the <b>Quick Guide</b> button.</p>
     `;
     wizardProgressDots.innerHTML = '';
@@ -3246,7 +3390,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function greet() {
       if (greeted) return; greeted = true;
-      addBot("Hi! 👋 I can see everything in your SEO Buddy. Ask me how you're doing, what to fix next, or how a tool works.", [
+      addBot("Hi! I can see everything in your SEO Buddy. Ask me how you're doing, what to fix next, or how a tool works.", [
         { label: 'How am I doing?' },
         { label: 'Who’s beating me in AI?', send: "Who's beating me in AI search right now?" },
         { label: 'What should I fix first?' },
@@ -3450,7 +3594,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const gv = id => { const e = document.getElementById(id); return e ? e.value.trim() : ''; };
 
     function stepHTML(i) {
-      if (i === 0) return `<div class="setup-emoji">🚀</div><h2>Is this location ready to run on its own?</h2><p class="lead">SEO Buddy checks the six things every location needs to run hands-off. Green means it's wired up — fix anything flagged and this profile is fully self-driving. You can revisit this anytime from <b>Setup &amp; business info</b>.</p><div id="setup-readiness"><div class="rd-loading">Checking this location…</div></div>`;
+      if (i === 0) return `<div class="setup-emoji"></div><h2>Is this location ready to run on its own?</h2><p class="lead">SEO Buddy checks the six things every location needs to run hands-off. Green means it's wired up — fix anything flagged and this profile is fully self-driving. You can revisit this anytime from <b>Setup &amp; business info</b>.</p><div id="setup-readiness"><div class="rd-loading">Checking this location…</div></div>`;
       if (i === 1) return `<h2>Your business details</h2><p class="lead">Google and AI trust businesses whose name, address, and phone match everywhere online — so it's worth getting these exactly right. This is the identity SEO Buddy keeps consistent for you across the web.</p>
         <div class="setup-field"><label>Business name</label><input class="form-input" id="setup-name" value="${sEsc(profile.name)}"></div>
         <div class="setup-field"><label>Street address</label><input class="form-input" id="setup-street" value="${sEsc(profile.streetAddress)}"></div>
@@ -3464,9 +3608,9 @@ document.addEventListener('DOMContentLoaded', () => {
         <div class="setup-row"><div class="setup-field"><label>How many visitors become clients? (%)</label><input type="number" class="form-input" id="setup-conv" value="${sEsc(cr)}"><small class="setup-hint">Out of 100 website visitors, how many sign up. 1–3% is typical.</small></div><div class="setup-field"><label>Share of missed searches you'd win (%)</label><input type="number" class="form-input" id="setup-capture" value="${sEsc(cap)}"><small class="setup-hint">Of the searches you show up for but get no clicks, the share you'd realistically capture. 3–8% is safe.</small></div></div>`;
       }
       return `<h2>Connect your accounts <span style="color:var(--text-dark);font-weight:400;">(optional)</span></h2><p class="lead">These bring in your live data. Connect them now, or skip and explore first — SEO Buddy runs on sample data until you're ready.</p>
-        <div class="setup-connect-item"><div class="ci">🔑</div><div><b>Google Gemini</b><span>The AI brain — writes your content, runs audits, and finds where to get listed.</span></div></div>
-        <div class="setup-connect-item"><div class="ci">🔍</div><div><b>Google Search Console</b><span>Your real Google rankings, clicks, and the searches you're missing.</span></div></div>
-        <div class="setup-connect-item"><div class="ci">📇</div><div><b>GoHighLevel</b><span>Publishes your content and pulls your leads into Reports.</span></div></div>
+        <div class="setup-connect-item"><div class="ci"></div><div><b>Google Gemini</b><span>The AI brain — writes your content, runs audits, and finds where to get listed.</span></div></div>
+        <div class="setup-connect-item"><div class="ci"></div><div><b>Google Search Console</b><span>Your real Google rankings, clicks, and the searches you're missing.</span></div></div>
+        <div class="setup-connect-item"><div class="ci"></div><div><b>GoHighLevel</b><span>Publishes your content and pulls your leads into Reports.</span></div></div>
         <p class="setup-hint" style="margin-top:14px;">Want to track ChatGPT &amp; Perplexity too? Add their API keys anytime under <b>Settings → Generative AI API</b>. Both are optional paid upgrades — Google's AI works on its own.</p>
         <div style="margin-top:16px;"><button class="btn btn-secondary" id="setup-open-settings" type="button" style="width:auto;">Open Settings to connect →</button></div>`;
     }
