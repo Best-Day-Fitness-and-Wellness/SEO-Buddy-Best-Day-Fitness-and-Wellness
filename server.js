@@ -2333,7 +2333,7 @@ function parseGeminiJson(text) {
 }
 
 app.post('/api/onsite', requireAuth, async (req, res) => {
-  const { tool, seed, keyword, currentTitle } = req.body || {};
+  const { tool, seed, keyword, currentTitle, url } = req.body || {};
   const geminiKey = process.env.GEMINI_API_KEY;
   if (!geminiKey) {
     return res.json({ success: true, unavailable: true, message: 'Add your Gemini API key in Settings to use the on-site tools.' });
@@ -2362,6 +2362,78 @@ app.post('/api/onsite', requireAuth, async (req, res) => {
       const prompt = `${brand}\nHere are the pages this website has published:\n${JSON.stringify(pages)}\nSuggest internal links between them to build topic authority (pillar/cluster style). For each suggestion give the source page title, the target page title, a natural anchor phrase, and a one‑line reason. Return ONLY raw JSON, no markdown: {"suggestions":[{"from":"","to":"","anchor":"","why":""}]}`;
       const r = await client.models.generateContent({ model: GEMINI_MODEL, contents: prompt });
       return res.json({ success: true, data: parseGeminiJson(r.text) });
+    }
+    if (tool === 'aeoReadiness') {
+      // Score a real page against the AEO Content Optimization Checklist (from HubSpot's AEO course).
+      let target = (url || '').trim();
+      if (!target) return res.status(400).json({ error: 'Enter a page URL to check.' });
+      if (!/^https?:\/\//i.test(target)) target = 'https://' + target;
+
+      // Fetch the live page HTML (public pages only).
+      let html = '';
+      try {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 12000);
+        const resp = await fetch(target, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; SEOBuddyBot/1.0)' }, signal: ctrl.signal });
+        clearTimeout(timer);
+        if (!resp.ok) return res.json({ success: true, data: { fetchError: `Couldn't load that page (HTTP ${resp.status}). Double-check the URL is public and correct.` } });
+        html = await resp.text();
+      } catch (e) {
+        return res.json({ success: true, data: { fetchError: `Couldn't load that page: ${e.message}. Make sure it's a public URL.` } });
+      }
+
+      // Extract title, H1–H3 headings, and a body-text excerpt for the auditor.
+      const clean = (s) => (s || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+      const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+      const pageTitle = titleMatch ? clean(titleMatch[1]) : '';
+      const headings = [];
+      const hre = /<(h[1-3])[^>]*>([\s\S]*?)<\/\1>/gi;
+      let hm;
+      while ((hm = hre.exec(html)) && headings.length < 40) {
+        const txt = clean(hm[2]);
+        if (txt) headings.push(`${hm[1].toUpperCase()}: ${txt}`);
+      }
+      let bodyText = html
+        .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+        .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (bodyText.length > 5000) bodyText = bodyText.slice(0, 5000);
+
+      const auditPrompt = `You are an AEO (Answer Engine Optimization) auditor. Score how ready this web page is to be extracted and cited by AI answer engines (ChatGPT, Perplexity, Google AI Overviews). Judge only what the page actually shows.
+
+PAGE URL: ${target}
+PAGE TITLE: ${pageTitle || '(none found)'}
+HEADINGS FOUND:
+${headings.length ? headings.join('\n') : '(no H1-H3 headings found)'}
+PAGE TEXT (excerpt):
+"""
+${bodyText || '(no readable text found)'}
+"""
+
+Score the page on these 7 checklist items. For each, decide pass (true/false) and give one specific, plain-English note:
+1. answerFirst - Does it lead with a direct, self-contained answer (ideally ~40-60 words) near the top, before background?
+2. questionHeaders - Are H2/H3 headings phrased as the real questions people ask?
+3. selfContained - Does each section make sense on its own (extractable without the rest)?
+4. listsTables - Does it use lists and/or tables that are easy for AI to extract?
+5. fanoutCoverage - Does it answer several related sub-questions, not just one narrow point?
+6. freshness - Is there a visible publish/updated date and current, non-stale info?
+7. dualAudience - Is it clear and well-structured for both humans and AI (plain language, logical order)?
+
+Then set:
+- overallScore: 0-100 (roughly the share of items passed, weighted toward answerFirst and questionHeaders).
+- bucket: one of "AEO-ready", "Quick win", or "Needs rewrite" (Quick win = mostly good with a few easy fixes; Needs rewrite = several structural gaps).
+- topFixes: the 2-4 most impactful, specific changes to make, in plain language for a non-technical owner.
+
+Return ONLY raw JSON, no markdown:
+{"overallScore":0,"bucket":"","checklist":[{"key":"answerFirst","label":"Answer-first opening","pass":true,"note":""},{"key":"questionHeaders","label":"Question-style headers","pass":true,"note":""},{"key":"selfContained","label":"Self-contained sections","pass":true,"note":""},{"key":"listsTables","label":"Lists & tables","pass":true,"note":""},{"key":"fanoutCoverage","label":"Covers related questions","pass":true,"note":""},{"key":"freshness","label":"Freshness / dates","pass":true,"note":""},{"key":"dualAudience","label":"Clear for AI & humans","pass":true,"note":""}],"topFixes":[""]}`;
+
+      const r = await client.models.generateContent({ model: GEMINI_MODEL, contents: auditPrompt });
+      const data = parseGeminiJson(r.text) || {};
+      data.url = target;
+      data.pageTitle = pageTitle;
+      return res.json({ success: true, data });
     }
     return res.status(400).json({ error: 'Unknown tool.' });
   } catch (err) {
