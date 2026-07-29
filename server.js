@@ -2476,10 +2476,43 @@ app.get('/api/onsite-schema', (req, res) => {
       { "@type": "ListItem", "position": 3, "name": "Personal Training", "item": `${domain}/personal-training` }
     ]
   };
+  // AEO-priority types (per HubSpot's AEO course): FAQPage, Article, HowTo.
+  // FAQPage maps directly to the Q&A format answer engines extract.
+  const faqpage = {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      { "@type": "Question", "name": "REPLACE with a real question people ask, e.g. Is Best Day Fitness good for adults over 65?", "acceptedAnswer": { "@type": "Answer", "text": "REPLACE with a direct 40–60 word answer that stands on its own." } },
+      { "@type": "Question", "name": "REPLACE with a second real question, e.g. Do you help people recovering from injury?", "acceptedAnswer": { "@type": "Answer", "text": "REPLACE with a direct 40–60 word answer." } }
+    ]
+  };
+  const article = {
+    "@context": "https://schema.org",
+    "@type": "Article",
+    "headline": "REPLACE with the article title (under 110 characters)",
+    "author": { "@type": "Person", "name": (process.env.GHL_AUTHOR_NAME || "REPLACE with the author's full name"), "url": (process.env.GHL_AUTHOR_URL || "REPLACE with the author's profile or LinkedIn URL") },
+    "publisher": { "@type": "Organization", "name": BUSINESS.name, "@id": `${domain}/#organization` },
+    "datePublished": "REPLACE with YYYY-MM-DD",
+    "dateModified": "REPLACE with YYYY-MM-DD",
+    "mainEntityOfPage": "REPLACE with the full URL of this article"
+  };
+  const howto = {
+    "@context": "https://schema.org",
+    "@type": "HowTo",
+    "name": "REPLACE with the how-to title, e.g. How to Improve Balance for Seniors at Home",
+    "step": [
+      { "@type": "HowToStep", "name": "Step 1 title", "text": "REPLACE with the first step's instructions." },
+      { "@type": "HowToStep", "name": "Step 2 title", "text": "REPLACE with the second step's instructions." },
+      { "@type": "HowToStep", "name": "Step 3 title", "text": "REPLACE with the third step's instructions." }
+    ]
+  };
   res.json({
     service: JSON.stringify(service, null, 2),
     review: JSON.stringify(review, null, 2),
-    breadcrumb: JSON.stringify(breadcrumb, null, 2)
+    breadcrumb: JSON.stringify(breadcrumb, null, 2),
+    faqpage: JSON.stringify(faqpage, null, 2),
+    article: JSON.stringify(article, null, 2),
+    howto: JSON.stringify(howto, null, 2)
   });
 });
 
