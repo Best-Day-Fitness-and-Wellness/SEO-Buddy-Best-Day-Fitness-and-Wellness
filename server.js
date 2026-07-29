@@ -270,7 +270,7 @@ const DEFAULT_VIS_PROMPTS = [
   'best fitness studio for injury recovery in St. Petersburg',
   'balance and mobility training for older adults St. Petersburg'
 ];
-let aiVisDb = { prompts: DEFAULT_VIS_PROMPTS.slice(), snapshots: [], updatedAt: null, autoEnabled: false, intervalDays: 7, lastRun: null };
+let aiVisDb = { prompts: DEFAULT_VIS_PROMPTS.slice(), snapshots: [], updatedAt: null, autoEnabled: true, intervalDays: 7, lastRun: null };
 if (fs.existsSync(AI_VIS_FILE)) {
   try {
     const loaded = JSON.parse(fs.readFileSync(AI_VIS_FILE, 'utf8'));
@@ -699,16 +699,17 @@ async function indexUrlHelper(url) {
 // Autopilot Agent Logic
 // ----------------------------------------------------
 let autopilotInterval = null;
-let autopilotEnabled = false;
+let autopilotEnabled = true;   // default ON so fresh franchise installs publish content hands-off
 let autopilotIntervalHours = 24;
 let nextRunTime = null;
+let lastAutopilotRun = null;   // ISO timestamp of the last successful content cycle (for redeploy catch-up)
 let autopilotQueue = []; // [{ topic, addedAt }] — covered before GSC gaps
 
 // Durable autopilot config (cadence + enabled + topic queue) so the schedule
 // and queue survive redeploys. The scheduler itself is restored at startup.
 const AUTOPILOT_CONFIG_FILE = path.join(DATA_DIR, 'autopilot-config.json');
 function saveAutopilotConfig() {
-  try { fs.writeFileSync(AUTOPILOT_CONFIG_FILE, JSON.stringify({ enabled: autopilotEnabled, intervalHours: autopilotIntervalHours, queue: autopilotQueue }, null, 2)); }
+  try { fs.writeFileSync(AUTOPILOT_CONFIG_FILE, JSON.stringify({ enabled: autopilotEnabled, intervalHours: autopilotIntervalHours, queue: autopilotQueue, lastRun: lastAutopilotRun }, null, 2)); }
   catch (e) { console.error('[Autopilot Config] save failed:', e.message); }
 }
 try {
@@ -717,6 +718,7 @@ try {
     if (typeof cfg.enabled === 'boolean') autopilotEnabled = cfg.enabled;
     if (cfg.intervalHours) autopilotIntervalHours = parseFloat(cfg.intervalHours);
     if (Array.isArray(cfg.queue)) autopilotQueue = cfg.queue;
+    if (cfg.lastRun) lastAutopilotRun = cfg.lastRun;
   }
 } catch (e) { console.error('[Autopilot Config] load failed:', e.message); }
 
@@ -834,6 +836,8 @@ async function runAutopilotCycle() {
 
     historyDb.unshift(historyEntry);
     saveHistory();
+    lastAutopilotRun = new Date().toISOString();
+    saveAutopilotConfig();
 
     // Remove the covered topic from the queue.
     if (fromQueue) {
@@ -3609,13 +3613,65 @@ app.get('/api/autopilot-digest', (req, res) => {
     const text = cl ? `${cl.cur} clicks this week${cl.pct != null ? ` (${cl.pct >= 0 ? '+' : ''}${cl.pct}%)` : ''}` : 'Weekly digest ready';
     items.push({ key: 'perf', tab: 'performance-tab', icon: '📈', label: 'Weekly digest', text, isNew: !!dg.isNew, tone: 'info' });
   }
-  res.json({ success: true, items, newCount: items.filter(i => i.isNew).length, generatedAt: new Date().toISOString() });
+  // Published articles (content autopilot) — count what went live in the last 7 days.
+  const nowMs = Date.now();
+  const within7d = (d) => { if (!d) return false; const t = new Date(d).getTime(); return !isNaN(t) && (nowMs - t) <= 7 * 864e5; };
+  const articlesThisWeek = Array.isArray(historyDb) ? historyDb.filter(h => within7d(h.date || h.publishedAt)) : [];
+  if (Array.isArray(historyDb) && historyDb.length) {
+    const latest = historyDb[0];
+    const n = articlesThisWeek.length;
+    const text = n ? `${n} article${n > 1 ? 's' : ''} published this week` : `Last published “${String(latest.title || '').slice(0, 40)}${(latest.title || '').length > 40 ? '…' : ''}”`;
+    items.push({ key: 'articles', tab: 'publish-tab', icon: '✍️', label: 'Content autopilot', text, isNew: within7d(latest.date || latest.publishedAt), tone: 'info' });
+  }
+  // AI Visibility — latest auto-check.
+  if (aiVisDb && Array.isArray(aiVisDb.snapshots) && aiVisDb.snapshots.length) {
+    const snap = aiVisDb.snapshots[aiVisDb.snapshots.length - 1];
+    const vs = (snap && typeof snap.visibilityScore === 'number') ? `${snap.visibilityScore}% AI visibility` : 'AI visibility checked';
+    items.push({ key: 'aivis', tab: 'aio-tab', icon: '🔎', label: 'AI Visibility', text: vs, isNew: within7d(aiVisDb.lastRun), tone: 'info' });
+  }
+
+  // Plain-English weekly recap — answers "what happened this week" at a glance.
+  const did = [];
+  if (articlesThisWeek.length) did.push(`published ${articlesThisWeek.length} article${articlesThisWeek.length > 1 ? 's' : ''}`);
+  if (localDb && localDb.gbpDraft && within7d(localDb.gbpDraft.createdAt)) did.push('wrote your Google Business post');
+  if (localDb && within7d(localDb.lastNapRun)) did.push('checked your listings (NAP)');
+  if (citationsDb && within7d(citationsDb.lastRun)) did.push('scanned directories AI cites');
+  if (onsiteDb && within7d(onsiteDb.lastRun)) did.push('refreshed on-site ideas');
+  if (aiVisDb && within7d(aiVisDb.lastRun)) did.push('ran an AI visibility check');
+  if (perfDigestDb && within7d(perfDigestDb.lastRun)) did.push('built your performance digest');
+  const enabledCount = [true, (citationsDb && citationsDb.autoEnabled), (localDb && localDb.enabled), (onsiteDb && onsiteDb.enabled), (perfDigestDb && perfDigestDb.enabled), (aiVisDb && aiVisDb.autoEnabled), autopilotEnabled].filter(Boolean).length;
+  const lastActivity = [
+    articlesThisWeek[0] && (articlesThisWeek[0].date || articlesThisWeek[0].publishedAt),
+    localDb && localDb.lastNapRun, localDb && localDb.lastGbpRun,
+    citationsDb && citationsDb.lastRun, onsiteDb && onsiteDb.lastRun,
+    aiVisDb && aiVisDb.lastRun, perfDigestDb && perfDigestDb.lastRun
+  ].filter(Boolean).map(d => new Date(d).getTime()).filter(t => !isNaN(t)).sort((a, b) => b - a)[0];
+  let recap;
+  if (did.length) {
+    recap = `This week SEO Buddy ${did.length > 1 ? did.slice(0, -1).join(', ') + ' and ' + did.slice(-1) : did[0]} — all on its own. Nothing needs you unless a card below is marked NEW.`;
+  } else {
+    recap = `All ${enabledCount} autopilots are on and running on schedule. New activity will show up here automatically — no need to check back.`;
+  }
+  res.json({ success: true, items, recap, autopilotsOn: enabledCount, lastActivityAt: lastActivity ? new Date(lastActivity).toISOString() : null, newCount: items.filter(i => i.isNew).length, generatedAt: new Date().toISOString() });
 });
 
 // Restore the autopilot schedule if it was enabled before a redeploy.
 if (autopilotEnabled) {
   try { startAutopilotScheduler(); } catch (e) { console.error('[Autopilot] restore failed:', e.message); }
 }
+
+// Content autopilot redeploy catch-up: the recurring 24h setInterval resets on
+// every restart, so on frequent redeploys it could otherwise never fire. On boot,
+// if content autopilot is enabled and overdue (>= its interval since the last
+// successful run), run one cycle. Staggered after the other workers' catch-ups.
+setTimeout(() => {
+  if (!autopilotEnabled) return;
+  const hoursSince = lastAutopilotRun ? (Date.now() - new Date(lastAutopilotRun).getTime()) / 3.6e6 : Infinity;
+  if (hoursSince >= autopilotIntervalHours) {
+    logAutopilotActivity(`Startup catch-up: content autopilot overdue (${lastAutopilotRun ? Math.round(hoursSince) + 'h' : 'never run'}). Running one cycle.`);
+    runAutopilotCycle().catch(err => console.error('[Autopilot] catch-up run failed:', err.message));
+  }
+}, 105000);
 
 // Start the Express Server
 app.listen(PORT, () => {
