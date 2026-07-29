@@ -2329,15 +2329,31 @@ document.addEventListener('DOMContentLoaded', () => {
     const postedNote = draft.posted ? `<span class="lr-muted" style="color:var(--color-success)">Posted to Google ${laAgo(draft.postedAt)} ✓</span>`
       : (draft.postError ? `<span class="nap-bad">Auto-post failed: ${citEsc(draft.postError)}</span>` : '');
     const postBtn = (laGbpConfigured && !draft.posted) ? `<button class="btn btn-primary btn-xs" id="la-gbp-post" type="button">Post to Google now</button>` : '';
+    // Manual flow (no GBP API): let the owner confirm they posted it to Google themselves.
+    const markBtn = !draft.posted ? `<button class="btn btn-secondary btn-xs" id="la-gbp-mark" type="button">&#10003; Mark as posted</button>` : '';
     laGbpBody.innerHTML = `<div class="la-gbp-text">${citEsc(draft.text)}</div>`
       + `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">`
       + `<button class="btn btn-secondary btn-xs" id="la-gbp-copy" type="button">Copy post</button>`
       + postBtn
+      + markBtn
       + `<span class="lr-muted">Topic: ${citEsc(draft.topic || '—')} · written ${laAgo(draft.createdAt)}</span>`
       + `</div>`
+      + (!draft.posted ? `<div class="lr-muted" style="margin-top:6px;">Copy the post into your Google Business Profile, then tap <b>Mark as posted</b> to clear the reminder.</div>` : '')
       + (postedNote ? `<div style="margin-top:6px;">${postedNote}</div>` : '');
     const cp = document.getElementById('la-gbp-copy');
     if (cp) cp.onclick = () => { navigator.clipboard.writeText(draft.text); cp.innerText = 'Copied ✓'; setTimeout(() => cp.innerText = 'Copy post', 1200); };
+    const mb = document.getElementById('la-gbp-mark');
+    if (mb) mb.onclick = async () => {
+      mb.disabled = true; mb.innerText = 'Saving…';
+      try {
+        const r = await authFetch('/api/gbp-mark-posted', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+        const dd = await r.json();
+        if (!r.ok || !dd.success) throw new Error(dd.error || 'failed');
+        draft.posted = true; draft.postedAt = new Date().toISOString(); laRenderGbp(draft);
+        if (window.loadHome) window.loadHome();
+        if (window.loadGrow) window.loadGrow();
+      } catch (e) { alert('Could not update: ' + e.message); mb.disabled = false; mb.innerHTML = '&#10003; Mark as posted'; }
+    };
     const pb = document.getElementById('la-gbp-post');
     if (pb) pb.onclick = async () => {
       pb.disabled = true; pb.innerText = 'Posting…';
