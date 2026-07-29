@@ -3655,6 +3655,42 @@ app.get('/api/autopilot-digest', (req, res) => {
   res.json({ success: true, items, recap, autopilotsOn: enabledCount, lastActivityAt: lastActivity ? new Date(lastActivity).toISOString() : null, newCount: items.filter(i => i.isNew).length, generatedAt: new Date().toISOString() });
 });
 
+// Deployment readiness — the six things every franchise location needs to run
+// hands-off. Reads live truth from process.env (settings-save calls
+// dotenv override, so in-app changes reflect immediately) + business profile.
+app.get('/api/deploy-readiness', (req, res) => {
+  const gemini = !!process.env.GEMINI_API_KEY;
+  const storage = !!process.env.DATA_DIR;
+  const gsc = !!(process.env.GSC_SITE_URL && getGoogleAuth());
+  const ghl = !!(process.env.GHL_ACCESS_TOKEN && process.env.GHL_LOCATION_ID);
+  const admin = !!ADMIN_PASSWORD;
+  const business = !!businessProfileSaved; // stamped for THIS location (not the seed defaults)
+  const checks = [
+    { key: 'gemini', label: 'Gemini API key', icon: '🧠', ok: gemini, severity: 'block',
+      okText: 'Powers every autopilot — content, AI visibility, local posts, and directory scans.',
+      badText: 'Add your Gemini API key so the autopilots can run.', fixLabel: 'Add Gemini key' },
+    { key: 'storage', label: 'Persistent storage', icon: '💾', ok: storage, severity: 'block',
+      okText: 'History and schedules survive redeploys — the autopilots never lose their place.',
+      badText: 'Attach a Railway volume and set DATA_DIR so history survives redeploys.', fixLabel: 'Set up storage' },
+    { key: 'gsc', label: 'Google Search Console', icon: '🔍', ok: gsc, severity: 'block',
+      okText: 'Unlocks real rankings, clicks, and the search-gap finder.',
+      badText: 'Connect Search Console to unlock real rankings and clicks.', fixLabel: 'Connect Search Console' },
+    { key: 'ghl', label: 'GoHighLevel publishing', icon: '📤', ok: ghl, severity: 'block',
+      okText: 'Lets the Content Autopilot publish articles to the live site automatically.',
+      badText: 'Required for the Content Autopilot to publish articles automatically.', fixLabel: 'Add GoHighLevel token & location' },
+    { key: 'admin', label: 'Admin password', icon: '🔒', ok: admin, severity: 'warn',
+      okText: 'Settings and publishing are locked to you.',
+      badText: 'Without it, anyone with the link can change settings and trigger publishing.', fixLabel: 'Set an admin password' },
+    { key: 'business', label: 'Business profile', icon: '🏢', ok: business, severity: 'warn',
+      okText: 'This location’s name, address and phone are set — used across NAP, posts, and schema.',
+      badText: 'Confirm this location’s name, address and phone (still using the seed profile).', fixLabel: 'Complete business profile' }
+  ];
+  const ready = checks.filter(c => c.ok).length;
+  const total = checks.length;
+  const blockersLeft = checks.filter(c => !c.ok && c.severity === 'block').length;
+  res.json({ success: true, ready, total, blockersLeft, allReady: ready === total, checks });
+});
+
 // Restore the autopilot schedule if it was enabled before a redeploy.
 if (autopilotEnabled) {
   try { startAutopilotScheduler(); } catch (e) { console.error('[Autopilot] restore failed:', e.message); }
