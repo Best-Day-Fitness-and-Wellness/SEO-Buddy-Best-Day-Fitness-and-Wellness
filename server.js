@@ -2349,7 +2349,7 @@ function parseGeminiJson(text) {
 }
 
 app.post('/api/onsite', requireAuth, async (req, res) => {
-  const { tool, seed, keyword, currentTitle, url } = req.body || {};
+  const { tool, seed, keyword, currentTitle, url, query } = req.body || {};
   const geminiKey = process.env.GEMINI_API_KEY;
   if (!geminiKey) {
     return res.json({ success: true, unavailable: true, message: 'Add your Gemini API key in Settings to use the on-site tools.' });
@@ -2378,6 +2378,15 @@ app.post('/api/onsite', requireAuth, async (req, res) => {
       const prompt = `${brand}\nHere are the pages this website has published:\n${JSON.stringify(pages)}\nSuggest internal links between them to build topic authority (pillar/cluster style). For each suggestion give the source page title, the target page title, a natural anchor phrase, and a one‑line reason. Return ONLY raw JSON, no markdown: {"suggestions":[{"from":"","to":"","anchor":"","why":""}]}`;
       const r = await client.models.generateContent({ model: GEMINI_MODEL, contents: prompt });
       return res.json({ success: true, data: parseGeminiJson(r.text) });
+    }
+    if (tool === 'fanout') {
+      // Query fan-out — the related sub-questions AI answer engines break a search into.
+      // Knowing these tells the owner what a single, citable page must cover.
+      const q = (query || '').trim();
+      if (!q) return res.status(400).json({ error: 'A search query is required.' });
+      const prompt = `${brand}\nA person's search is: "${q}". AI answer engines break a search like this into several related sub-questions ("query fan-out"), then answer each one. Using current web information, list the 5–7 specific, natural questions real people ask around this search — the questions a single, citable article on this topic should answer to earn AI citations. Favor questions this business's audience (adults 50+, seniors, injury recovery, local St. Petersburg) would actually ask. Phrase each as a real question. Return ONLY raw JSON, no markdown: {"questions":["",""]}`;
+      const r = await client.models.generateContent({ model: GEMINI_MODEL, contents: prompt, config: { tools: [{ googleSearch: {} }] } });
+      return res.json({ success: true, data: parseGeminiJson(r.text) || { questions: [] } });
     }
     if (tool === 'aeoReadiness') {
       // Score a real page against the AEO Content Optimization Checklist (from HubSpot's AEO course).
