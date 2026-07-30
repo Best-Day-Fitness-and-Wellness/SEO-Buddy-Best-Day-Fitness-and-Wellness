@@ -863,7 +863,7 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       const res = await fetch('/api/history');
       const data = await res.json();
-      state.history = data;
+      state.history = Array.isArray(data) ? data : (data && Array.isArray(data.history) ? data.history : []);
       renderHistory();
     } catch (err) {
       console.error('[History] Sync failed:', err.message);
@@ -886,7 +886,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       autopilotInterval.value = data.intervalHours;
-      renderAutopilotQueue(data.queue);
+      renderAutopilotQueue(data.queue || []);
 
       if (data.enabled && data.nextRunTime) {
         const nextDate = new Date(data.nextRunTime);
@@ -899,7 +899,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       // Render logs
       autopilotLogsContainer.innerHTML = '';
-      if (data.logs.length === 0) {
+      if (!Array.isArray(data.logs) || data.logs.length === 0) {
         autopilotLogsContainer.innerHTML = `<div class="terminal-log-line text-sm">[System] Standing by. Enable Autopilot to schedule checks.</div>`;
       } else {
         data.logs.forEach(log => {
@@ -1039,17 +1039,15 @@ document.addEventListener('DOMContentLoaded', () => {
         <div class="sum-ap-arrow">Open &rarr;</div>
       </div>`).join('');
       grid.querySelectorAll('.sum-ap-item').forEach(el => {
-        el.addEventListener('click', () => {
-          const nav = document.querySelector('.nav-item[data-tab="' + el.dataset.tab + '"]');
-          if (nav) nav.click();
-        });
+        el.addEventListener('click', () => { if (el.dataset.tab) switchTab(el.dataset.tab); });
       });
     } catch (e) { wrap.style.display = 'none'; }
   }
 
   // --- HOME: score hero + pillars + next moves ---
   const HOME_TAB_MAP = { found: 'gsc-tab', local: 'local-tab', ai: 'aio-tab', listed: 'citations-tab', fresh: 'publish-tab' };
-  function homeGoTab(tab) { const n = document.querySelector('.nav-item[data-tab="' + tab + '"]'); if (n) n.click(); }
+  function homeGoTab(tab) { if (tab) { switchTab(tab); try { document.body.classList.remove('nav-open'); } catch (e) {} } }
+  window.__switchTab = switchTab;
 
   // One-tap actions from Home/Grow move cards. Falls back to navigation.
   async function runMoveAction(m, btn) {
@@ -3380,7 +3378,7 @@ document.addEventListener('DOMContentLoaded', () => {
           if (next) { replaceBtns(card, `<div class="asst-result">&#10003; ${esc(action.done)}</div>`); renderAction(card.parentElement, next); return; }
           const link = action.tab ? ` <a data-open="${esc(action.tab)}">Open the tab &rarr;</a>` : '';
           replaceBtns(card, `<div class="asst-result">&#10003; ${esc(action.done)}${link}</div>`);
-          const a = card.querySelector('a[data-open]'); if (a) a.addEventListener('click', () => { close(); const n = document.querySelector('.nav-item[data-tab="' + a.dataset.open + '"]'); if (n) n.click(); });
+          const a = card.querySelector('a[data-open]'); if (a) a.addEventListener('click', () => { close(); if (window.__switchTab) window.__switchTab(a.dataset.open); });
         } catch (err) { replaceBtns(card, `<div class="asst-result warn">&#9888; ${esc(err.message)}</div>`); }
       });
     }
