@@ -14,7 +14,7 @@ document.addEventListener('DOMContentLoaded', () => {
         platform: 'GoHighLevel (Draft)',
         date: '2026-07-16',
         indexed: 'Indexing Requested',
-        url: 'https://bestdayfitness.com/blog/posts/mobility-training-st-pete'
+        url: 'https://bestdayfitness.com/post/mobility-training-st-pete'
       }
     ]
   };
@@ -503,7 +503,7 @@ document.addEventListener('DOMContentLoaded', () => {
         baseSiteUrl = 'https://' + baseSiteUrl.substring(10);
       }
       baseSiteUrl = baseSiteUrl.replace(/\/$/, '');
-      const cleanBlogPrefix = credentials.blogPrefix ? (credentials.blogPrefix.startsWith('/') ? credentials.blogPrefix : `/${credentials.blogPrefix}`) : '/blog/posts';
+      const cleanBlogPrefix = credentials.blogPrefix ? (credentials.blogPrefix.startsWith('/') ? credentials.blogPrefix : `/${credentials.blogPrefix}`) : '/post';
       const formattedBlogPrefix = cleanBlogPrefix.endsWith('/') ? cleanBlogPrefix.slice(0, -1) : cleanBlogPrefix;
       indexingUrlInput.value = `${baseSiteUrl}${formattedBlogPrefix}/${data.slug}`;
 
@@ -763,7 +763,7 @@ document.addEventListener('DOMContentLoaded', () => {
       ghlLocation: localStorage.getItem('seo_ghl_location') || '',
       ghlBlog: localStorage.getItem('seo_ghl_blog') || '',
       siteUrl: localStorage.getItem('seo_site_url') || '',
-      blogPrefix: localStorage.getItem('seo_blog_prefix') || '/blog/posts',
+      blogPrefix: localStorage.getItem('seo_blog_prefix') || '/post',
       authorName: localStorage.getItem('seo_author_name') || '',
       authorUrl: localStorage.getItem('seo_author_url') || '',
       gscJson: localStorage.getItem('seo_gsc_json') || '',
@@ -782,7 +782,7 @@ document.addEventListener('DOMContentLoaded', () => {
     settingsGhlLocation.value = creds.ghlLocation;
     settingsGhlBlog.value = creds.ghlBlog;
     settingsSiteUrl.value = creds.siteUrl || 'https://bestdayfitness.com';
-    settingsBlogPrefix.value = creds.blogPrefix || '/blog/posts';
+    settingsBlogPrefix.value = creds.blogPrefix || '/post';
     settingsAuthorName.value = creds.authorName || '';
     settingsAuthorUrl.value = creds.authorUrl || '';
     settingsGscJson.value = creds.gscJson;
