@@ -216,7 +216,7 @@ if (fs.existsSync(HISTORY_FILE)) {
       platform: 'GoHighLevel (Draft)',
       date: '2026-07-16',
       indexed: 'Indexing Requested',
-      url: 'https://bestdayfitness.com/blog/posts/mobility-training-st-pete'
+      url: 'https://bestdayfitness.com/post/mobility-training-st-pete'
     }
   ];
   fs.writeFileSync(HISTORY_FILE, JSON.stringify(historyDb, null, 2));
@@ -315,6 +315,33 @@ function saveHistory() {
     console.error('[History File] Failed to save history:', err.message);
   }
 }
+
+// One-time repair (idempotent, runs every boot): older builds stored blog URLs
+// with a hard-coded "/blog/posts" prefix that does NOT resolve on GoHighLevel-
+// hosted sites — those posts live at "/post/<slug>". A stale URL silently
+// redirects visitors to the homepage AND is the URL we hand to Google's Indexing
+// API, so the article never gets indexed. Rewrite any stale stored URLs to the
+// currently-configured prefix and flag them so they can be re-submitted.
+function migrateStalePostUrls() {
+  let prefix = (process.env.GHL_BLOG_PATH_PREFIX || '/post').trim();
+  if (!prefix.startsWith('/')) prefix = '/' + prefix;
+  prefix = prefix.replace(/\/+$/, '');
+  const OLD = '/blog/posts';
+  if (prefix === OLD) return; // still configured to the old path — nothing to do
+  let changed = 0;
+  historyDb.forEach(h => {
+    if (h && typeof h.url === 'string' && h.url.includes(OLD + '/')) {
+      h.url = h.url.replace(OLD + '/', prefix + '/');
+      h.needsReindex = true;
+      changed++;
+    }
+  });
+  if (changed) {
+    saveHistory();
+    console.log(`[URL Migration] Rewrote ${changed} stale blog URL(s): ${OLD}/ -> ${prefix}/`);
+  }
+}
+migrateStalePostUrls();
 
 // ----------------------------------------------------
 // Mock Data for GSC (Best Day Fitness Search Console leaks)
@@ -490,7 +517,7 @@ async function publishGhlHelper(title, content, status, config = {}) {
   const blogId = config.blogId || process.env.GHL_BLOG_ID;
   const author = config.authorId || process.env.GHL_AUTHOR_ID || 'default-author';
   const siteUrl = config.siteUrl || process.env.GSC_SITE_URL || 'https://bestdayfitness.com';
-  const blogPrefix = config.blogPrefix || process.env.GHL_BLOG_PATH_PREFIX || '/blog/posts';
+  const blogPrefix = config.blogPrefix || process.env.GHL_BLOG_PATH_PREFIX || '/post';
   const authorName = config.authorName || process.env.GHL_AUTHOR_NAME || '';
   const authorUrl = config.authorUrl || process.env.GHL_AUTHOR_URL || '';
 
