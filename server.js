@@ -731,13 +731,32 @@ let autopilotIntervalHours = 24;
 let nextRunTime = null;
 let lastAutopilotRun = null;   // ISO timestamp of the last successful content cycle (for redeploy catch-up)
 let autopilotQueue = []; // [{ topic, addedAt }] — covered before GSC gaps
+// Proactive Target Keywords: core money terms the autopilot pursues on rotation
+// EVEN WHEN they generate no GSC impressions yet. The leak strategy only
+// reinforces terms you already rank for; targets let you deliberately break into
+// the searches you want to win. Seeded per-location (franchise-general).
+let autopilotTargets = []; // [string]
+let autopilotTargetIndex = 0; // rotation cursor
 
 // Durable autopilot config (cadence + enabled + topic queue) so the schedule
 // and queue survive redeploys. The scheduler itself is restored at startup.
 const AUTOPILOT_CONFIG_FILE = path.join(DATA_DIR, 'autopilot-config.json');
 function saveAutopilotConfig() {
-  try { fs.writeFileSync(AUTOPILOT_CONFIG_FILE, JSON.stringify({ enabled: autopilotEnabled, intervalHours: autopilotIntervalHours, queue: autopilotQueue, lastRun: lastAutopilotRun }, null, 2)); }
+  try { fs.writeFileSync(AUTOPILOT_CONFIG_FILE, JSON.stringify({ enabled: autopilotEnabled, intervalHours: autopilotIntervalHours, queue: autopilotQueue, targets: autopilotTargets, targetIndex: autopilotTargetIndex, lastRun: lastAutopilotRun }, null, 2)); }
   catch (e) { console.error('[Autopilot Config] save failed:', e.message); }
+}
+// Build sensible default target terms from the business location + niche so a
+// fresh franchise install pursues its own "[service] [city]" money terms.
+function defaultAutopilotTargets() {
+  const city = (BUSINESS.addressLocality || '').trim();
+  if (!city) return [];
+  return [
+    `senior fitness ${city}`,
+    `fitness for adults over 50 ${city}`,
+    `balance and mobility training for seniors ${city}`,
+    `personal trainer for seniors ${city}`,
+    `best gym for seniors ${city}`
+  ];
 }
 try {
   if (fs.existsSync(AUTOPILOT_CONFIG_FILE)) {
@@ -745,9 +764,17 @@ try {
     if (typeof cfg.enabled === 'boolean') autopilotEnabled = cfg.enabled;
     if (cfg.intervalHours) autopilotIntervalHours = parseFloat(cfg.intervalHours);
     if (Array.isArray(cfg.queue)) autopilotQueue = cfg.queue;
+    if (Array.isArray(cfg.targets)) autopilotTargets = cfg.targets.filter(t => typeof t === 'string' && t.trim());
+    if (Number.isInteger(cfg.targetIndex)) autopilotTargetIndex = cfg.targetIndex;
     if (cfg.lastRun) lastAutopilotRun = cfg.lastRun;
   }
 } catch (e) { console.error('[Autopilot Config] load failed:', e.message); }
+// Seed defaults on first run (empty targets) so the autopilot proactively
+// pursues the location's core terms without waiting for manual setup.
+if (!autopilotTargets.length) {
+  autopilotTargets = defaultAutopilotTargets();
+  if (autopilotTargets.length) { try { saveAutopilotConfig(); } catch (e) {} }
+}
 
 // Case study text mapping for Autopilot
 const AUTOPILOT_CASE_STUDIES = {
@@ -792,26 +819,43 @@ async function runAutopilotCycle() {
     }
   }
 
-  // Pick the target: queued topics first, then an untargeted GSC gap.
+  // Pick the target, in priority order:
+  //   1) queued topics (owner-specified)  2) proactive target keywords (core
+  //   money terms, pursued even with 0 impressions)  3) an untargeted GSC leak.
   let query = null;
-  let fromQueue = false;
+  let fromQueue = false, fromTarget = false;
   while (autopilotQueue.length && !query) {
     const cand = String(autopilotQueue[0].topic || '').trim();
     if (cand && !historyDb.some(h => h.keyword.toLowerCase() === cand.toLowerCase())) { query = cand; fromQueue = true; }
     else { autopilotQueue.shift(); saveAutopilotConfig(); } // drop blank or already-covered
   }
 
+  // Proactive target keywords — rotate, skipping any already covered.
+  if (!query && autopilotTargets.length) {
+    for (let i = 0; i < autopilotTargets.length && !query; i++) {
+      const idx = (autopilotTargetIndex + i) % autopilotTargets.length;
+      const cand = String(autopilotTargets[idx] || '').trim();
+      if (cand && !historyDb.some(h => h.keyword.toLowerCase() === cand.toLowerCase())) {
+        query = cand; fromTarget = true;
+        autopilotTargetIndex = (idx + 1) % autopilotTargets.length;
+        saveAutopilotConfig();
+      }
+    }
+  }
+
   if (!query) {
     const leakKeywords = keywords.filter(k => k.leak);
     const targetLeak = leakKeywords.find(k => !historyDb.some(h => h.keyword.toLowerCase() === k.query.toLowerCase()));
     if (!targetLeak) {
-      logAutopilotActivity('Check complete. No queued topics and no new untargeted content gaps identified.');
+      logAutopilotActivity('Check complete. No queued topics, target keywords, or new content gaps left to cover.');
       return null;
     }
     query = targetLeak.query;
     logAutopilotActivity(`Targeting leak query: "${query}" (Impressions: ${targetLeak.impressions})`);
-  } else {
+  } else if (fromQueue) {
     logAutopilotActivity(`Targeting queued topic: "${query}" (${autopilotQueue.length} in queue)`);
+  } else if (fromTarget) {
+    logAutopilotActivity(`Targeting core target keyword: "${query}"`);
   }
 
   try {
@@ -1106,6 +1150,7 @@ app.get('/api/autopilot-status', (req, res) => {
     intervalHours: autopilotIntervalHours,
     nextRunTime: nextRunTime,
     queue: autopilotQueue,
+    targets: autopilotTargets,
     logs: autopilotLogs
   });
 });
@@ -1144,6 +1189,31 @@ app.post('/api/autopilot-queue/remove', requireAuth, (req, res) => {
   if (idx >= 0 && idx < autopilotQueue.length) autopilotQueue.splice(idx, 1);
   saveAutopilotConfig();
   res.json({ success: true, queue: autopilotQueue });
+});
+
+// 7c. Proactive target keywords — core money terms the autopilot pursues on
+// rotation even with zero current impressions (breaks into new searches).
+app.get('/api/autopilot-targets', (req, res) => {
+  res.json({ success: true, targets: autopilotTargets });
+});
+app.post('/api/autopilot-targets/add', requireAuth, (req, res) => {
+  const kw = String((req.body && req.body.keyword) || '').trim();
+  if (!kw) return res.status(400).json({ success: false, error: 'Enter a target keyword.' });
+  if (kw.length > 120) return res.status(400).json({ success: false, error: 'Keep keywords under 120 characters.' });
+  if (autopilotTargets.length >= 50) return res.status(400).json({ success: false, error: 'Target list is full (50). Remove some first.' });
+  if (autopilotTargets.some(t => t.toLowerCase() === kw.toLowerCase())) return res.json({ success: true, targets: autopilotTargets, note: 'Already a target.' });
+  autopilotTargets.push(kw);
+  saveAutopilotConfig();
+  res.json({ success: true, targets: autopilotTargets });
+});
+app.post('/api/autopilot-targets/remove', requireAuth, (req, res) => {
+  const idx = (req.body && typeof req.body.index === 'number') ? req.body.index : -1;
+  if (idx >= 0 && idx < autopilotTargets.length) {
+    autopilotTargets.splice(idx, 1);
+    if (autopilotTargetIndex >= autopilotTargets.length) autopilotTargetIndex = 0;
+    saveAutopilotConfig();
+  }
+  res.json({ success: true, targets: autopilotTargets });
 });
 
 // 8. Trigger Autopilot run immediately (Manual Override)
