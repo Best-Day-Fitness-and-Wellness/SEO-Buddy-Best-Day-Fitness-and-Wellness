@@ -3737,6 +3737,28 @@ setTimeout(() => {
 }, 105000);
 
 // Start the Express Server
+// After boot: re-submit any posts whose URL was just repaired by the migration
+// so Google re-crawls them at the corrected /post path. Runs once per post
+// (clears the flag afterward), skips drafts/seed rows, and never crashes the
+// server on failure — a Google permission error is logged, not thrown.
+async function reindexRepairedPosts() {
+  const targets = historyDb.filter(h => h && h.needsReindex && /published/i.test(h.platform || ''));
+  if (!targets.length) return;
+  console.log(`[URL Migration] Re-submitting ${targets.length} repaired URL(s) to Google indexing...`);
+  for (const h of targets) {
+    try {
+      await indexUrlHelper(h.url);
+      h.indexed = 'Indexing Requested';
+      console.log(`[URL Migration] Re-indexed: ${h.url}`);
+    } catch (e) {
+      console.error(`[URL Migration] Re-index failed for ${h.url}: ${explainIndexError(e.message)}`);
+    } finally {
+      delete h.needsReindex;
+    }
+  }
+  saveHistory();
+}
+
 app.listen(PORT, () => {
   console.log(`=======================================================`);
   console.log(`🚀 SEO Buddy - Total Rank System Dashboard is running!`);
@@ -3751,4 +3773,6 @@ app.listen(PORT, () => {
     console.log(`⚠️  Set ADMIN_PASSWORD in your environment before exposing this publicly.`);
   }
   console.log(`=======================================================`);
+  // Fire-and-forget: repair-triggered re-indexing (safe, self-clearing).
+  reindexRepairedPosts().catch(e => console.error('[URL Migration] reindex batch error:', e.message));
 });
