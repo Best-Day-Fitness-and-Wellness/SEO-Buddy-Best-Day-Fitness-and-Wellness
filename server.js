@@ -621,6 +621,15 @@ async function publishGhlHelper(title, content, status, config = {}) {
     resolvedContent += authorHtml;
   }
 
+  // Reviews backlink — every published article links to the brand's reviews hub
+  // so Google discovers/indexes it (and AI due-diligence can find it). This is
+  // the "link to your reviews site from your own website" step. Configurable per
+  // location via REVIEWS_URL; defaults to Best Day's reviews site.
+  const reviewsUrl = process.env.REVIEWS_URL || 'https://bestdayfitnessreviews.com';
+  if (reviewsUrl) {
+    resolvedContent += `\n<p style="margin-top: 28px; font-size: 15px;">Curious what our clients say? <a href="${reviewsUrl}" style="color: #1a73e8; text-decoration: underline;">Read ${BUSINESS.name} reviews</a>.</p>`;
+  }
+
   // Append schemas
   resolvedContent += schemaScripts;
 
