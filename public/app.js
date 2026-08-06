@@ -3525,76 +3525,88 @@ document.addEventListener('DOMContentLoaded', () => {
   // --- INTERACTIVE ONBOARDING WIZARD ---
   const wizardSteps = [
     {
-      tab: 'summary-tab',
-      highlight: '#home-hero',
-      title: 'Step 1 · Home — your one-glance snapshot',
-      text: 'Your <b>Optimization Score</b> up top shows how maximized your SEO &amp; AEO is right now. The five pillars beneath it are quick health checks — <span style="color:var(--color-success)">green</span> is good, <span style="color:var(--color-warning)">amber</span> needs a look. Just under those, <b>Your next moves</b> lists the highest-impact fixes, many with a one-tap button.'
-    },
-    {
-      tab: 'grow-tab',
-      highlight: '#grow-moves',
-      title: 'Step 2 · Grow — your to-do list',
-      text: 'Grow is your full, prioritized action list: everything worth doing, ranked by impact. Work top to bottom and your score climbs. Below it are shortcuts straight into any tool.'
+      tab: 'today-tab',
+      highlight: '#td-hero',
+      title: 'Step 1 · Today — what needs you',
+      text: 'This is where you land. Your <b>Optimization Score</b> shows how maximized your SEO &amp; AEO is right now, and underneath it <b>what needs you</b> — the highest-impact fixes, many with a one-tap button. Everything SEO Buddy handled on its own while you were away is listed below that.'
     },
     {
       tab: 'performance-tab',
-      highlight: '.perf-kpis',
-      title: 'Step 3 · Reports — is it working?',
-      text: 'From here down, the sidebar groups tools into <b>Insights</b> (understand where you stand) and <b>Optimize</b> (go improve it). Reports — your first Insight — proves the payoff: impressions, clicks and rank vs last period, your <b>AI-visibility metrics</b> (branded search &amp; AI-referral traffic), the AI-visibility trend, new leads, and a plain-English <b>Weekly Digest</b>.'
+      highlight: '.perf-hero, #perf-download-pdf',
+      title: 'Step 2 · Progress — is it working?',
+      text: 'The honest answer to “is any of this paying off”. Search performance this period vs last, your AI-visibility trend, new leads, and a plain-English weekly digest. You can download the whole thing as a <b>PDF report</b>.'
     },
     {
-      tab: 'aio-tab',
-      highlight: '#av-run',
-      title: 'Step 4 · AI Visibility — do the engines recommend you?',
-      text: 'This is the headline feature. Click <b>Run</b> and SEO Buddy asks the AI engines (Google now; ChatGPT &amp; Perplexity too once you connect them) the searches your customers use, then scores how often <i>you</i> come up — with <b>Share of Voice</b> and <b>Sentiment</b> views, a trend over time, and a <b>leaderboard</b> of you vs your competitors.'
-    },
-    {
-      tab: 'aio-tab',
-      highlight: '#fc-card',
-      title: 'Step 5 · AI Visibility — accuracy, access &amp; Reddit',
-      text: 'Just below the dashboard: <b>FactCheck</b> flags what AI gets <i>wrong</i> about you (wrong city, old phone) so you can correct it; <b>AI crawler access</b> confirms the engines are even allowed to read your site; and <b>Reddit</b> surfaces real threads where joining the conversation gets you cited by AI.'
+      tab: 'explore-tab',
+      highlight: '#exp-groups',
+      title: 'Step 3 · Explore — every tool, grouped',
+      text: 'Today and Progress cover the everyday. Everything else lives here, grouped by what you are trying to do: <b>Get found</b>, <b>Your content</b>, <b>Your presence</b>, <b>More detail</b>, and <b>Setup &amp; help</b>. The next few steps walk the ones that matter most.'
     },
     {
       tab: 'gsc-tab',
-      highlight: '#gsc-table',
-      title: 'Step 6 · Searches You’re Missing',
-      text: 'Still under Insights: searches where Google already shows you but you get no clicks — your quickest wins. Pick one and click <b>Generate Page</b> to turn it into content, or hit <b>❓ Questions</b> to see the exact sub-questions a page must answer to get cited by AI.'
-    },
-    {
-      tab: 'ai-tab',
-      highlight: '.creator-form-panel',
-      title: 'Step 7 · Create a Post',
-      text: 'Now the <b>Optimize</b> group — where you take action. Create a Post has AI write an <b>answer-first, AEO-optimized</b> article — a direct answer up top, question-style headers, and an FAQ, which is the structure AI engines actually quote. Add a <b>real client story</b> for credibility, then copy it or send it straight to <b>Publish</b>.'
-    },
-    {
-      tab: 'publish-tab',
-      highlight: '.deploy-controls-card',
-      title: 'Step 8 · Publish',
-      text: 'Push a page live, then paste its URL to request a Google crawl within hours. You can also switch on the <b>content autopilot</b> here to publish fresh pages on a schedule — hands-off.'
+      highlight: '#stat-gap-count',
+      title: 'Step 4 · Searches you’re missing',
+      text: 'Under <b>Get found</b>. These are searches where Google already shows you but nobody clicks — your quickest wins, straight from Search Console. Pick one and turn it into a page, or hit <b>❓ Questions</b> to see the sub-questions a page must answer to get cited by AI.'
     },
     {
       tab: 'citations-tab',
       highlight: '#btn-find-citations',
-      title: 'Step 9 · Where to Get Listed',
-      text: 'AI trusts directories, review sites and “best-of” lists more than your own pages. This finds the exact sources AI pulls from and preps your listings and pitches to win those answers.'
+      title: 'Step 5 · Where to get listed',
+      text: 'AI trusts directories, review sites and “best-of” lists more than your own pages. This finds the exact sources AI pulls from, then preps your listing details and drafts real pitch emails to get you on them.'
     },
     {
-      tab: 'local-tab',
-      highlight: '#btn-nap-check',
-      title: 'Step 10 · Local Presence',
-      text: 'Checks that your Name, Address &amp; Phone match everywhere, drafts review replies and requests, creates Google Business Profile posts, and scores your local fundamentals.'
+      tab: 'ai-tab',
+      highlight: '#rec-dictate-wrap, .creator-form-panel',
+      title: 'Step 6 · Create a post — in your own words',
+      text: 'Under <b>Your content</b>. Give it a keyword and AI writes an <b>answer-first</b> article — direct answer up top, question-style headers, an FAQ — the structure AI engines actually quote.<br><br>The part worth using: <b>Your own words</b>. Hit <b>Dictate</b> and just talk, or drop in a recording and it transcribes. The article then gets built from <i>your</i> stories and specifics instead of generic AI text — which is the one thing a competitor cannot copy.'
+    },
+    {
+      tab: 'brand-tab',
+      highlight: '#bp-never',
+      title: 'Step 7 · Brand voice',
+      text: 'Everything SEO Buddy writes — articles, Google posts, review replies, outreach — reads from here. Your tone, the phrases that are yours, and a <b>never-use list</b>.<br><br>That list is enforced, not just requested: the words go into every prompt <i>and</i> the finished copy is checked for them afterwards, so anything that slips through gets flagged before you publish.'
+    },
+    {
+      tab: 'publish-tab',
+      highlight: '.deploy-controls-card',
+      title: 'Step 8 · Publish & index',
+      text: 'Push a page live, then paste its URL to request a Google crawl within hours. You can also switch on the <b>content autopilot</b> here to find a gap, write it, publish it and request indexing on a schedule — hands-off.'
     },
     {
       tab: 'onsite-tab',
       highlight: '#btn-os-aeo',
-      title: 'Step 11 · Site Optimization',
-      text: 'The technical polish. The standout is the <b>AEO Readiness Check</b>: paste any page URL and SEO Buddy scores it against the 7-point checklist AI engines use to decide what to quote, then tells you exactly what to fix. Plus fresh keyword ideas, sharper titles &amp; meta, internal-link suggestions, and ready-made <b>schema</b> (FAQ Page, Article, How-To) with a one-click Google validator.'
+      title: 'Step 9 · Site optimization',
+      text: 'The technical polish. The standout is the <b>AEO Readiness Check</b>: paste any page URL and SEO Buddy scores it against the 7-point checklist AI engines use to decide what to quote, then tells you exactly what to fix. Plus keyword ideas, sharper titles &amp; meta, internal-link suggestions, and ready-made <b>schema</b>.'
+    },
+    {
+      tab: 'local-tab',
+      highlight: '#btn-social-pack',
+      title: 'Step 10 · Local presence',
+      text: 'Under <b>Your presence</b>. Checks your Name, Address &amp; Phone match everywhere, drafts review replies and requests, and writes your weekly Google Business Profile post.<br><br>A Google post only reaches Google — so the <b>Social Post Pack</b> takes a transcript and gives you five angles, five hooks and a 30-second script for the other seven platforms. One recording, seven posts.'
+    },
+    {
+      tab: 'aio-tab',
+      highlight: '#av-run',
+      title: 'Step 11 · AI visibility',
+      text: 'Do ChatGPT and Google’s AI actually recommend you? This runs your tracked searches across the engines and scores how often you come up, with a <b>competitor leaderboard</b> showing who gets named instead. Alongside it: <b>FactCheck</b> for what AI gets wrong about you, a <b>crawler access</b> check, and <b>Reddit</b> threads worth joining.'
+    },
+    {
+      tab: 'reviews-tab',
+      highlight: '#rv-refresh',
+      title: 'Step 12 · Reviews site',
+      text: 'Your reviews site at a glance: how many are published, where they came from, how fast they are growing, and whether the structured data is healthy enough for Google and AI to read them. Problems are listed with the specific fix.'
     },
     {
       tab: 'summary-tab',
+      highlight: '#home-hero',
+      title: 'Step 13 · More detail',
+      text: 'Under <b>More detail</b> in Explore: <b>Full dashboard</b> is every metric in one place when you want the numbers rather than the summary, and <b>All to-dos</b> is your complete prioritized list. Work it top to bottom and the score climbs.'
+    },
+    {
+      tab: 'today-tab',
       highlight: '#asst-fab',
-      title: 'Step 12 · Meet your SEO Buddy Assistant',
-      text: 'See the <b>Ask SEO Buddy</b> button in the bottom‑right? That’s your assistant, and it’s the fastest way to use everything here. Ask it anything in plain English &mdash; <i>“How am I doing?”</i>, <i>“Who’s beating me in AI?”</i>, <i>“Write an article about balance classes.”</i> It answers from your <b>real data</b>, and it can even <b>do the work for you</b> (run a check, draft a Google post, write &amp; publish an article, send a pitch) &mdash; always showing a preview for you to approve first. Nothing happens until you tap to confirm.'
+      title: 'Step 14 · Meet your SEO Buddy Assistant',
+      text: 'See the <b>Ask SEO Buddy</b> button in the bottom-right? It is the fastest way to use everything here. Ask in plain English — <i>“How am I doing?”</i>, <i>“Who’s beating me in AI?”</i>, <i>“Write an article about balance classes.”</i> It answers from your <b>real data</b> and can do the work for you, always showing a preview to approve first. Nothing happens until you confirm.'
     }
   ];
 
