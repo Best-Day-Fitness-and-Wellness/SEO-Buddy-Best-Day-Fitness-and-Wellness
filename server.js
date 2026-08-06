@@ -56,6 +56,154 @@ const BUSINESS = {
   ]
 };
 
+// ===========================================================================
+// BRAND PROFILE  —  the single source of truth for every AI feature
+// ---------------------------------------------------------------------------
+// Before this existed, eight separate one-sentence brand blurbs were hand-copied
+// through this file. They drifted, none of them carried the real voice guidance,
+// and changing the brand meant editing eight strings and redeploying.
+//
+// Seeded from the owner's own brand docs (brand-context.md and the Brand Voice
+// guide). Editable in Settings, persisted to DATA_DIR, and rendered into every
+// prompt by brandPrompt(). Change it once, every feature follows.
+//
+// NOTE ON THE PHONE: brand-context.md and the site homepage both carry
+// (727) 677-9770, but the owner confirmed (727) 334-1472 is canonical. The
+// seed below uses the canonical number deliberately — do not "correct" it back.
+// ===========================================================================
+
+const BRAND_FILE = path.join(DATA_DIR, 'brand-profile.json');
+
+const BRAND_DEFAULT = {
+  name: 'Best Day Fitness',
+  tagline: 'Move Better. Feel Stronger. Live Longer.',
+  supportingLine: 'Personal Training, Physical Therapy, Massage, and Wellness — All under one roof. All working together.',
+  audienceDescription: 'Designed for adults 50+, seniors, and anyone recovering from injury who wants to stay active, independent, and strong.',
+  philosophy: 'Energy = Mobility + Posture + Strength. When mobility improves, posture improves. When posture improves, strength improves. When all three improve, energy comes back.',
+  tone: "Science-backed, credible, warm. Peter Attia's depth and evidence-based authority, delivered with the warmth of a trusted advisor who knows your name.",
+  voiceTraits: [
+    'Confident but not cocky — share expertise without bragging',
+    'Educational but not academic — make complex health topics accessible',
+    'Caring but not soft — genuine concern without patronizing',
+    'Direct but not salesy — state facts and let people decide',
+    'Intentional but not rigid — purposeful, adaptable to the person',
+  ],
+  writingStyle: [
+    'Use "we" for Best Day Fitness as a team; use "I" when Christopher shares a personal insight or story',
+    'Speak TO the audience, not AT them',
+    'Lead with empathy, follow with evidence',
+    'Short sentences for impact. Longer ones for explanation.',
+    'Never talk down to seniors or use infantilizing language',
+    'Treat aging as a natural process to optimize, not a disease to fight',
+  ],
+  usePhrases: [
+    'Move better. Feel stronger. Live longer.',
+    'Intentional movement',
+    'Smart, supervised training',
+    'The whole person, not just one problem',
+    'Your body is adaptable — at any age',
+    'Understanding your body first',
+    'Progress, not perfection',
+    'A clear, personalized path forward',
+    'Not intense — intentional',
+    'Results that go beyond the gym',
+  ],
+  // Scanned for in generated copy, not merely requested in the prompt.
+  neverUse: [
+    'anti-aging', 'elderly', 'quick fix', 'shred', 'tone up', 'no excuses',
+    'push through the pain', 'no pain no gain', 'crush it', 'beast mode',
+    'transform your body', 'beach body', 'melt fat', 'bikini body',
+  ],
+  values: ['Human-Centered', 'Collaborative', 'Intentional', 'Progressive'],
+  services: [
+    'Personal Training — private & semi-private (up to 8), trainer-led, scaled to each body and history',
+    'Physical Therapy — integrated with training, for injury recovery, post-surgical rehab, chronic pain, balance concerns',
+    'Massage Therapy — medical, deep tissue, recovery-focused; part of the plan, not just relaxation',
+    'Wellness & Coaching — fall prevention, lifestyle habits, nutrition guidance, long-term strategy',
+  ],
+  differentiators: [
+    'Integrated approach — training, PT, massage and wellness under one roof, all communicating',
+    'Not a regular gym — no open gym, no assembly lines, no one-size-fits-all',
+    'Whole person care — no conflicting advice, no bouncing between locations',
+    'Trust-based — listening before prescribing, assessing before training',
+    'Longevity focus — building for decades, not 6-week transformations',
+    '3D body scanning for precision assessment',
+  ],
+  audiencePainPoints: [
+    'You want to reduce pain, not ignore it',
+    'You care more about mobility, balance, posture and strength than quick fixes',
+    'You want to stay active with your kids, grandkids or hobbies',
+    "You've tried gyms, PT clinics or massage places — and felt like something was missing",
+  ],
+  notPositioning: ['a big-box gym', 'a CrossFit box', 'a standalone PT clinic', 'a spa or relaxation massage place', 'a weight loss center'],
+  localKeywords: [
+    'Older adult fitness St. Petersburg', 'Senior personal training Tampa Bay',
+    'Physical therapy St. Pete', 'Longevity fitness Florida', '50+ fitness St. Petersburg',
+    'Fall prevention training Tampa Bay', 'Post-rehab fitness St. Pete',
+    'Senior wellness St. Petersburg FL', 'Massage therapy St. Pete FL',
+  ],
+  ctaPrimaryLabel: 'Book a Consultation',
+  ctaPrimaryUrl: 'https://bestdayfitness.com/consult',
+};
+
+let brandDb = JSON.parse(JSON.stringify(BRAND_DEFAULT));
+try {
+  const loaded = JSON.parse(fs.readFileSync(BRAND_FILE, 'utf8'));
+  if (loaded && typeof loaded === 'object') brandDb = { ...BRAND_DEFAULT, ...loaded };
+} catch (e) { /* first run — defaults stand */ }
+
+function saveBrand() {
+  try { fs.writeFileSync(BRAND_FILE, JSON.stringify(brandDb, null, 2)); }
+  catch (e) { console.error('[Brand] save failed:', e.message); }
+}
+
+const bList = (a) => (Array.isArray(a) ? a.filter(Boolean) : []);
+
+// Rendered into every AI prompt. `full` carries the whole guide for long-form
+// work; the short form keeps token cost sane on small generations like a
+// review reply, where the voice rules matter but the service list does not.
+function brandPrompt(full) {
+  const b = brandDb;
+  const lines = [
+    `${b.name} — ${b.audienceDescription}`,
+    b.tagline ? `Tagline: "${b.tagline}"` : '',
+    b.philosophy ? `Philosophy: ${b.philosophy}` : '',
+    b.tone ? `TONE: ${b.tone}` : '',
+    bList(b.voiceTraits).length ? `VOICE:\n- ${bList(b.voiceTraits).join('\n- ')}` : '',
+    bList(b.writingStyle).length ? `STYLE:\n- ${bList(b.writingStyle).join('\n- ')}` : '',
+    bList(b.usePhrases).length ? `PHRASES THAT ARE OURS (use naturally, do not force):\n- ${bList(b.usePhrases).join('\n- ')}` : '',
+    bList(b.neverUse).length ? `NEVER USE THESE WORDS OR PHRASES — this is a hard rule and the copy is checked for them afterwards:\n${bList(b.neverUse).map(w => `"${w}"`).join(', ')}` : '',
+  ];
+  if (full) {
+    lines.push(
+      bList(b.services).length ? `SERVICES:\n- ${bList(b.services).join('\n- ')}` : '',
+      bList(b.differentiators).length ? `WHAT MAKES US DIFFERENT:\n- ${bList(b.differentiators).join('\n- ')}` : '',
+      bList(b.audiencePainPoints).length ? `WHAT THE READER IS FEELING:\n- ${bList(b.audiencePainPoints).join('\n- ')}` : '',
+      bList(b.notPositioning).length ? `WE ARE NOT: ${bList(b.notPositioning).join(', ')}. Never imply otherwise.` : '',
+    );
+  }
+  return lines.filter(Boolean).join('\n');
+}
+
+// Models routinely ignore negative instructions, so the never-use list is
+// enforced after generation as well as requested before it. Word-boundary
+// matched so "shred" does not fire on "shredded lettuce" inside a longer word.
+function brandViolations(text) {
+  const t = String(text || '');
+  if (!t) return [];
+  const hits = [];
+  for (const phrase of bList(brandDb.neverUse)) {
+    const esc = String(phrase).trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (!esc) continue;
+    const re = new RegExp(`\\b${esc.replace(/\s+/g, '\\s+')}\\b`, 'i');
+    const m = t.match(re);
+    if (m) hits.push({ phrase, found: m[0] });
+  }
+  return hits;
+}
+
+
+
 // ----------------------------------------------------
 // Editable, LOCATION-STAMPED business profile (franchise seed).
 // A saved profile overrides the hardcoded defaults above, so business
@@ -119,6 +267,23 @@ if (ALLOWED_ORIGIN) {
 app.use('/api/transcribe', bodyParser.json({ limit: '34mb' }));
 app.use(bodyParser.json());
 app.use(express.static(path.join(__dirname, 'public')));
+
+// Brand profile routes live below the body parser on purpose — registered above
+// it, req.body is undefined and every save fails with a confusing 400.
+app.get('/api/brand-profile', (req, res) => res.json({ success: true, brand: brandDb, defaults: BRAND_DEFAULT }));
+app.post('/api/brand-profile', requireAuth, (req, res) => {
+  const incoming = req.body && req.body.brand;
+  if (!incoming || typeof incoming !== 'object') return res.status(400).json({ success: false, error: 'No brand profile supplied.' });
+  // Merge onto defaults so a partial save can never blank out the whole voice.
+  brandDb = { ...BRAND_DEFAULT, ...brandDb, ...incoming };
+  saveBrand();
+  res.json({ success: true, brand: brandDb });
+});
+app.post('/api/brand-profile/reset', requireAuth, (req, res) => {
+  brandDb = JSON.parse(JSON.stringify(BRAND_DEFAULT));
+  saveBrand();
+  res.json({ success: true, brand: brandDb });
+});
 
 // Business profile endpoints (registered after body parsing so req.body is available).
 app.get('/api/business-profile', (req, res) => res.json({ success: true, profile: businessProfile() }));
@@ -435,7 +600,7 @@ ${spoken.slice(0, 60000)}
 """\n`
     : '';
 
-  const prompt = `Write a high-quality, professional article targeting the keyword: "${keyword}", optimized for BOTH traditional Google ranking AND Answer Engine Optimization (AEO) — so ChatGPT, Perplexity, and Google's AI Overviews can extract and cite it.${sourceBlock}
+  const prompt = `${brandPrompt(true)}\n\nWrite a high-quality, professional article targeting the keyword: "${keyword}", optimized for BOTH traditional Google ranking AND Answer Engine Optimization (AEO) — so ChatGPT, Perplexity, and Google's AI Overviews can extract and cite it.${sourceBlock}
 The article is for a business called "Best Day Fitness", a specialized longevity, mobility, and functional movement training gym in St. Petersburg, Florida. Their focus is adults 50+, seniors, and people recovering from injuries, with a core philosophy of: Energy = Mobility + Posture + Strength.
 
 Follow these structural and formatting guidelines. The AEO rules (answer-first, question headers, self-contained sections) are the priority — they are what makes AI engines cite the page:
@@ -504,7 +669,11 @@ Return the HTML directly. Do not include markdown block markers like \`\`\`html.
         slug,
         content: htmlContent,
         fromTranscript: !!spoken,
-        claimsToCheck
+        claimsToCheck,
+        // The never-use list is requested in the prompt AND checked here. Models
+        // drop negative instructions routinely; trusting the prompt alone would
+        // let "transform your body" reach a published page.
+        brandViolations: brandViolations(htmlContent + ' ' + title)
       };
     } catch (err) {
       console.error('[Service Helper] Gemini generation failed:', err.message);
@@ -550,7 +719,8 @@ Return the HTML directly. Do not include markdown block markers like \`\`\`html.
     // Keep the response shape identical to the live path so the front-end
     // never has to branch on which one produced the article.
     fromTranscript: !!spoken,
-    claimsToCheck: []
+    claimsToCheck: [],
+    brandViolations: brandViolations(mockHtml + ' ' + title)
   };
 }
 
@@ -2326,7 +2496,7 @@ app.post('/api/local-generate', requireAuth, async (req, res) => {
   }
   const client = new GoogleGenAI({ apiKey: geminiKey });
 
-  const brand = `Best Day Fitness is a holistic health & wellness studio in St. Petersburg, FL for adults 50+, seniors, and people recovering from injury. Voice: warm, encouraging, professional, and human — never salesy or generic. Core idea: Energy = Mobility + Posture + Strength; longevity, not quick fixes.`;
+  const brand = brandPrompt(true);
 
   let prompt;
   if (kind === 'review-response') {
@@ -2512,7 +2682,7 @@ app.post('/api/onsite', requireAuth, async (req, res) => {
     return res.json({ success: true, unavailable: true, message: 'Add your Gemini API key in Settings to use the on-site tools.' });
   }
   const client = new GoogleGenAI({ apiKey: geminiKey });
-  const brand = `Best Day Fitness — a holistic health & wellness studio in St. Petersburg, FL for adults 50+, seniors, and people recovering from injury. Method: Energy = Mobility + Posture + Strength; longevity, not quick fixes.`;
+  const brand = brandPrompt(true);
 
   try {
     if (tool === 'keywords') {
@@ -2736,11 +2906,18 @@ function phoneDisplay() {
   const d = (BUSINESS.telephone || '').replace(/[^0-9]/g, '').replace(/^1/, '');
   return d.length === 10 ? `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}` : BUSINESS.telephone;
 }
-const KIT_STATIC = {
-  tagline: 'Coach-led fitness in St. Petersburg for active adults 50+.',
-  shortDesc: 'Best Day Fitness offers coach-led personal training, mobility and strength work in St. Petersburg for adults 50+, seniors, and injury recovery — longevity, not quick fixes.',
-  longDesc: 'Best Day Fitness is a holistic health & wellness studio in St. Petersburg, FL, built for adults 50+, seniors, and people recovering from injury. Our method — Energy = Mobility + Posture + Strength — pairs personalized coaching with integrated physical-therapy principles so you move better, feel stronger, and stay independent for the long run. Small-group and one-on-one training in a welcoming, no-intimidation studio.'
-};
+// Fallback directory copy, derived from the brand profile rather than frozen in
+// code — edit the voice in Settings and these follow. This is the text the owner
+// is told to paste onto every directory, so it must never drift from the brand.
+function kitStatic() {
+  const b = brandDb;
+  return {
+    tagline: b.tagline || 'Coach-led fitness in St. Petersburg for active adults 50+.',
+    shortDesc: `${b.name}. ${b.audienceDescription}`.slice(0, 160),
+    longDesc: [b.name + ' — ' + (b.supportingLine || ''), b.audienceDescription, b.philosophy]
+      .filter(Boolean).join(' ').trim(),
+  };
+}
 function listingKit() {
   const cached = citationsDb.kit || {};
   return {
@@ -2750,9 +2927,9 @@ function listingKit() {
     website: siteDomain(),
     socials: BUSINESS.sameAs || [],
     categories: cached.categories || ['Personal Trainer', 'Fitness Center', 'Physical Therapy', 'Senior Fitness'],
-    tagline: cached.tagline || KIT_STATIC.tagline,
-    shortDesc: cached.shortDesc || KIT_STATIC.shortDesc,
-    longDesc: cached.longDesc || KIT_STATIC.longDesc,
+    tagline: cached.tagline || kitStatic().tagline,
+    shortDesc: cached.shortDesc || kitStatic().shortDesc,
+    longDesc: cached.longDesc || kitStatic().longDesc,
     photoChecklist: ['Square logo', 'Storefront / exterior', '3+ class or training shots', 'Trainer headshots', 'Interior of the studio'],
     generatedAt: cached.generatedAt || null
   };
@@ -2769,14 +2946,14 @@ app.post('/api/listing-kit', requireAuth, async (req, res) => {
   if (!geminiKey) return res.json({ success: true, kit: listingKit(), note: 'Add a Gemini key to regenerate descriptions; using the built-in defaults for now.' });
   try {
     const client = new GoogleGenAI({ apiKey: geminiKey });
-    const prompt = `Best Day Fitness is a holistic health & wellness studio in St. Petersburg, FL for adults 50+, seniors, and people recovering from injury. Method: Energy = Mobility + Posture + Strength; longevity over quick fixes. Write listing copy for business directories. Return ONLY raw JSON, no markdown: {"tagline":"under 70 chars","shortDesc":"<=160 chars, keyword-aware","longDesc":"2-3 sentence paragraph","categories":["4 short business categories"]}`;
+    const prompt = `${brandPrompt(true)}\n\nWrite listing copy for business directories. Return ONLY raw JSON, no markdown: {"tagline":"under 70 chars","shortDesc":"<=160 chars, keyword-aware","longDesc":"2-3 sentence paragraph","categories":["4 short business categories"]}`;
     const r = await client.models.generateContent({ model: GEMINI_MODEL, contents: prompt });
     const parsed = parseGeminiJson(r.text);
     if (parsed) {
       citationsDb.kit = {
-        tagline: parsed.tagline || KIT_STATIC.tagline,
-        shortDesc: parsed.shortDesc || KIT_STATIC.shortDesc,
-        longDesc: parsed.longDesc || KIT_STATIC.longDesc,
+        tagline: parsed.tagline || kitStatic().tagline,
+        shortDesc: parsed.shortDesc || kitStatic().shortDesc,
+        longDesc: parsed.longDesc || kitStatic().longDesc,
         categories: Array.isArray(parsed.categories) && parsed.categories.length ? parsed.categories.slice(0, 6) : undefined,
         generatedAt: new Date().toISOString()
       };
@@ -3001,7 +3178,8 @@ app.post('/api/citation-outreach', requireAuth, async (req, res) => {
   try {
     const client = new GoogleGenAI({ apiKey: geminiKey });
     const p = `You are helping a local business get included in a third-party ${t}.
-Business: Best Day Fitness — a holistic health & wellness studio in St. Petersburg, FL for adults 50+, seniors, and injury recovery. Phone ${kit.phone}. Owner's first name: Chris.
+Business: ${brandPrompt()}
+Phone ${kit.phone}. Owner's first name: Chris.
 Target site: "${domain}". It shows up in AI answers for searches like: ${qList.join('; ') || 'best gyms / senior fitness in St. Petersburg'}.
 Do BOTH of the following using current web information about "${domain}":
 1) Find the single best REAL way to reach them to pitch inclusion: an actual publicly-listed email address if one exists (prefer editorial / tips / news / submissions / contact / info in that order), and the URL of the page where a pitch or listing submission is made (their contact, "submit a tip", "write for us", or about page). Only return an email you can actually find published — never invent one.
@@ -3108,7 +3286,7 @@ async function localGbpDraft() {
     topic = GBP_TOPIC_SEED[idx];
     topicLabel = topic;
   }
-  const brand = `Best Day Fitness is a holistic health & wellness studio in St. Petersburg, FL for adults 50+, seniors, and people recovering from injury. Voice: warm, encouraging, professional, and human — never salesy or generic.`;
+  const brand = brandPrompt(true);
   const prompt = `${brand}\nWrite a Google Business Profile post about: ${topic}. Under 1500 characters, engaging and locally relevant to St. Petersburg, with a clear call to action at the end (book a consultation / call us / visit). Return only the post text.`;
   const r = await client.models.generateContent({ model: GEMINI_MODEL, contents: prompt });
   return { text: (r.text || '').trim(), topic: topicLabel, postType: 'update', createdAt: new Date().toISOString() };
@@ -3209,7 +3387,7 @@ app.post('/api/local-reply', requireAuth, async (req, res) => {
   if (!geminiKey) return res.json({ success: true, unavailable: true, message: 'Add your Gemini API key in Settings to draft replies.' });
   try {
     const client = new GoogleGenAI({ apiKey: geminiKey });
-    const brand = `Best Day Fitness is a holistic health & wellness studio in St. Petersburg, FL for adults 50+, seniors, and people recovering from injury. Voice: warm, encouraging, professional, and human — never salesy or generic.`;
+    const brand = brandPrompt(true);
     const prompt = `${brand}\nWrite a warm, personal, professional reply from the business to this Google review${rating ? ` (${rating} stars)` : ''}:\n"""${review}"""\nRules: reference something specific they mentioned; keep it 2–4 sentences; sound human, never templated; if it's negative, be gracious, take responsibility, and invite them to connect offline. Return only the reply text.`;
     const r = await client.models.generateContent({ model: GEMINI_MODEL, contents: prompt });
     const reply = (r.text || '').trim();
@@ -3247,7 +3425,10 @@ function saveOnsite() {
   catch (e) { console.error('[On-Site Autopilot] save failed:', e.message); }
 }
 
-const ONSITE_BRAND = `Best Day Fitness — a holistic health & wellness studio in St. Petersburg, FL for adults 50+, seniors, and people recovering from injury. Method: Energy = Mobility + Posture + Strength; longevity, not quick fixes.`;
+// A function, not a const: evaluated at load it would freeze the brand voice at
+// boot, so edits made in Settings would not reach the on-site tools until the
+// next restart — the exact drift this refactor exists to remove.
+const ONSITE_BRAND = () => brandPrompt(true);
 const ONSITE_SEEDS = [
   'senior fitness st petersburg',
   'personal trainer for seniors',
@@ -3262,7 +3443,7 @@ async function onsiteKeywordScan(seed) {
   const geminiKey = process.env.GEMINI_API_KEY;
   if (!geminiKey) return null;
   const client = new GoogleGenAI({ apiKey: geminiKey });
-  const prompt = `${ONSITE_BRAND}\nUsing current web information, expand the seed keyword "${seed}" into 4–5 topic clusters this business could realistically target. For each cluster give: a short theme, 4–6 specific keyword phrases people actually search (favor local and long‑tail), 2–3 real questions people ask, and one concrete blog/page content idea. Return ONLY raw JSON, no markdown: {"clusters":[{"theme":"","keywords":[],"questions":[],"contentIdea":""}]}`;
+  const prompt = `${ONSITE_BRAND()}\nUsing current web information, expand the seed keyword "${seed}" into 4–5 topic clusters this business could realistically target. For each cluster give: a short theme, 4–6 specific keyword phrases people actually search (favor local and long‑tail), 2–3 real questions people ask, and one concrete blog/page content idea. Return ONLY raw JSON, no markdown: {"clusters":[{"theme":"","keywords":[],"questions":[],"contentIdea":""}]}`;
   const r = await client.models.generateContent({ model: GEMINI_MODEL, contents: prompt, config: { tools: [{ googleSearch: {} }] } });
   const data = parseGeminiJson(r.text) || { clusters: [] };
   return { seed, clusters: data.clusters || [], generatedAt: new Date().toISOString() };
@@ -3273,7 +3454,7 @@ async function onsiteLinkScan() {
   const pages = (historyDb || []).map(h => ({ title: h.title, keyword: h.keyword, url: h.url }));
   if (pages.length < 2) return { suggestions: [], note: 'Publish at least two pages first — then this suggests internal links between them.', generatedAt: new Date().toISOString() };
   const client = new GoogleGenAI({ apiKey: geminiKey });
-  const prompt = `${ONSITE_BRAND}\nHere are the pages this website has published:\n${JSON.stringify(pages)}\nSuggest internal links between them to build topic authority (pillar/cluster style). For each suggestion give the source page title, the target page title, a natural anchor phrase, and a one‑line reason. Return ONLY raw JSON, no markdown: {"suggestions":[{"from":"","to":"","anchor":"","why":""}]}`;
+  const prompt = `${ONSITE_BRAND()}\nHere are the pages this website has published:\n${JSON.stringify(pages)}\nSuggest internal links between them to build topic authority (pillar/cluster style). For each suggestion give the source page title, the target page title, a natural anchor phrase, and a one‑line reason. Return ONLY raw JSON, no markdown: {"suggestions":[{"from":"","to":"","anchor":"","why":""}]}`;
   const r = await client.models.generateContent({ model: GEMINI_MODEL, contents: prompt });
   const data = parseGeminiJson(r.text) || { suggestions: [] };
   return { suggestions: data.suggestions || [], note: '', generatedAt: new Date().toISOString() };
@@ -3282,7 +3463,7 @@ async function onsiteTitleMetaScan(keyword, page) {
   const geminiKey = process.env.GEMINI_API_KEY;
   if (!geminiKey) return null;
   const client = new GoogleGenAI({ apiKey: geminiKey });
-  const prompt = `${ONSITE_BRAND}\nWrite SEO title tags and meta descriptions targeting the keyword "${keyword}". Provide 3 title options (each 60 characters or fewer, compelling, naturally including the keyword) and 2 meta descriptions (each 155 characters or fewer, with a clear call to action). Return ONLY raw JSON, no markdown: {"titles":[],"metas":[]}`;
+  const prompt = `${ONSITE_BRAND()}\nWrite SEO title tags and meta descriptions targeting the keyword "${keyword}". Provide 3 title options (each 60 characters or fewer, compelling, naturally including the keyword) and 2 meta descriptions (each 155 characters or fewer, with a clear call to action). Return ONLY raw JSON, no markdown: {"titles":[],"metas":[]}`;
   const r = await client.models.generateContent({ model: GEMINI_MODEL, contents: prompt });
   const data = parseGeminiJson(r.text) || { titles: [], metas: [] };
   return { page: page || keyword, keyword, titles: data.titles || [], metas: data.metas || [], generatedAt: new Date().toISOString() };
