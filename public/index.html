@@ -668,7 +668,16 @@
           #ai-tab .rec-drop:hover,#ai-tab .rec-drop.over{border-color:var(--color-primary);background:rgba(99,102,241,.06);}
           #ai-tab .rec-drop b{display:block;font-size:var(--font-sm);color:var(--text-main);}
           #ai-tab .rec-drop span{display:block;font-size:var(--font-xs);color:var(--text-muted);margin-top:5px;line-height:1.5;}
+          #ai-tab .rec-dictate-wrap{margin-bottom:10px;}
+          #ai-tab .rec-dictate{width:100%;display:flex;align-items:center;justify-content:center;gap:9px;font:inherit;font-size:var(--font-sm);font-weight:600;padding:12px 16px;border-radius:12px;border:1px solid var(--border-color);background:var(--bg-secondary);color:var(--text-main);cursor:pointer;transition:var(--transition-smooth);}
+          #ai-tab .rec-dictate:hover{border-color:var(--color-primary);background:rgba(99,102,241,.06);}
+          #ai-tab .rec-dictate .rec-dot{width:9px;height:9px;border-radius:50%;background:var(--text-muted);flex:none;transition:var(--transition-smooth);}
+          #ai-tab .rec-dictate.live{border-color:var(--color-danger);background:rgba(244,63,94,.08);color:var(--color-danger);}
+          #ai-tab .rec-dictate.live .rec-dot{background:var(--color-danger);animation:recPulse 1.2s ease-in-out infinite;}
+          @keyframes recPulse{0%,100%{opacity:1;transform:scale(1);}50%{opacity:.35;transform:scale(.8);}}
+          #ai-tab .rec-or{text-align:center;font-size:var(--font-xs);color:var(--text-muted);margin:9px 0 0;position:relative;}
           #ai-tab .rec-status{font-size:var(--font-xs);margin-bottom:8px;min-height:16px;}
+          #ai-tab .rec-status.live{color:var(--color-secondary);}
           #ai-tab .rec-status.err{color:var(--color-danger);}
           #ai-tab .rec-status.ok{color:var(--color-success);}
           #ai-tab .claims-box{border:1px solid rgba(245,158,11,.4);background:rgba(245,158,11,.08);border-radius:10px;padding:12px 14px;margin:12px 0;}
@@ -695,6 +704,12 @@
 
               <div class="form-group">
                 <label for="input-transcript">Your own words <span class="text-muted" style="font-weight:400;">— optional, but this is the good stuff</span></label>
+                <div id="rec-dictate-wrap" class="rec-dictate-wrap" style="display:none;">
+                  <button type="button" id="btn-dictate" class="rec-dictate">
+                    <span class="rec-dot"></span><span id="rec-dictate-label">Dictate straight into the box</span>
+                  </button>
+                  <div class="rec-or"><span>or upload a recording</span></div>
+                </div>
                 <div id="rec-drop" class="rec-drop">
                   <b>Drop a recording here</b> or click to choose
                   <span>Answer the question out loud, however it comes out · m4a, mp3, wav, mp4, mov · up to 18MB (a 10-min voice memo is ~5MB)</span>
@@ -702,7 +717,7 @@
                 <input type="file" id="rec-file" accept="audio/*,video/*" style="display:none;">
                 <div id="rec-status" class="rec-status"></div>
                 <textarea id="input-transcript" rows="6" class="form-input" placeholder="The transcript appears here once your recording is processed — or paste one in yourself if you already have it."></textarea>
-                <small class="text-muted">Nobody sees this. The article gets built from your stories and specifics instead of generic AI text — and you'll get a fact-check list back.</small>
+                <small class="text-muted">Nobody sees this &mdash; dictating is free and stays on your machine. The article gets built from your stories and specifics instead of generic AI text, and you'll get a fact-check list back.</small>
               </div>
 
               <div class="form-row">

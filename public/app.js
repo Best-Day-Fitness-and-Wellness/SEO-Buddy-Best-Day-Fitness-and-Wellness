@@ -473,6 +473,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   async function transcribeFile(file) {
     if (!file) return;
+    // Two sources writing into one box at once produces interleaved nonsense.
+    if (typeof dictating !== 'undefined' && dictating) stopDictation();
     const MAX = 18 * 1048576;
     if (file.size > MAX) {
       recSay(`That file is ${(file.size / 1048576).toFixed(1)}MB — the limit is 18MB. Record audio only instead of video, or trim it.`, 'err');
@@ -494,12 +496,126 @@ document.addEventListener('DOMContentLoaded', () => {
       const j = await res.json();
       if (!res.ok || !j.success) throw new Error(j.error || 'Transcription failed.');
       const ta = document.getElementById('input-transcript');
-      if (ta) ta.value = j.transcript;
-      recSay(`Transcribed — ${j.words} words. Edit it if you like, then generate the article.`, 'ok');
+      if (ta) {
+        // Never clobber words that are already there — they may have been
+        // dictated or hand-typed, and losing them silently is unforgivable.
+        if (ta.value.trim()) appendTranscript(j.transcript);
+        else ta.value = j.transcript;
+      }
+      recSay(`Transcribed — ${j.words} words added. Edit it if you like, then generate the article.`, 'ok');
     } catch (err) {
       recSay(err.message, 'err');
     }
   }
+
+  // ---------------------------------------------------------------------------
+  // Live dictation. Same idea as a system dictation app, but scoped to this box:
+  // the browser's own speech engine, so it costs nothing, spends no Gemini
+  // credits, and no audio leaves the machine. Upload stays for anything already
+  // recorded elsewhere.
+  // ---------------------------------------------------------------------------
+  const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const dictWrap = document.getElementById('rec-dictate-wrap');
+  const dictBtn = document.getElementById('btn-dictate');
+  const dictLabel = document.getElementById('rec-dictate-label');
+  let recog = null;
+  let dictating = false;     // what the USER wants — survives the engine's own stops
+  let dictRestarts = 0;      // guards against an error loop restarting forever
+
+  // Only reveal the button where the API actually exists. Safari and Firefox
+  // get the upload path with no dead control to click.
+  if (SpeechRec && dictWrap) dictWrap.style.display = '';
+
+  function dictSetLive(on) {
+    if (!dictBtn) return;
+    dictBtn.classList.toggle('live', on);
+    if (dictLabel) dictLabel.textContent = on ? 'Stop dictating' : 'Dictate straight into the box';
+  }
+
+  function appendTranscript(text) {
+    const ta = document.getElementById('input-transcript');
+    if (!ta || !text) return;
+    const needsSpace = ta.value && !/\s$/.test(ta.value);
+    ta.value = ta.value + (needsSpace ? ' ' : '') + text;
+    ta.scrollTop = ta.scrollHeight;
+  }
+
+  function stopDictation(msg, cls) {
+    dictating = false;
+    dictRestarts = 0;
+    try { if (recog) { recog.onend = null; recog.stop(); } } catch (e) {}
+    recog = null;
+    dictSetLive(false);
+    recSay(msg || '', cls || '');
+  }
+
+  function startDictation() {
+    if (!SpeechRec) return;
+    recog = new SpeechRec();
+    recog.continuous = true;
+    recog.interimResults = true;
+    recog.lang = document.documentElement.lang || 'en-US';
+
+    recog.onstart = () => { dictRestarts = 0; recSay('Listening — just talk. Your words land in the box below.', 'live'); };
+
+    recog.onresult = (e) => {
+      let interim = '', settled = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const t = e.results[i][0].transcript;
+        if (e.results[i].isFinal) settled += t; else interim += t;
+      }
+      if (settled.trim()) appendTranscript(settled.trim());
+      recSay(interim.trim() ? '… ' + interim.trim() : 'Listening — just talk. Your words land in the box below.', 'live');
+    };
+
+    recog.onerror = (e) => {
+      // no-speech and aborted are routine: the engine idles out, onend restarts it.
+      if (e.error === 'no-speech' || e.error === 'aborted') return;
+      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+        return stopDictation('Microphone access is blocked. Allow it for this site in your browser settings, then try again — or upload a recording instead.', 'err');
+      }
+      if (e.error === 'audio-capture') {
+        return stopDictation('No microphone found. Plug one in, or upload a recording instead.', 'err');
+      }
+      if (e.error === 'network') {
+        return stopDictation('Speech recognition lost its connection. Try again, or upload a recording instead.', 'err');
+      }
+      stopDictation('Dictation stopped: ' + e.error, 'err');
+    };
+
+    // Chrome ends the session on its own after a stretch of silence. If the user
+    // never pressed stop, bring it back — but not forever, or a persistent
+    // failure becomes an invisible restart loop.
+    recog.onend = () => {
+      if (!dictating) return;
+      if (dictRestarts++ > 40) {
+        return stopDictation('Dictation kept dropping out — try again, or upload a recording instead.', 'err');
+      }
+      try { recog.start(); } catch (e) { /* already starting; ignore */ }
+    };
+
+    try {
+      recog.start();
+      dictating = true;
+      dictSetLive(true);
+    } catch (err) {
+      stopDictation('Could not start dictation: ' + err.message, 'err');
+    }
+  }
+
+  if (dictBtn) dictBtn.addEventListener('click', () => {
+    if (dictating) {
+      const ta = document.getElementById('input-transcript');
+      const words = ta && ta.value.trim() ? ta.value.trim().split(/\s+/).length : 0;
+      stopDictation(words ? `Stopped — ${words} words. Edit it if you like, then generate the article.` : 'Stopped.', words ? 'ok' : '');
+    } else {
+      startDictation();
+    }
+  });
+
+  // Leaving the tab mid-dictation would otherwise keep the mic hot in the
+  // background with nothing visible to explain why.
+  window.addEventListener('beforeunload', () => { if (dictating) stopDictation(); });
 
   if (recDrop && recFile) {
     recDrop.addEventListener('click', () => recFile.click());
