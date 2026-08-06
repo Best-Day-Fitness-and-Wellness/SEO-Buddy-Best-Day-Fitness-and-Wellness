@@ -711,6 +711,121 @@ document.addEventListener('DOMContentLoaded', () => {
     if (plat) plat.classList.toggle('done');
   });
 
+  // ---------------------------------------------------------------------------
+  // Brand voice profile. Everything the AI features write reads from this, so
+  // it is edited here rather than in eight places in the server source.
+  // ---------------------------------------------------------------------------
+  const BP_FIELDS = {
+    'bp-tagline': { key: 'tagline', list: false },
+    'bp-audience': { key: 'audienceDescription', list: false },
+    'bp-philosophy': { key: 'philosophy', list: false },
+    'bp-tone': { key: 'tone', list: false },
+    'bp-traits': { key: 'voiceTraits', list: true },
+    'bp-style': { key: 'writingStyle', list: true },
+    'bp-use': { key: 'usePhrases', list: true },
+    'bp-never': { key: 'neverUse', list: true },
+    'bp-not': { key: 'notPositioning', list: true },
+    'bp-keywords': { key: 'localKeywords', list: true },
+    'bp-cta-label': { key: 'ctaPrimaryLabel', list: false },
+    'bp-cta-url': { key: 'ctaPrimaryUrl', list: false },
+  };
+
+  function bpMsg(text, cls) {
+    const el = document.getElementById('bp-msg');
+    if (!el) return;
+    el.className = 'bp-msg' + (cls ? ' ' + cls : '');
+    el.textContent = text || '';
+  }
+
+  function bpFill(brand) {
+    if (!brand) return;
+    for (const [id, f] of Object.entries(BP_FIELDS)) {
+      const el = document.getElementById(id);
+      if (!el) continue;
+      const v = brand[f.key];
+      el.value = f.list ? (Array.isArray(v) ? v.join('\n') : '') : (v || '');
+    }
+  }
+
+  function bpCollect() {
+    const out = {};
+    for (const [id, f] of Object.entries(BP_FIELDS)) {
+      const el = document.getElementById(id);
+      if (!el) continue;
+      out[f.key] = f.list
+        ? el.value.split('\n').map(x => x.trim()).filter(Boolean)
+        : el.value.trim();
+    }
+    return out;
+  }
+
+  async function bpLoad() {
+    if (!document.getElementById('bp-card')) return;
+    try {
+      const j = await (await fetch('/api/brand-profile')).json();
+      if (j && j.success) bpFill(j.brand);
+    } catch (e) { bpMsg('Could not load the brand profile.', 'err'); }
+  }
+
+  const bpSaveBtn = document.getElementById('bp-save');
+  if (bpSaveBtn) bpSaveBtn.addEventListener('click', async () => {
+    bpSaveBtn.disabled = true;
+    bpMsg('Saving…');
+    try {
+      const res = await authFetch('/api/brand-profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ brand: bpCollect() }),
+      });
+      const j = await res.json();
+      if (!res.ok || !j.success) throw new Error(j.error || 'Save failed.');
+      bpFill(j.brand);
+      bpMsg('Saved — every AI feature uses this from now on.', 'ok');
+    } catch (err) {
+      bpMsg(err.message, 'err');
+    } finally {
+      bpSaveBtn.disabled = false;
+    }
+  });
+
+  const bpResetBtn = document.getElementById('bp-reset');
+  if (bpResetBtn) bpResetBtn.addEventListener('click', async () => {
+    if (!confirm('Reset the brand voice back to the defaults built from your brand docs? Your edits will be replaced.')) return;
+    bpResetBtn.disabled = true;
+    try {
+      const res = await authFetch('/api/brand-profile/reset', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      const j = await res.json();
+      if (!res.ok || !j.success) throw new Error(j.error || 'Reset failed.');
+      bpFill(j.brand);
+      bpMsg('Reset to defaults.', 'ok');
+    } catch (err) {
+      bpMsg(err.message, 'err');
+    } finally {
+      bpResetBtn.disabled = false;
+    }
+  });
+
+  bpLoad();
+
+  // Off-brand words that survived the prompt. Rendered next to the fact-check
+  // list so both hazards are visible in the same glance, before publishing.
+  function renderBrandViolations(violations) {
+    const host = document.getElementById('visual-editor');
+    const old = document.getElementById('brand-violations');
+    if (old) old.remove();
+    if (!host || !violations || !violations.length) return;
+    const esc = v => String(v).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    const box = document.createElement('div');
+    box.id = 'brand-violations';
+    box.className = 'claims-box';
+    box.style.borderColor = 'rgba(244,63,94,.45)';
+    box.style.background = 'rgba(244,63,94,.08)';
+    box.innerHTML = '<h4 style="color:var(--color-danger);">Off-brand language found — fix before publishing</h4><ul>' +
+      violations.map(v => `<li>Uses <b>"${esc(v.found)}"</b> — on your never-use list.</li>`).join('') +
+      '</ul>';
+    host.parentNode.insertBefore(box, host);
+  }
+
   // Generate Article Trigger
   btnGenerate.addEventListener('click', async () => {
     const keyword = inputKeyword.value.trim();
@@ -755,6 +870,7 @@ document.addEventListener('DOMContentLoaded', () => {
       visualEditor.innerHTML = data.content;
       codeEditor.value = data.content;
       renderClaims(data.claimsToCheck);
+      renderBrandViolations(data.brandViolations);
 
       // Populate publish hub fields
       deployTitle.value = data.title;

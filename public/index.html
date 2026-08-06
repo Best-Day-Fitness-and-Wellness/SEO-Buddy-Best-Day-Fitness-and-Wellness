@@ -1861,6 +1861,81 @@
           </div>
         </div>
         <div class="content-card max-width-md">
+          <style>
+            #bp-card .bp-grp{margin-bottom:18px;}
+            #bp-card label{display:block;font-size:var(--font-sm);font-weight:600;margin-bottom:5px;color:var(--text-main);}
+            #bp-card small{display:block;color:var(--text-muted);font-size:var(--font-xs);margin-top:5px;line-height:1.5;}
+            #bp-card textarea,#bp-card input{width:100%;font:inherit;font-size:var(--font-sm);padding:11px 13px;border:1px solid var(--border-color);border-radius:10px;background:var(--bg-secondary);color:var(--text-main);}
+            #bp-card textarea{resize:vertical;line-height:1.6;}
+            #bp-card .bp-never{border-color:rgba(244,63,94,.45);}
+            #bp-card .bp-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:6px;}
+            #bp-card .bp-msg{font-size:var(--font-xs);}
+            #bp-card .bp-msg.ok{color:var(--color-success);}
+            #bp-card .bp-msg.err{color:var(--color-danger);}
+          </style>
+          <div id="bp-card">
+            <h2>Brand Voice</h2>
+            <p class="text-muted mb-4">Every AI feature &mdash; articles, Google posts, review replies, outreach emails, listing copy &mdash; reads from this. Change it here and it applies everywhere; there is nothing to redeploy. One item per line where noted.</p>
+
+            <div class="bp-grp">
+              <label for="bp-tagline">Tagline</label>
+              <input type="text" id="bp-tagline" placeholder="Move Better. Feel Stronger. Live Longer.">
+            </div>
+            <div class="bp-grp">
+              <label for="bp-audience">Who this is for</label>
+              <textarea id="bp-audience" rows="2"></textarea>
+            </div>
+            <div class="bp-grp">
+              <label for="bp-philosophy">Philosophy</label>
+              <textarea id="bp-philosophy" rows="3"></textarea>
+            </div>
+            <div class="bp-grp">
+              <label for="bp-tone">Tone</label>
+              <textarea id="bp-tone" rows="2"></textarea>
+            </div>
+            <div class="bp-grp">
+              <label for="bp-traits">Voice characteristics <span class="text-muted" style="font-weight:400;">(one per line)</span></label>
+              <textarea id="bp-traits" rows="5"></textarea>
+            </div>
+            <div class="bp-grp">
+              <label for="bp-style">Writing style rules <span class="text-muted" style="font-weight:400;">(one per line)</span></label>
+              <textarea id="bp-style" rows="6"></textarea>
+            </div>
+            <div class="bp-grp">
+              <label for="bp-use">Phrases that are ours <span class="text-muted" style="font-weight:400;">(one per line)</span></label>
+              <textarea id="bp-use" rows="6"></textarea>
+            </div>
+            <div class="bp-grp">
+              <label for="bp-never">Never use these <span class="text-muted" style="font-weight:400;">(one per line)</span></label>
+              <textarea id="bp-never" rows="5" class="bp-never"></textarea>
+              <small>These are put in every prompt <b>and</b> checked in the generated copy afterwards &mdash; models ignore negative instructions often enough that asking isn't enough. Anything that slips through gets flagged before you publish.</small>
+            </div>
+            <div class="bp-grp">
+              <label for="bp-not">We are NOT <span class="text-muted" style="font-weight:400;">(one per line)</span></label>
+              <textarea id="bp-not" rows="4"></textarea>
+            </div>
+            <div class="bp-grp">
+              <label for="bp-keywords">Local SEO keywords <span class="text-muted" style="font-weight:400;">(one per line)</span></label>
+              <textarea id="bp-keywords" rows="6"></textarea>
+            </div>
+            <div class="bp-grp">
+              <label for="bp-cta-label">Primary CTA</label>
+              <input type="text" id="bp-cta-label" placeholder="Book a Consultation">
+            </div>
+            <div class="bp-grp">
+              <label for="bp-cta-url">Primary CTA link</label>
+              <input type="text" id="bp-cta-url" placeholder="https://bestdayfitness.com/consult">
+            </div>
+
+            <div class="bp-actions">
+              <button class="btn btn-primary" id="bp-save" type="button">Save brand voice</button>
+              <button class="btn" id="bp-reset" type="button">Reset to defaults</button>
+              <span class="bp-msg" id="bp-msg"></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="content-card max-width-md">
           <h2>Integration Settings</h2>
           <p class="text-muted mb-4">Configure your API credentials to switch from Mock Mode to Live Operations</p>
 
