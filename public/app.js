@@ -184,12 +184,12 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // Keep "Explore" highlighted while inside any tool reached through it.
-    const EXPLORE_TABS = ['gsc-tab', 'ai-tab', 'publish-tab', 'aio-tab', 'citations-tab', 'local-tab', 'onsite-tab', 'reviews-tab', 'summary-tab', 'grow-tab'];
+    const EXPLORE_TABS = ['gsc-tab', 'ai-tab', 'publish-tab', 'aio-tab', 'citations-tab', 'local-tab', 'onsite-tab', 'reviews-tab', 'brand-tab', 'summary-tab', 'grow-tab'];
     const navExp = document.getElementById('nav-explore');
     if (navExp && EXPLORE_TABS.includes(tabId)) navExp.classList.add('active');
 
     // Auto-expand the Advanced Tools group when landing on one of its tools.
-    if (['gsc-tab', 'ai-tab', 'publish-tab', 'aio-tab', 'citations-tab', 'local-tab', 'onsite-tab', 'reviews-tab'].includes(tabId)) {
+    if (['gsc-tab', 'ai-tab', 'publish-tab', 'aio-tab', 'citations-tab', 'local-tab', 'onsite-tab', 'reviews-tab', 'brand-tab'].includes(tabId)) {
       const ag = document.getElementById('nav-adv-group'); const at = document.getElementById('nav-adv-toggle');
       if (ag) ag.classList.add('open'); if (at) at.classList.add('open');
     }
@@ -218,6 +218,10 @@ document.addEventListener('DOMContentLoaded', () => {
       if (window.loadPerfDigest) window.loadPerfDigest();
       loadAutopilotDigest();
       loadSummary(); // refresh the KPI / stats / AI-standing / opportunities / content widgets that now live on Reports
+    } else if (tabId === 'brand-tab') {
+      pageTitle.innerText = 'Brand Voice';
+      pageSubtitle.innerText = 'How everything SEO Buddy writes should sound \u2014 and the words it must never use';
+      if (window.loadBrandProfile) window.loadBrandProfile();
     } else if (tabId === 'reviews-tab') {
       pageTitle.innerText = 'Reviews Site';
       pageSubtitle.innerText = 'How many reviews are published, how that’s growing, and whether the page is structurally sound';
@@ -259,6 +263,9 @@ document.addEventListener('DOMContentLoaded', () => {
       if (window.loadStorageStatus) window.loadStorageStatus();
     }
   }
+  // Exposed so tabs reachable only through Explore (brand-tab) can still be
+  // opened from a button elsewhere, e.g. the Settings pointer.
+  window.switchTab = switchTab;
 
   // --- Storage status badge (persistent volume vs ephemeral) ---
   window.loadStorageStatus = async function () {
@@ -767,6 +774,15 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (e) { bpMsg('Could not load the brand profile.', 'err'); }
   }
 
+  const bpGoto = document.getElementById('btn-goto-brand');
+  if (bpGoto) bpGoto.addEventListener('click', () => {
+    const t = document.querySelector('[data-tab="brand-tab"]');
+    if (t) { t.click(); return; }
+    // The tab has no nav button of its own — it is reached through Explore — so
+    // fall back to the same switcher the Explore cards use.
+    if (window.switchTab) window.switchTab('brand-tab');
+  });
+
   const bpSaveBtn = document.getElementById('bp-save');
   if (bpSaveBtn) bpSaveBtn.addEventListener('click', async () => {
     bpSaveBtn.disabled = true;
@@ -805,6 +821,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
+  window.loadBrandProfile = bpLoad;
   bpLoad();
 
   // Off-brand words that survived the prompt. Rendered next to the fact-check
@@ -1607,6 +1624,7 @@ document.addEventListener('DOMContentLoaded', () => {
       { icon: 'link', b: 'Where to get listed', s: 'Sites AI pulls from', tab: 'citations-tab' } ] },
     { g: 'Your content', items: [
       { icon: 'dollar', b: 'Create a post', s: 'Write an article — from a keyword, or from your own recording', tab: 'ai-tab' },
+      { icon: 'brief', b: 'Brand voice', s: 'Your tone, phrases, and the words to never use', tab: 'brand-tab' },
       { icon: 'upload', b: 'Publish & index', s: 'Push content live, ask Google to index', tab: 'publish-tab' },
       { icon: 'code', b: 'Site optimization', s: 'Titles, links, schema', tab: 'onsite-tab' } ] },
     { g: 'Your presence', items: [
@@ -4006,11 +4024,18 @@ document.addEventListener('DOMContentLoaded', () => {
           const cls = c.ok ? 'ok' : (c.severity === 'block' ? 'bad' : 'warn');
           const sym = c.ok ? '&#10003;' : (c.severity === 'block' ? '&#10007;' : '!');
           const badge = c.ok ? 'Ready' : (c.severity === 'block' ? 'Needed' : 'Recommended');
-          const fix = c.ok ? '' : `<div class="rd-fix" data-fix="1">${sEsc(c.fixLabel || 'Fix this')} &rarr;</div>`;
+          const fix = c.ok ? '' : `<div class="rd-fix" data-fix="1"${c.tab ? ` data-tab-target="${sEsc(c.tab)}"` : ''}>${sEsc(c.fixLabel || 'Fix this')} &rarr;</div>`;
           return `<div class="rd-item"><div class="rd-stat ${cls}">${sym}</div><div class="rd-ic">${c.icon || ''}</div><div class="rd-main"><div class="rd-name">${sEsc(c.label)} <span class="rd-badge ${cls}">${badge}</span></div><div class="rd-sub">${sEsc(c.ok ? c.okText : c.badText)}</div>${fix}</div></div>`;
         }).join('');
         host.innerHTML = `<div class="rd-progress"><div class="rd-ring" style="--pct:${pct}"><b>${d.ready}/${d.total}</b></div><div class="rp-txt">${head}</div></div>${rows}`;
-        host.querySelectorAll('.rd-fix').forEach(el => el.addEventListener('click', goSettings));
+        // Most fixes are credentials, which live in Settings. A check that names
+        // its own destination goes straight there instead of making the owner
+        // hop through a page that only points somewhere else.
+        host.querySelectorAll('.rd-fix').forEach(el => el.addEventListener('click', () => {
+          const target = el.getAttribute('data-tab-target');
+          if (target && window.switchTab) { closeWiz(); window.switchTab(target); return; }
+          goSettings();
+        }));
       } catch (e) {
         host.innerHTML = `<div class="rd-loading">Couldn’t check readiness right now — you can still continue setup.</div>`;
       }
