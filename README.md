@@ -4,6 +4,8 @@ SEO Buddy is an automated **SEO + Answer‑Engine (AEO/GEO)** platform built for
 
 It scores how maximized your SEO/AEO is in a single number, tells a non‑technical owner exactly **what to do next**, and then does much of the work on autopilot: it finds Google Search Console content gaps, writes authoritative E‑E‑A‑T content with Google Gemini, publishes to GoHighLevel with structured data, requests instant Google indexing, **tracks your visibility across multiple AI answer engines** (Google now; ChatGPT & Perplexity when connected) with a competitor leaderboard and a **FactCheck** that flags what AI gets wrong about you, shows you **where to get listed** so AI recommends you, handles **local SEO** (NAP, reviews, Google Business Profile), **measures whether it's working** over time, and sharpens your **on‑site & technical SEO** — all in one dark, glassmorphic dashboard with a plain‑English owner view and a light/dark theme.
 
+Two things keep the output from reading like generic AI text. Articles can be written **from a recording of the owner talking** — dictated live in the browser or uploaded and transcribed — so the specifics and stories come from a real person rather than the model's general knowledge. And a single editable **brand voice** drives every generated word, including a **never‑use list** that is checked against the finished copy, not just requested in the prompt.
+
 ---
 
 ## The big idea: one score, then next moves
@@ -24,30 +26,41 @@ The score is a **weighted average of only the pillars it can actually measure** 
 
 ## What's inside
 
-The sidebar leads with the everyday flow (**Home**, **Grow**), then groups every tool by purpose — **Insights** (understand where you stand) and **Optimize** (go improve it) — with **Settings** and setup in a footer utility zone.
+The sidebar is deliberately short — **Today**, **Progress**, **Explore** — with Settings, setup, the Quick Guide and the theme toggle in a footer utility zone. Everything else lives inside Explore, grouped by what you're trying to do rather than by which subsystem it belongs to.
 
-### Main
+### The three main screens
 
-1. **Home** *(default landing)* — your one‑glance snapshot: the Optimization Score, the five traffic‑light pillars, **Your next moves**, and two clearly‑labeled **estimated value** figures (Opportunity Value + Current Visibility Value).
-2. **Grow** — your full, prioritized **to‑do list** (everything worth doing, ranked by impact) plus shortcuts straight into any tool.
+1. **Today** *(default landing)* — what needs you, and what SEO Buddy handled on its own. The **Optimization Score**, the five traffic‑light pillars, a ranked list of the highest‑impact fixes (many one‑tap), and an activity feed of what ran unattended.
+2. **Progress** — *is it working?* Search performance this period vs the previous (impressions, clicks, average rank, top keyword movers), the two most trustworthy AI‑visibility metrics (**branded search**, real from GSC, and **AI‑referral traffic**), trend charts, new leads from GoHighLevel, and a plain‑English **Weekly Digest**. Downloadable as a PDF report.
+3. **Explore** — every tool, in five groups.
 
-### Insights — *where do I stand?*
+### Explore → Get found
 
-3. **Reports** — *is it working?* Search performance this period vs the previous (impressions, clicks, average rank + top keyword movers), the two most trustworthy **AI‑visibility metrics** (**branded search** — real, from GSC — and **AI‑referral traffic**), an AI‑visibility trend, a daily traffic trend, new leads from GoHighLevel, a **"What we handled for you this week"** activity feed, and a plain‑English **Weekly Digest**. Framed as a **measurement pyramid** (Search Performance → AI Visibility → Business Impact). The detailed KPI cards, stats, and published‑content list live here too.
-4. **AI Visibility Check** *(the AEO command center)* — the flagship AEO view. Runs your tracked searches across **multiple AI engines** (Google now; **ChatGPT** and **Perplexity** when their keys are added) and scores how often you're recommended, with **Visibility Score / Share of Voice / Sentiment** views, a **trend over time**, and a **competitor leaderboard** (you vs the businesses AI names instead). Below the dashboard sit three more tools: **FactCheck** (flags inaccurate/outdated claims each engine makes about you, with the correction), **AI crawler access** (checks your `robots.txt` actually lets GPTBot/PerplexityBot/ClaudeBot/etc. read your site), and **Reddit visibility** (finds high‑intent threads where joining in gets you cited by AI). A single‑search **spot‑check auditor** (live Google‑grounded) and a **JSON‑LD schema builder** round it out.
-5. **Searches You're Missing** *(GSC content gaps)* — queries with high impressions but **zero clicks** ("leaks") straight from Search Console; generate a page for one in a click, or hit **❓ Questions** to reveal the **query fan‑out** — the sub‑questions a single, citable page must answer to earn AI citations.
+- **Searches you're missing** *(GSC content gaps)* — queries with impressions but **zero clicks** ("leaks") straight from Search Console. Generate a page for one in a click, or hit **❓ Questions** to reveal the **query fan‑out** — the sub‑questions a citable page must answer.
+- **Where to get listed** *(citation outreach engine)* — a background scan finds the third‑party sources AI actually cites, then turns them into a worklist: a canonical **Listing Kit**, AI‑drafted **pitch emails** (sent via Gmail or opened pre‑filled), copy‑paste listing payloads with claim links, and a status tracker that survives redeploys.
 
-### Optimize — *go improve it*
+### Explore → Your content
 
-6. **Create a Post** *(AI article creator)* — Gemini writes an **answer‑first, AEO‑optimized** HTML article: a 40–60‑word direct answer up top, **question‑style headers**, self‑contained sections, a freshness date, step lists, a comparison table, a case‑study block (information gain + brand tie‑in), CTA, internal‑link placeholders, and an answer‑first **FAQ** — the structure AI answer engines extract and cite.
-7. **Publish** *(publish & index + content autopilot)* — publishes to the GoHighLevel Blogs module, injects **JSON‑LD schema** (LocalBusiness, FAQPage, Author), resolves internal links, submits the URL to Google's Indexing API, and hosts the **content autopilot** (with a topic queue and cadence controls).
-8. **Where to Get Listed** *(citation outreach engine)* — a background scan finds the real third‑party sources AI cites (directories, review sites, "best‑of" lists) and turns them into an **action worklist**: a canonical **Listing Kit**, one‑click **AI‑drafted pitch emails** (send directly via Gmail or open pre‑filled with a real recipient + contact page), **copy‑paste listing payloads + claim links**, and a **status tracker** (To‑do → Submitted/Pitched → Live) that survives redeploys.
-9. **Local Presence** *(local SEO)* — a **NAP consistency auditor**, a **review response/request** writer, a **Google Business Profile post generator** (and one‑tap posting when GBP API access is approved), and a scored local checklist.
-10. **Site Optimization** *(on‑site SEO)* — the **🎯 AEO Readiness Check** (paste any page URL → it fetches the page and scores it against the 7‑point AEO checklist, with a *AEO‑ready / Quick‑win / Needs‑rewrite* verdict and the specific fixes), a grounded **keyword & topic idea generator**, a **title & meta optimizer** with live character counts, an **internal‑link suggester**, and an **extended schema pack** — the AEO‑priority types **FAQ Page, Article, How‑To** plus Service, Review template, and Breadcrumb — with a one‑click **Google Rich Results validator**.
+- **Create a post** — Gemini writes an **answer‑first, AEO‑optimized** article: a 40–60‑word direct answer up top, question‑style headers, self‑contained sections, a freshness date, step lists, a comparison table, CTA, internal‑link placeholders and an answer‑first FAQ.
+  Optionally write it **in your own words**: hit **Dictate** and talk (the browser's own speech engine — free, nothing uploaded), or drop in a recording and Gemini transcribes it. The article is then built from your stories and specifics rather than the model's general knowledge, which is the one input a competitor can't copy. Every article comes back with a **fact‑check list** of the claims a human must verify, and any **off‑brand language** that slipped past the prompt.
+- **Brand voice** — the single source of truth for everything the app writes. Tone, voice characteristics, writing‑style rules, the phrases that are yours, competitor positioning, local keywords, CTA — and a **never‑use list** that is *enforced*, not merely requested: the forbidden phrases go into every prompt **and** the finished copy is scanned for them afterwards, because models drop negative instructions. Editable in the app; no redeploy.
+- **Publish & index** — publishes to the GoHighLevel Blogs module, injects **JSON‑LD schema** (LocalBusiness, FAQPage, Author), resolves internal links, submits the URL to Google's Indexing API, and hosts the **content autopilot** with its topic queue and cadence controls.
+- **Site optimization** *(on‑site SEO)* — the **AEO Readiness Check** (paste any URL → scored against a 7‑point checklist with a *ready / quick‑win / needs‑rewrite* verdict and specific fixes), a grounded keyword & topic generator, a title & meta optimizer with live character counts, an internal‑link suggester, and an extended schema pack with a one‑click Google Rich Results validator.
 
-### Footer
+### Explore → Your presence
 
-11. **Settings** — API keys, admin password, business identity, and the business‑value assumptions that drive the estimates. Alongside it: **Setup & business info** (re‑opens the onboarding wizard) and the **light/dark theme** toggle.
+- **Local presence** — a **NAP consistency auditor**, review response and request writers, a **Google Business Profile post generator** (one‑tap posting when GBP API access is approved), a scored local checklist, and the **Social Post Pack**: paste a transcript and get five angles, five hooks, a 30‑second script and a tappable seven‑platform checklist. A GBP post only reaches Google; this covers everywhere else.
+- **AI visibility** *(the AEO command center)* — runs your tracked searches across **multiple engines** (Google now; ChatGPT and Perplexity when their keys are added) and scores how often you're recommended, with **Visibility Score / Share of Voice / Sentiment**, a trend over time, and a **competitor leaderboard**. Alongside it: **FactCheck** (what each engine gets wrong about you, with the correction), **AI crawler access** (does `robots.txt` actually let GPTBot/PerplexityBot/ClaudeBot in), and **Reddit visibility**.
+- **Reviews site** — inventory of your published reviews by platform, average rating, month‑by‑month growth, and a structured‑data health check, with any problems listed alongside the specific fix.
+
+### Explore → More detail
+
+- **Full dashboard** — every metric in one place when you want numbers rather than a summary.
+- **All to‑dos** — the complete prioritized action list, ranked by impact.
+
+### Explore → Setup & help
+
+**Setup & business info** (business identity + a readiness board), the **Quick Guide** tour, **Ask SEO Buddy** (the assistant), and **Settings** (API keys, admin password, usage budget, business‑value assumptions).
 
 ---
 
@@ -68,8 +81,8 @@ SEO Buddy is built to run itself between logins. Each autopilot keeps its own st
 
 ## Onboarding & guidance
 
-- **Setup wizard** — a first‑run modal (Welcome → Business info → Your numbers → Connect) that captures your business identity and value assumptions. Re‑open anytime from **🚀 Setup & business info** in the sidebar footer.
-- **Quick Guide** — a floating interactive 12‑step tour that walks Home → Grow → the Insights tools (including two steps on the AI Visibility command center) → the Optimize tools (highlighting the AEO Readiness Check) → and finishes on the **SEO Buddy Assistant**, switching tabs and highlighting each area in plain English.
+- **Setup wizard** — a first‑run modal (Readiness board → Business info → Your numbers → Connect) that captures your business identity and value assumptions. Step 1 is a **readiness board**: seven checks covering everything this location needs to run hands‑off (Gemini key, persistent storage, Search Console, GoHighLevel, admin password, business profile, brand voice), each with a fix link that jumps straight to the right place. Re‑open anytime from **Setup & business info** in the sidebar footer.
+- **Quick Guide** — a floating interactive **14‑step tour** that walks Today → Progress → Explore, then each tool in the order you'd actually use it, and finishes on the **SEO Buddy Assistant** — switching tabs and highlighting each area in plain English.
 - **Light / Dark theme** — toggle in the sidebar footer; preference is remembered.
 
 ---
@@ -234,9 +247,23 @@ Deploying by hand (GitHub web upload): the whole app is one bundle — `server.j
 ### Content
 | Method | Endpoint | Auth | Purpose |
 |---|---|:---:|---|
-| POST | `/api/generate-article` | 🔒 | Generate an **answer‑first, AEO‑optimized** article with Gemini. |
+| POST | `/api/generate-article` | 🔒 | Generate an **answer‑first, AEO‑optimized** article with Gemini. Accepts an optional `transcript` to write from the owner's own words; returns `claimsToCheck` and `brandViolations`. |
+| POST | `/api/transcribe` | 🔒 | Transcribe an uploaded recording (audio or video, ≤18MB) via Gemini. |
+| POST | `/api/social-pack` | 🔒 | Turn a transcript into 5 ideas → 5 hooks → a 30‑second script. |
 | POST | `/api/publish-ghl` | 🔒 | Publish to GoHighLevel + inject schema. |
 | POST | `/api/index-url` | 🔒 | Submit a URL to Google's Indexing API. |
+
+### Brand voice
+| Method | Endpoint | Auth | Purpose |
+|---|---|:---:|---|
+| GET | `/api/brand-profile` | — | The active brand profile plus the seeded defaults. |
+| POST | `/api/brand-profile` | 🔒 | Save the profile. Partial saves merge, so a single field can never blank the rest. |
+| POST | `/api/brand-profile/reset` | 🔒 | Restore the seeded profile. |
+
+### Reviews site
+| Method | Endpoint | Auth | Purpose |
+|---|---|:---:|---|
+| GET | `/api/reviews-stats` | — | Review inventory by platform, average rating, monthly growth, structured‑data health. |
 
 ### AI visibility — multi-engine (AEO command center)
 | Method | Endpoint | Auth | Purpose |
@@ -333,6 +360,7 @@ State is stored as flat JSON in `DATA_DIR`:
 | `autopilot-config.json` · `autopilot-logs.json` | Content autopilot config (incl. topic queue) + run logs. |
 | `performance-digest.json` | Saved weekly digests + settings. |
 | `business-profile.json` | Business identity (name/address/phone/socials). |
+| `brand-profile.json` | Brand voice: tone, style rules, signature phrases, never‑use list, positioning, keywords, CTA. |
 
 Point `DATA_DIR` at a persistent volume in production so this data survives redeploys. *(The GSC service‑account key saved from Settings is written separately as `google-creations.json` in the app folder.)*
 
