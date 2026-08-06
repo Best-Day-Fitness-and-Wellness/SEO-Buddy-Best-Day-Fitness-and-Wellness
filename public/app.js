@@ -3688,7 +3688,7 @@ document.addEventListener('DOMContentLoaded', () => {
     switchTab('summary-tab');
     wizardStepText.innerHTML = `
       <h4>You’re all set </h4>
-      <p style="font-size: 13px; color: var(--text-muted); margin-top: 5px;">That’s the tour. Start on <b>Home</b>, work through <b>Your next moves</b>, then check <b>Reports</b> to watch it pay off. You can reopen this anytime with the <b>Quick Guide</b> button.</p>
+      <p style="font-size: 13px; color: var(--text-muted); margin-top: 5px;">That’s the tour. Start on <b>Today</b>, work through <b>what needs you</b>, then check <b>Progress</b> to watch it pay off. You can reopen this anytime with the <b>Quick Guide</b> button.</p>
     `;
     wizardProgressDots.innerHTML = '';
     btnWizardBack.style.display = 'none';
@@ -4010,7 +4010,7 @@ document.addEventListener('DOMContentLoaded', () => {
         <div class="setup-field"><label>Website</label><input class="form-input" id="setup-website" value="${sEsc(profile.website)}"><small class="setup-hint">Use the exact name and number your customers should see — SEO Buddy will flag anywhere online that doesn't match.</small></div>`;
       if (i === 2) {
         const cv = localStorage.getItem('seo_client_value') || '1395', cr = localStorage.getItem('seo_conv_rate') || '2', cap = localStorage.getItem('seo_capture_rate') || '5';
-        return `<h2>A couple of numbers</h2><p class="lead">These turn your search data into real dollars on your Home screen — like “this is worth about 3 new clients a month.” Rough estimates are perfectly fine, and you can tweak them anytime in Settings.</p>
+        return `<h2>A couple of numbers</h2><p class="lead">These turn your search data into real dollars on your <b>Today</b> screen — like “this is worth about 3 new clients a month.” Rough estimates are perfectly fine, and you can tweak them anytime in Settings.</p>
         <div class="setup-field"><label>What's a new client worth to you? ($)</label><input type="number" class="form-input" id="setup-clientvalue" value="${sEsc(cv)}"><small class="setup-hint">Roughly what one new member is worth in a year. Best Day's default is your $1,395 program.</small></div>
         <div class="setup-row"><div class="setup-field"><label>How many visitors become clients? (%)</label><input type="number" class="form-input" id="setup-conv" value="${sEsc(cr)}"><small class="setup-hint">Out of 100 website visitors, how many sign up. 1–3% is typical.</small></div><div class="setup-field"><label>Share of missed searches you'd win (%)</label><input type="number" class="form-input" id="setup-capture" value="${sEsc(cap)}"><small class="setup-hint">Of the searches you show up for but get no clicks, the share you'd realistically capture. 3–8% is safe.</small></div></div>`;
       }
