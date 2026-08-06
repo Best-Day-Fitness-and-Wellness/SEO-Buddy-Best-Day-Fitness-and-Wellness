@@ -113,6 +113,9 @@ if (ALLOWED_ORIGIN) {
   app.use(cors({ origin: ALLOWED_ORIGIN.split(',').map(s => s.trim()) }));
 }
 
+// Media uploads for the Content Studio need far more than the default 100kb.
+// Mounted path-first so the global limit below still protects every other route.
+app.use('/api/studio/transcribe', bodyParser.json({ limit: '34mb' }));
 app.use(bodyParser.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -4106,6 +4109,327 @@ app.get('/api/reviews-stats', async (req, res) => {
     console.error('[Reviews] stats failed:', e.message);
     res.status(500).json({ success: false, error: e.message });
   }
+});
+
+// ===========================================================================
+// CONTENT STUDIO  —  the "Find Me Everywhere" pipeline
+// ---------------------------------------------------------------------------
+// One recorded answer to one customer question becomes a blog post plus a
+// social pack. Four steps, each its own endpoint so the UI can run them
+// independently and you can redo just the part you don't like:
+//
+//   1. /api/studio/questions   real questions from Search Console, ranked by
+//                              impressions you're already getting but not
+//                              converting into clicks
+//   2. /api/studio/transcribe  upload the recording, get a transcript back
+//                              (Gemini handles the audio — no local tooling,
+//                              no unlisted YouTube uploads)
+//   3. /api/studio/blog        transcript -> publish-ready blog post
+//   4. /api/studio/social      transcript -> 5 ideas -> 5 hooks -> a script
+//
+// All four spend Gemini credits, so all four sit behind requireAuth.
+// ===========================================================================
+
+const STUDIO_FILE = path.join(DATA_DIR, 'studio-sessions.json');
+let studioDb = { current: null, history: [] };
+try {
+  const loaded = JSON.parse(fs.readFileSync(STUDIO_FILE, 'utf8'));
+  if (loaded && typeof loaded === 'object') studioDb = { current: loaded.current || null, history: loaded.history || [] };
+} catch (e) {}
+function saveStudio() {
+  try { fs.writeFileSync(STUDIO_FILE, JSON.stringify(studioDb, null, 2)); }
+  catch (e) { console.error('[Studio] save failed:', e.message); }
+}
+
+// Gemini accepts media inline up to ~20MB. Anything bigger needs the Files API,
+// which is a lot of moving parts for a phone recording — so we cap and explain.
+const STUDIO_MAX_MEDIA_MB = 18;
+const STUDIO_MEDIA_TYPES = [
+  'audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-wav', 'audio/webm', 'audio/mp4',
+  'audio/m4a', 'audio/x-m4a', 'audio/aac', 'audio/ogg', 'audio/flac',
+  'video/mp4', 'video/webm', 'video/quicktime', 'video/x-m4v', 'video/mpeg',
+];
+
+function studioGemini() {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) throw new Error('GEMINI_API_KEY is not configured — add it in Railway variables.');
+  return new GoogleGenAI({ apiKey: key });
+}
+
+// ---------------------------------------------------------------------------
+// 1. Questions worth answering — sourced from Search Console, not a keyword tool.
+//    These are queries real people typed that already surfaced your site. A
+//    query with impressions and no clicks is the strongest possible signal:
+//    Google thinks you're relevant, and searchers disagree.
+// ---------------------------------------------------------------------------
+app.post('/api/studio/questions', requireAuth, async (req, res) => {
+  try {
+    const auth = getGoogleAuth();
+    const siteUrl = process.env.GSC_SITE_URL;
+    let rows = [];
+    let source = 'gemini_only';
+
+    if (auth && siteUrl) {
+      try {
+        const webmasters = google.webmasters({ version: 'v3', auth });
+        const today = new Date().toISOString().split('T')[0];
+        const start = new Date(Date.now() - 90 * 86400000).toISOString().split('T')[0];
+        const r = await webmasters.searchanalytics.query({
+          siteUrl,
+          requestBody: { startDate: start, endDate: today, dimensions: ['query'], rowLimit: 250 },
+        });
+        rows = (r.data.rows || []).map(x => ({
+          query: x.keys ? x.keys[0] : '',
+          impressions: x.impressions || 0,
+          clicks: x.clicks || 0,
+          position: x.position ? Number(x.position.toFixed(1)) : null,
+        })).filter(x => x.query);
+        if (rows.length) source = 'live_gsc';
+      } catch (e) {
+        console.error('[Studio] GSC fetch failed:', e.message);
+      }
+    }
+
+    // Opportunity = seen a lot, clicked little. Sort by that gap, not raw volume.
+    const ranked = rows
+      .map(r => ({ ...r, gap: r.impressions - r.clicks * 10 }))
+      .sort((a, b) => b.gap - a.gap)
+      .slice(0, 60);
+
+    const client = studioGemini();
+    const basis = ranked.length
+      ? `Here are real Google Search Console queries for ${BUSINESS.name} (${businessWebsite}) from the last 90 days, as "query | impressions | clicks | avg position":\n` +
+        ranked.map(r => `${r.query} | ${r.impressions} | ${r.clicks} | ${r.position ?? '?'}`).join('\n')
+      : `The business is ${BUSINESS.name} (${businessWebsite}). No Search Console data is available, so infer from the business type.`;
+
+    const prompt = `${basis}
+
+Turn this into the 8 best QUESTIONS this business should record a video answering.
+
+Rules:
+- Each must be phrased as a real question a customer would actually ask out loud.
+- Prefer queries with high impressions and few or no clicks — those are the ones
+  where the business is already visible but losing the click.
+- Skip navigational or brand-name-only queries.
+- Skip anything about services the business does not offer.
+- "why" tells the user, in one short sentence, why this question is worth their time.
+
+Return ONLY raw JSON, no markdown:
+{"questions":[{"question":"...","basedOn":"the query it came from","impressions":0,"clicks":0,"why":"..."}]}`;
+
+    const r = await client.models.generateContent({ model: GEMINI_MODEL, contents: prompt });
+    const parsed = parseGeminiJson(r.text) || {};
+    const questions = Array.isArray(parsed.questions) ? parsed.questions.slice(0, 8) : [];
+    if (!questions.length) throw new Error('Gemini returned no questions — try again.');
+
+    res.json({ success: true, source, sampled: ranked.length, questions });
+  } catch (e) {
+    console.error('[Studio] questions failed:', e.message);
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 2. Transcribe. The technique tells you to upload to YouTube as unlisted and
+//    scrape the auto-captions — a workaround for people with no transcription.
+//    We already pay for Gemini, and it takes audio directly, so the recording
+//    never leaves this app and nothing accumulates on a YouTube channel.
+// ---------------------------------------------------------------------------
+app.post('/api/studio/transcribe', requireAuth, async (req, res) => {
+  try {
+    const { data, mimeType, filename } = req.body || {};
+    if (!data) return res.status(400).json({ success: false, error: 'No file received.' });
+
+    const mt = (mimeType || '').split(';')[0].trim().toLowerCase();
+    if (!STUDIO_MEDIA_TYPES.includes(mt)) {
+      return res.status(400).json({ success: false, error: `Unsupported file type "${mimeType || 'unknown'}". Use an audio or video recording (m4a, mp3, wav, mp4, mov).` });
+    }
+
+    const bytes = Math.floor(data.length * 0.75); // base64 -> bytes
+    if (bytes > STUDIO_MAX_MEDIA_MB * 1024 * 1024) {
+      return res.status(413).json({
+        success: false,
+        error: `That file is ${(bytes / 1048576).toFixed(1)}MB. The limit is ${STUDIO_MAX_MEDIA_MB}MB — record audio only instead of video, or trim it. A 10-minute voice memo is usually about 5MB.`,
+      });
+    }
+
+    const client = studioGemini();
+    const r = await client.models.generateContent({
+      model: GEMINI_MODEL,
+      contents: [{
+        role: 'user',
+        parts: [
+          { inlineData: { mimeType: mt, data } },
+          { text: `Transcribe this recording verbatim.
+
+Write it as clean, readable paragraphs with normal punctuation. Keep every idea,
+story, example and number the speaker gives — this transcript is the raw material
+for an article, so losing detail loses the article.
+
+Remove only filler: um, uh, false starts, repeated words. Do not summarise, do not
+add anything the speaker did not say, and do not add commentary or headings.
+Return the transcript text only.` },
+        ],
+      }],
+    });
+
+    const transcript = (r.text || '').trim();
+    if (!transcript) throw new Error('No speech was detected in that file.');
+
+    res.json({
+      success: true,
+      transcript,
+      words: transcript.split(/\s+/).filter(Boolean).length,
+      filename: filename || null,
+    });
+  } catch (e) {
+    console.error('[Studio] transcribe failed:', e.message);
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 3. Blog post. Two calls on purpose: the first "summarise" call is thrown away
+//    and exists only to make the model absorb the speaker's own words, stories
+//    and phrasing before it writes. Skipping it is why AI drafts read generic.
+// ---------------------------------------------------------------------------
+app.post('/api/studio/blog', requireAuth, async (req, res) => {
+  try {
+    const { transcript, question } = req.body || {};
+    if (!transcript || transcript.trim().length < 200) {
+      return res.status(400).json({ success: false, error: 'Need a transcript of at least a couple of paragraphs.' });
+    }
+    if (!question) return res.status(400).json({ success: false, error: 'Pick the question this answers.' });
+
+    const client = studioGemini();
+    const priming = `Here is a transcript of ${BUSINESS.name} answering a customer question:\n\n"""\n${transcript.slice(0, 60000)}\n"""\n\nSummarise this transcript.`;
+    const summary = await client.models.generateContent({ model: GEMINI_MODEL, contents: priming });
+
+    const writePrompt = `${priming}
+
+Your summary was:
+"""
+${(summary.text || '').slice(0, 4000)}
+"""
+
+Using the transcript above, write a blog post titled "${question}" in an informative and
+engaging tone of voice using simple, informal English. Make sure you use personal examples,
+stories, anecdotes, etc.
+
+Please alter between short and long sentences. Avoid jargon or cliches. Make it engaging, but
+suited for a professional audience. Give specific, actionable information that provides deep
+value to readers. The tone of voice should be professional and slightly conversational. Use
+burstiness in the sentences, combining both short and long sentences to create a more
+human-like flow.
+
+Use human writing like exclamation points and first person perspectives. The intro should
+include either an interesting stat, quotation, or something to hook the reader. Avoid
+"did you know?" Instead, make it punchy and engaging.
+
+The question "${question}" MUST appear in the title tag, the meta description, the H1, and at
+least once in the body.
+
+Return ONLY raw JSON, no markdown fences:
+{"titleTag":"...","metaDescription":"...","h1":"...","slug":"lowercase-hyphenated","html":"<p>...</p> full post body as clean HTML using h2/h3/p/ul only","claimsToCheck":["any factual claim or number a human must verify before publishing"]}`;
+
+    const r = await client.models.generateContent({ model: GEMINI_MODEL, contents: writePrompt });
+    const post = parseGeminiJson(r.text) || {};
+    if (!post.html) throw new Error('Gemini did not return a usable post — try again.');
+
+    // The technique's whole SEO claim rests on these four placements, so verify
+    // rather than trust. A miss here is the difference between ranking and not.
+    const q = String(question).toLowerCase();
+    const placement = {
+      titleTag: String(post.titleTag || '').toLowerCase().includes(q),
+      metaDescription: String(post.metaDescription || '').toLowerCase().includes(q),
+      h1: String(post.h1 || '').toLowerCase().includes(q),
+      body: String(post.html || '').toLowerCase().includes(q),
+    };
+
+    res.json({
+      success: true,
+      question,
+      ...post,
+      placement,
+      placementOk: Object.values(placement).every(Boolean),
+      internalLinking: [
+        'Link to 3 other pages',
+        'One of the links should be to a product / service page',
+        'Use the keyword you want that product or service page to rank for as the anchor text',
+        'Link to 2 other blog posts',
+        'Then go back to an older related post and link forward to this new page',
+      ],
+    });
+  } catch (e) {
+    console.error('[Studio] blog failed:', e.message);
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 4. Social pack. Ideas -> hooks -> script, in one pass so the model keeps the
+//    speaker's voice across all three. The personal-stories instruction on the
+//    script is the load-bearing part; without it the output is interchangeable
+//    with every other AI script on the internet.
+// ---------------------------------------------------------------------------
+app.post('/api/studio/social', requireAuth, async (req, res) => {
+  try {
+    const { transcript, ideaIndex, hookIndex } = req.body || {};
+    if (!transcript || transcript.trim().length < 200) {
+      return res.status(400).json({ success: false, error: 'Need a transcript of at least a couple of paragraphs.' });
+    }
+
+    const client = studioGemini();
+    const base = `Here is a transcript of ${BUSINESS.name} answering a customer question:\n\n"""\n${transcript.slice(0, 60000)}\n"""\n`;
+
+    const prompt = `${base}
+Using the transcript above, give me 5 viral worthy ideas for social media scripts.
+Don't write the scripts yet, just the ideas.
+
+Then give me 5 hooks for idea ${(Number(ideaIndex) || 1)}. Make sure they have stakes to hook
+the viewer and keep them watching for more than 3 seconds.
+
+Then write me a script for hook ${(Number(hookIndex) || 1)} for a 30 second video, and make sure
+it includes personal stories, experiences, or anecdotes drawn from the transcript. It must
+sound like something this speaker would actually say out loud — reuse their phrasing where you
+can. Around 75-85 words.
+
+Return ONLY raw JSON, no markdown fences:
+{"ideas":["..."],"hooks":["..."],"script":"the spoken script, plain text, no stage directions","platforms":["Instagram","TikTok","Facebook","Threads","Bluesky","LinkedIn","YouTube Shorts"]}`;
+
+    const r = await client.models.generateContent({ model: GEMINI_MODEL, contents: prompt });
+    const pack = parseGeminiJson(r.text) || {};
+    if (!Array.isArray(pack.ideas) || !pack.script) throw new Error('Gemini did not return a usable social pack — try again.');
+
+    const words = String(pack.script).split(/\s+/).filter(Boolean).length;
+    res.json({
+      success: true,
+      ideas: pack.ideas.slice(0, 5),
+      hooks: (pack.hooks || []).slice(0, 5),
+      script: pack.script,
+      scriptWords: words,
+      // ~2.5 words/second is a comfortable spoken pace on camera.
+      estimatedSeconds: Math.round(words / 2.5),
+      platforms: pack.platforms && pack.platforms.length ? pack.platforms
+        : ['Instagram', 'TikTok', 'Facebook', 'Threads', 'Bluesky', 'LinkedIn', 'YouTube Shorts'],
+    });
+  } catch (e) {
+    console.error('[Studio] social failed:', e.message);
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// Persist whatever the user has in progress so a refresh or a redeploy doesn't
+// lose a recording they already spent credits transcribing.
+app.get('/api/studio/session', (req, res) => res.json({ success: true, session: studioDb.current, history: studioDb.history.slice(-10) }));
+app.post('/api/studio/session', requireAuth, (req, res) => {
+  const s = req.body && req.body.session;
+  studioDb.current = s || null;
+  if (s && s.question && (s.blog || s.social)) {
+    studioDb.history = studioDb.history.filter(h => h.question !== s.question).concat([{ ...s, savedAt: new Date().toISOString() }]).slice(-30);
+  }
+  saveStudio();
+  res.json({ success: true });
 });
 
 app.listen(PORT, () => {
