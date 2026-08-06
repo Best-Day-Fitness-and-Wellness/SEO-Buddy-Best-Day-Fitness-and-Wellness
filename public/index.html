@@ -1689,6 +1689,80 @@
       </section>
 
       <!-- TAB 5: API SETTINGS -->
+      <!-- TAB: REVIEWS SITE — stats & health for bestdayfitnessreviews.com -->
+      <section class="tab-content" id="reviews-tab">
+        <style>
+          .rv-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:18px;}
+          .rv-head-left{display:flex;align-items:center;gap:10px;flex-wrap:wrap;color:var(--text-muted);font-size:var(--font-sm);}
+          .rv-pill{font-size:var(--font-xs);padding:4px 10px;border-radius:999px;border:1px solid var(--border-color);color:var(--text-muted);}
+          .rv-pill.ok{color:var(--color-success);border-color:rgba(16,185,129,.4);}
+          .rv-pill.bad{color:var(--color-accent);border-color:rgba(244,63,94,.4);}
+          .rv-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:18px;}
+          @media(max-width:1100px){.rv-kpis{grid-template-columns:repeat(2,1fr);}}
+          @media(max-width:560px){.rv-kpis{grid-template-columns:1fr;}}
+          .rv-kpi{background:var(--bg-card);border:1px solid var(--border-color);border-radius:16px;padding:20px;position:relative;overflow:hidden;box-shadow:var(--shadow-md);}
+          .rv-kpi::before{content:'';position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--kpi-accent,var(--color-primary));}
+          .rv-kpi-label{font-size:var(--font-xs);text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);font-weight:600;}
+          .rv-kpi-value{font-family:var(--font-heading);font-size:2.4rem;font-weight:700;color:var(--text-main);line-height:1.1;margin:10px 0 4px;}
+          .rv-kpi-sub{font-size:var(--font-sm);color:var(--text-muted);line-height:1.45;}
+          .rv-panels{display:grid;grid-template-columns:1.35fr 1fr;gap:16px;margin-bottom:18px;}
+          @media(max-width:980px){.rv-panels{grid-template-columns:1fr;}}
+          .rv-panel-title{font-family:var(--font-heading);font-size:var(--font-lg);font-weight:600;margin:0 0 4px;color:var(--text-main);}
+          .rv-panel-hint{font-size:var(--font-sm);color:var(--text-muted);margin:0 0 18px;line-height:1.45;}
+          .rv-chart{width:100%;height:210px;display:block;}
+          .rv-chart .axis{stroke:var(--border-color);stroke-width:1;}
+          .rv-chart .grid{stroke:var(--border-color);stroke-width:1;opacity:.4;stroke-dasharray:3 4;}
+          .rv-chart .lbl{fill:var(--text-muted);font-size:10px;}
+          .rv-split{list-style:none;padding:0;margin:0;}
+          .rv-split li{margin-bottom:15px;}
+          .rv-split-top{display:flex;justify-content:space-between;font-size:var(--font-sm);margin-bottom:6px;color:var(--text-main);gap:10px;}
+          .rv-split-val{color:var(--text-muted);white-space:nowrap;}
+          .rv-split-track{height:8px;background:rgba(255,255,255,.06);border-radius:999px;overflow:hidden;}
+          .rv-split-fill{height:100%;border-radius:999px;background:var(--gradient-primary);transition:width .6s ease;}
+          .rv-checks{list-style:none;padding:0;margin:0;}
+          .rv-checks li{display:flex;gap:12px;align-items:flex-start;padding:11px 0;border-bottom:1px solid var(--border-color);}
+          .rv-checks li:last-child{border-bottom:none;}
+          .rv-ck{width:20px;height:20px;border-radius:6px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;margin-top:1px;}
+          .rv-ck.pass{background:rgba(16,185,129,.15);color:var(--color-success);}
+          .rv-ck.fail{background:rgba(244,63,94,.15);color:var(--color-accent);}
+          .rv-ck.warn{background:rgba(245,158,11,.15);color:var(--color-warning);}
+          .rv-ck.unknown{background:rgba(255,255,255,.07);color:var(--text-muted);}
+          .rv-ck-b{font-size:var(--font-sm);color:var(--text-main);}
+          .rv-ck-d{font-size:var(--font-xs);color:var(--text-muted);margin-top:2px;}
+          .rv-empty{color:var(--text-muted);font-size:var(--font-sm);padding:26px 0;text-align:center;}
+        </style>
+
+        <div class="rv-head">
+          <div class="rv-head-left">
+            <span>Live data from</span>
+            <a id="rv-url" href="#" target="_blank" rel="noopener" class="live-link">bestdayfitnessreviews.com</a>
+            <span class="rv-pill" id="rv-checked">—</span>
+          </div>
+          <button class="btn btn-secondary" id="rv-refresh" type="button">Re-check now</button>
+        </div>
+
+        <div class="rv-kpis" id="rv-kpis"></div>
+
+        <div class="rv-panels">
+          <div class="content-card">
+            <h3 class="rv-panel-title">Review growth</h3>
+            <p class="rv-panel-hint">Published reviews over time, by the month each review was written.</p>
+            <div id="rv-growth"></div>
+          </div>
+          <div class="content-card">
+            <h3 class="rv-panel-title">Where they come from</h3>
+            <p class="rv-panel-hint">Published on the site, against the total each platform holds.</p>
+            <ul class="rv-split" id="rv-split"></ul>
+          </div>
+        </div>
+
+        <div class="content-card">
+          <h3 class="rv-panel-title">Structured data &amp; SEO health</h3>
+          <p class="rv-panel-hint">The checks that catch what this page is actually prone to &mdash; visible cards drifting from the JSON-LD, an aggregate rating it hasn&rsquo;t earned, and a social preview image that quietly 404s.</p>
+          <ul class="rv-checks" id="rv-checks"><li class="rv-empty">Loading&hellip;</li></ul>
+        </div>
+      </section>
+
       <section class="tab-content" id="settings-tab">
         <style>
           #settings-tab .usage-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:14px;}

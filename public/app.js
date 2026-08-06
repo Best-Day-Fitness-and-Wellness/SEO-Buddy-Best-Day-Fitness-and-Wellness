@@ -184,12 +184,12 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // Keep "Explore" highlighted while inside any tool reached through it.
-    const EXPLORE_TABS = ['gsc-tab', 'ai-tab', 'publish-tab', 'aio-tab', 'citations-tab', 'local-tab', 'onsite-tab', 'summary-tab', 'grow-tab'];
+    const EXPLORE_TABS = ['gsc-tab', 'ai-tab', 'publish-tab', 'aio-tab', 'citations-tab', 'local-tab', 'onsite-tab', 'reviews-tab', 'summary-tab', 'grow-tab'];
     const navExp = document.getElementById('nav-explore');
     if (navExp && EXPLORE_TABS.includes(tabId)) navExp.classList.add('active');
 
     // Auto-expand the Advanced Tools group when landing on one of its tools.
-    if (['gsc-tab', 'ai-tab', 'publish-tab', 'aio-tab', 'citations-tab', 'local-tab', 'onsite-tab'].includes(tabId)) {
+    if (['gsc-tab', 'ai-tab', 'publish-tab', 'aio-tab', 'citations-tab', 'local-tab', 'onsite-tab', 'reviews-tab'].includes(tabId)) {
       const ag = document.getElementById('nav-adv-group'); const at = document.getElementById('nav-adv-toggle');
       if (ag) ag.classList.add('open'); if (at) at.classList.add('open');
     }
@@ -218,6 +218,10 @@ document.addEventListener('DOMContentLoaded', () => {
       if (window.loadPerfDigest) window.loadPerfDigest();
       loadAutopilotDigest();
       loadSummary(); // refresh the KPI / stats / AI-standing / opportunities / content widgets that now live on Reports
+    } else if (tabId === 'reviews-tab') {
+      pageTitle.innerText = 'Reviews Site';
+      pageSubtitle.innerText = 'How many reviews are published, how that’s growing, and whether the page is structurally sound';
+      if (window.loadReviews) window.loadReviews();
     } else if (tabId === 'gsc-tab') {
       pageTitle.innerText = 'Searches You’re Missing';
       pageSubtitle.innerText = 'Search queries where you show up but get no clicks — your biggest quick wins';
@@ -1233,7 +1237,8 @@ document.addEventListener('DOMContentLoaded', () => {
       { icon: 'code', b: 'Site optimization', s: 'Titles, links, schema', tab: 'onsite-tab' } ] },
     { g: 'Your presence', items: [
       { icon: 'pin', b: 'Local presence', s: 'Listings, reviews, Google posts', tab: 'local-tab' },
-      { icon: 'globe', b: 'AI visibility', s: "Do ChatGPT & Google's AI recommend you", tab: 'aio-tab' } ] },
+      { icon: 'globe', b: 'AI visibility', s: "Do ChatGPT & Google's AI recommend you", tab: 'aio-tab' },
+      { icon: 'bars', b: 'Reviews site', s: 'Review counts, growth & structured-data health', tab: 'reviews-tab' } ] },
     { g: 'More detail', items: [
       { icon: 'bars', b: 'Full dashboard', s: 'The detailed metrics view', tab: 'summary-tab' },
       { icon: 'todo', b: 'All to-dos', s: 'Your full prioritized list', tab: 'grow-tab' } ] },
@@ -3686,4 +3691,133 @@ document.addEventListener('DOMContentLoaded', () => {
       if (d && d.profile && !d.profile.configured && seen !== '1') setTimeout(openWiz, 900);
     }).catch(() => {});
   })();
+
+  // ===========================================================================
+  // REVIEWS SITE — inventory, growth, and structured-data health
+  // Everything is derived server-side from the live reviews page, so this needs
+  // no extra credentials and works today.
+  // ===========================================================================
+  let reviewsData = null;
+
+  function rvNum(n) { return (n == null) ? '—' : String(n); }
+
+  function rvGrowthChart(series) {
+    if (!series || series.length < 2) return '<div class="rv-empty">Not enough dated reviews to draw a trend yet.</div>';
+    const W = 640, H = 210, PL = 34, PR = 10, PT = 12, PB = 26;
+    const max = Math.max(...series.map(p => p.total)) || 1;
+    const x = i => PL + (i * (W - PL - PR)) / Math.max(1, series.length - 1);
+    const y = v => PT + (H - PT - PB) * (1 - v / max);
+
+    const line = series.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(p.total).toFixed(1)}`).join(' ');
+    const area = `${line} L${x(series.length - 1).toFixed(1)},${y(0)} L${x(0).toFixed(1)},${y(0)} Z`;
+
+    // Horizontal gridlines at 0 / half / max, labelled.
+    const ticks = [0, Math.round(max / 2), max].filter((v, i, a) => a.indexOf(v) === i);
+    const grid = ticks.map(v =>
+      `<line class="grid" x1="${PL}" x2="${W - PR}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}"/>` +
+      `<text class="lbl" x="${PL - 6}" y="${(y(v) + 3).toFixed(1)}" text-anchor="end">${v}</text>`).join('');
+
+    // Label at most six months so the axis never turns to mush.
+    const step = Math.ceil(series.length / 6);
+    const xlabels = series.map((p, i) =>
+      (i % step === 0 || i === series.length - 1)
+        ? `<text class="lbl" x="${x(i).toFixed(1)}" y="${H - 8}" text-anchor="middle">${p.month}</text>` : '').join('');
+
+    const dots = series.map((p, i) => p.added
+      ? `<circle cx="${x(i).toFixed(1)}" cy="${y(p.total).toFixed(1)}" r="3" fill="var(--color-primary)"><title>${p.month}: +${p.added} → ${p.total} total</title></circle>` : '').join('');
+
+    return `<svg class="rv-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Cumulative published reviews by month">
+      <defs><linearGradient id="rvFill" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="var(--color-primary)" stop-opacity=".35"/>
+        <stop offset="100%" stop-color="var(--color-primary)" stop-opacity="0"/>
+      </linearGradient></defs>
+      ${grid}
+      <path d="${area}" fill="url(#rvFill)"/>
+      <path d="${line}" fill="none" stroke="var(--color-primary)" stroke-width="2.5" stroke-linejoin="round"/>
+      ${dots}${xlabels}
+    </svg>`;
+  }
+
+  function renderReviews(d) {
+    const inv = d.inventory || {};
+    const totals = d.platformTotals || {};
+    const reach = ['google', 'facebook', 'yelp'].reduce((s, k) => s + (totals[k]?.reviewCount || 0), 0);
+
+    const deltaTxt = inv.delta30 == null
+      ? 'tracking starts from today'
+      : (inv.delta30 > 0 ? `+${inv.delta30} in the last 30 days` : (inv.delta30 === 0 ? 'no change in 30 days' : `${inv.delta30} in the last 30 days`));
+
+    const kpis = [
+      { label: 'Published reviews', value: rvNum(inv.published), sub: deltaTxt, accent: 'var(--color-primary)' },
+      { label: 'Average rating', value: inv.avgRating != null ? inv.avgRating.toFixed(1) : '—', sub: inv.newest ? `newest review ${inv.newest}` : 'no dated reviews', accent: 'var(--color-success)' },
+      { label: 'Platform reach', value: reach ? String(reach) : '—', sub: 'total reviews across Google, Facebook & Yelp', accent: 'var(--color-warning)' },
+      { label: 'Health checks', value: d.score != null ? d.score + '%' : '—', sub: d.problems ? `${d.problems} need${d.problems === 1 ? 's' : ''} attention` : 'all checks passing', accent: d.problems ? 'var(--color-accent)' : 'var(--color-success)' },
+    ];
+    document.getElementById('rv-kpis').innerHTML = kpis.map(k =>
+      `<div class="rv-kpi" style="--kpi-accent:${k.accent}">
+         <div class="rv-kpi-label">${k.label}</div>
+         <div class="rv-kpi-value">${k.value}</div>
+         <div class="rv-kpi-sub">${k.sub}</div>
+       </div>`).join('');
+
+    document.getElementById('rv-growth').innerHTML = rvGrowthChart(d.growth);
+
+    const NICE = { google: 'Google', facebook: 'Facebook', yelp: 'Yelp' };
+    const split = ['google', 'facebook', 'yelp'].map(k => {
+      const shown = (inv.byPlatform || {})[k] || 0;
+      const total = totals[k]?.reviewCount || 0;
+      if (!shown && !total) return '';
+      const pct = total ? Math.min(100, Math.round((shown / total) * 100)) : 0;
+      const note = k === 'yelp' && !shown
+        ? 'counts only — Yelp\'s API returns truncated excerpts, never full reviews'
+        : `${shown} of ${total || '—'} published`;
+      return `<li>
+        <div class="rv-split-top"><span>${NICE[k]}</span><span class="rv-split-val">${note}</span></div>
+        <div class="rv-split-track"><div class="rv-split-fill" style="width:${pct}%"></div></div>
+      </li>`;
+    }).join('');
+    document.getElementById('rv-split').innerHTML = split || '<li class="rv-empty">No platform data found on the page.</li>';
+
+    const order = { fail: 0, unknown: 1, pass: 2 };
+    const checks = (d.checks || []).slice().sort((a, b) => order[a.status] - order[b.status]);
+    document.getElementById('rv-checks').innerHTML = checks.length ? checks.map(c => {
+      const cls = c.status === 'pass' ? 'pass' : c.status === 'unknown' ? 'unknown' : (c.severity === 'warn' ? 'warn' : 'fail');
+      const glyph = c.status === 'pass' ? '✓' : c.status === 'unknown' ? '?' : '!';
+      return `<li><div class="rv-ck ${cls}">${glyph}</div><div><div class="rv-ck-b">${c.label}</div><div class="rv-ck-d">${c.detail || ''}</div></div></li>`;
+    }).join('') : '<li class="rv-empty">No checks returned.</li>';
+
+    const link = document.getElementById('rv-url');
+    if (link) { link.href = d.url; link.textContent = (d.url || '').replace(/^https?:\/\//, ''); }
+    const chip = document.getElementById('rv-checked');
+    if (chip) {
+      chip.textContent = d.checkedAt ? `checked ${new Date(d.checkedAt).toLocaleString()}` : '—';
+      chip.className = 'rv-pill ' + (d.problems ? 'bad' : 'ok');
+    }
+  }
+
+  async function loadReviews(force) {
+    if (reviewsData && !force) { renderReviews(reviewsData); return; }
+    const checks = document.getElementById('rv-checks');
+    if (checks) checks.innerHTML = '<li class="rv-empty">Checking the live reviews site…</li>';
+    try {
+      const r = await fetch('/api/reviews-stats');
+      const j = await r.json();
+      if (!j.success) throw new Error(j.error || 'request failed');
+      if (!j.reachable) throw new Error(j.error || 'reviews site did not respond');
+      reviewsData = j;
+      renderReviews(j);
+    } catch (e) {
+      if (checks) checks.innerHTML = `<li class="rv-empty">Couldn’t reach the reviews site — ${e.message}</li>`;
+      const k = document.getElementById('rv-kpis'); if (k) k.innerHTML = '';
+      const g = document.getElementById('rv-growth'); if (g) g.innerHTML = '';
+      const s = document.getElementById('rv-split'); if (s) s.innerHTML = '';
+    }
+  }
+  window.loadReviews = loadReviews;
+
+  document.addEventListener('click', function (e) {
+    const b = e.target.closest && e.target.closest('#rv-refresh');
+    if (b) { b.disabled = true; loadReviews(true).finally(() => { b.disabled = false; }); }
+  });
+
 });
