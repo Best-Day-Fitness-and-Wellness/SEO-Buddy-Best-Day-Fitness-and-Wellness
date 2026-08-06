@@ -9,3 +9,21 @@ google-creations.json
 # OS files
 .DS_Store
 Thumbs.db
+
+# Runtime data written by the server when DATA_DIR is unset (local dev).
+# These are per-install state — usage counters, history, autopilot logs — and
+# committing them would ship one machine's local data as if it were real.
+ai-crawlers.json
+ai-factcheck.json
+ai-visibility.json
+aio-audits.json
+autopilot-config.json
+autopilot-logs.json
+brand-profile.json
+business-profile.json
+citations.json
+history.json
+local.json
+onsite.json
+reddit-threads.json
+usage.json
