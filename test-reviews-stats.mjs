@@ -11,7 +11,12 @@ import os from 'node:os';
 
 const src = fs.readFileSync('server.js', 'utf8');
 const start = src.indexOf('// REVIEWS SITE STATS');
-const end = src.indexOf('app.listen(PORT, () => {');
+// End at the next top-level section banner, not at app.listen — anything added
+// between the two would otherwise be dragged into the slice and evaluated here,
+// where server-scope helpers like requireAuth do not exist.
+const BANNER = '\n// ===========================================================================\n// ';
+let end = src.indexOf(BANNER, start + 1);
+if (end === -1) end = src.indexOf('app.listen(PORT, () => {');
 const block = src.slice(start, end);
 
 const DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'revstats-'));

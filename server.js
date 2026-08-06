@@ -3999,6 +3999,11 @@ app.get('/api/deploy-readiness', (req, res) => {
   const ghl = !!(process.env.GHL_ACCESS_TOKEN && process.env.GHL_LOCATION_ID);
   const admin = !!ADMIN_PASSWORD;
   const business = !!businessProfileSaved; // stamped for THIS location (not the seed defaults)
+  // "Customised" means the owner has actually reviewed the voice, not that the
+  // seed happens to be good. Checked against the seed rather than against empty,
+  // because the seed is already a real profile — an emptiness test would always pass.
+  const brandTouched = fs.existsSync(BRAND_FILE)
+    && JSON.stringify(brandDb) !== JSON.stringify(BRAND_DEFAULT);
   const checks = [
     { key: 'gemini', label: 'Gemini API key', icon: '🧠', ok: gemini, severity: 'block',
       okText: 'Powers every autopilot — content, AI visibility, local posts, and directory scans.',
@@ -4017,7 +4022,10 @@ app.get('/api/deploy-readiness', (req, res) => {
       badText: 'Without it, anyone with the link can change settings and trigger publishing.', fixLabel: 'Set an admin password' },
     { key: 'business', label: 'Business profile', icon: '🏢', ok: business, severity: 'warn',
       okText: 'This location’s name, address and phone are set — used across NAP, posts, and schema.',
-      badText: 'Confirm this location’s name, address and phone (still using the seed profile).', fixLabel: 'Complete business profile' }
+      badText: 'Confirm this location’s name, address and phone (still using the seed profile).', fixLabel: 'Complete business profile' },
+    { key: 'brand', label: 'Brand voice', icon: '🗣️', ok: brandTouched, severity: 'warn', tab: 'brand-tab',
+      okText: 'Your voice, phrases and never-use list drive every article, post and reply.',
+      badText: 'Running on the starter voice built from your brand docs — worth a read-through so it sounds like you.', fixLabel: 'Review brand voice' }
   ];
   const ready = checks.filter(c => c.ok).length;
   const total = checks.length;
