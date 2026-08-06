@@ -4139,6 +4139,49 @@ app.get('/api/health-score', async (req, res) => {
 
 // Prioritized "next best actions" for the Home screen — derived from real
 // state (mismatches, unposted drafts, un-run audits, coverage gaps, setup).
+// ---------------------------------------------------------------------------
+// What SEO Buddy can actually DO about each move. Owner mode renders this
+// verbatim, so it must describe the real code paths, not the intent:
+//
+//   automatic — runs unattended and writes to a real system
+//   approve   — we execute the moment the owner says yes
+//   manual    — we produce the words; a human performs the action, because we
+//               have no write path to that system
+//   blocked   — cannot proceed until a connection or input exists
+//
+// Verified against the endpoints: publishGhlHelper and indexUrlHelper write for
+// real; /api/nap-audit is read-only with no write path to any third-party
+// listing; postGbpLocalPost returns needsSetup without approved GBP API access
+// (which is why /api/gbp-mark-posted exists); citation outreach falls back to a
+// compose window unless GMAIL_* is configured.
+// ---------------------------------------------------------------------------
+const MOVE_CAPABILITY = {
+  nap:       { capability: 'manual',   doerLabel: 'You do it',
+               ownerTitle: 'Your phone number is wrong on other websites',
+               ownerWhy: "We found the mismatches, but we can't edit other companies' listings — you'll need to sign in to each one. It's tedious, and it's one of the clearest issues we can actually see and fix.",
+               ownerCta: 'Walk me through it', realEffort: 'about 15 minutes' },
+  gbp:       { capability: 'manual',   doerLabel: 'You do it',
+               ownerTitle: "This week's Google post is written",
+               ownerWhy: "Google hasn't approved us to post on your behalf yet, so this is copy-and-paste for now. Takes under a minute.",
+               ownerCta: 'Copy & open Google', realEffort: 'about 1 minute' },
+  listed:    { capability: 'manual',   doerLabel: 'You do it',
+               ownerWhy: 'AI recommends businesses from this source. We can draft the approach, but someone has to send it and follow up.',
+               ownerCta: 'Show me the draft', realEffort: 'about 5 minutes' },
+  autopilot: { capability: 'approve',  doerLabel: 'Needs approval',
+               ownerTitle: 'Let SEO Buddy publish for you on a schedule',
+               ownerWhy: 'Say yes once and we find a gap, write the page, publish it and ask Google to index it — repeatedly, without you. That whole chain we can do end to end.',
+               ownerCta: 'Turn it on', realEffort: 'about 10 seconds' },
+  ai:        { capability: 'approve',  doerLabel: 'Needs approval',
+               ownerWhy: "See whether ChatGPT and Google's AI recommend you. We run it; you just start it.",
+               ownerCta: 'Run the check', realEffort: 'about 1 minute' },
+  gsc:       { capability: 'blocked',  doerLabel: 'Blocked',
+               ownerWhy: "We can't see your real search numbers until Google Search Console is connected. Everything on Results stays estimated until then.",
+               ownerCta: 'Connect it', realEffort: 'about 5 minutes' },
+};
+function moveCapability(key) {
+  return MOVE_CAPABILITY[key] || { capability: 'manual', doerLabel: 'You do it' };
+}
+
 app.get('/api/next-moves', (req, res) => {
   const moves = [];
   const rank = { high: 3, med: 2, opportunity: 1 };
@@ -4172,7 +4215,15 @@ app.get('/api/next-moves', (req, res) => {
     moves.push({ key: 'gsc', impact: 'high', title: 'Connect Google Search Console', why: 'This unlocks your real search rankings and clicks — the biggest part of your score.', effort: '~5 min', tab: 'settings-tab', cta: 'Connect' });
   }
   moves.sort((a, b) => rank[b.impact] - rank[a.impact]);
-  res.json({ success: true, moves });
+  // Annotate with what we can actually do about each. Owner mode reads this and
+  // never invents a state; the full interface ignores the extra fields.
+  const annotated = moves.map(m => {
+    const c = moveCapability(m.key);
+    return { ...m, capability: c.capability, doerLabel: c.doerLabel,
+             ownerTitle: c.ownerTitle || m.title, ownerWhy: c.ownerWhy || m.why,
+             ownerCta: c.ownerCta || m.cta, realEffort: c.realEffort || m.effort };
+  });
+  res.json({ success: true, moves: annotated });
 });
 
 // Consolidated autopilot digest for the Summary dashboard — one glance at
