@@ -52,4 +52,4 @@ ok('reset restores tagline', j.brand.tagline === 'Move Better. Feel Stronger. Li
 ok('reset restores full never-use list', (j.brand.neverUse || []).length >= 10);
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
-process.exit(fail ? 1 : 0);
+process.exitCode = fail ? 1 : 0;

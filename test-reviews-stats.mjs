@@ -14,8 +14,8 @@ const start = src.indexOf('// REVIEWS SITE STATS');
 // End at the next top-level section banner, not at app.listen — anything added
 // between the two would otherwise be dragged into the slice and evaluated here,
 // where server-scope helpers like requireAuth do not exist.
-const BANNER = '\n// ===========================================================================\n// ';
-let end = src.indexOf(BANNER, start + 1);
+const nextBanner = /\r?\n\/\/ ={20,}\r?\n\/\/ /.exec(src.slice(start + 1));
+let end = nextBanner ? start + 1 + nextBanner.index : -1;
 if (end === -1) end = src.indexOf('app.listen(PORT, () => {');
 const block = src.slice(start, end);
 
@@ -118,4 +118,4 @@ if (process.argv.includes('--broken')) {
 }
 
 console.log(`\n${fail === 0 ? '\x1b[32m' : '\x1b[31m'}${pass} passed, ${fail} failed\x1b[0m\n`);
-process.exit(fail === 0 ? 0 : 1);
+process.exitCode = fail === 0 ? 0 : 1;

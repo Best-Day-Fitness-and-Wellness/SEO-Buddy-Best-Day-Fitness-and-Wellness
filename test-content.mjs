@@ -54,4 +54,4 @@ ok('no keyword -> 400', r.status === 400, `got ${r.status}`);
 ok('keyword error unchanged', ((await r.json()).error || '').includes('Keyword is required'));
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
-process.exit(fail ? 1 : 0);
+process.exitCode = fail ? 1 : 0;

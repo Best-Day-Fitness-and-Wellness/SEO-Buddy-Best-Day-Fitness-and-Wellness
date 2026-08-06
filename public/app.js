@@ -83,7 +83,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // The server protects sensitive endpoints when ADMIN_PASSWORD is set.
   // Send the stored admin password as a Bearer token on protected calls.
   function getAdminToken() {
-    return localStorage.getItem('seo_admin_password') || '';
+    return sessionStorage.getItem('seo_admin_password') || '';
   }
 
   function authHeaders(base) {
@@ -102,6 +102,94 @@ document.addEventListener('DOMContentLoaded', () => {
       throw new Error('This action is locked. Enter the admin password in the Settings tab, then try again.');
     }
     return res;
+  }
+
+  // Treat everything returned by integrations and AI as untrusted. These
+  // helpers are shared by table/card renderers and by the article preview.
+  function uiEsc(value) {
+    return String(value == null ? '' : value).replace(/[&<>"']/g, ch => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[ch]));
+  }
+
+  function safeExternalUrl(value) {
+    try {
+      const parsed = new URL(String(value || ''), window.location.origin);
+      return ['http:', 'https:'].includes(parsed.protocol) && !parsed.username && !parsed.password ? parsed.href : '#';
+    } catch (e) { return '#'; }
+  }
+
+  function sanitizeHtml(value) {
+    const template = document.createElement('template');
+    template.innerHTML = String(value || '');
+    const blocked = template.content.querySelectorAll('script,iframe,object,embed,form,input,button,textarea,select,option,meta,link,base,svg,math');
+    blocked.forEach(node => node.remove());
+    template.content.querySelectorAll('*').forEach(node => {
+      Array.from(node.attributes).forEach(attr => {
+        const name = attr.name.toLowerCase();
+        const raw = attr.value.trim();
+        if (name.startsWith('on') || name === 'srcdoc') node.removeAttribute(attr.name);
+        else if (['href', 'src', 'action', 'formaction'].includes(name)) {
+          if (!['http:', 'https:'].includes((() => { try { return new URL(raw, window.location.origin).protocol; } catch (e) { return ''; } })())) {
+            node.removeAttribute(attr.name);
+          }
+        } else if (name === 'style' && /(expression\s*\(|url\s*\(|@import|javascript:)/i.test(raw)) {
+          node.removeAttribute(attr.name);
+        }
+      });
+      if (node.tagName === 'A') {
+        node.setAttribute('rel', 'noopener noreferrer');
+        if (node.getAttribute('target') === '_blank') node.setAttribute('target', '_blank');
+      }
+    });
+    return template.innerHTML;
+  }
+
+  function showToast(message, tone) {
+    let host = document.getElementById('ui-toast-host');
+    if (!host) {
+      host = document.createElement('div');
+      host.id = 'ui-toast-host';
+      host.setAttribute('aria-live', 'polite');
+      document.body.appendChild(host);
+    }
+    const text = String(message || 'Done.');
+    const kind = tone || (/error|failed|could not|locked|invalid|please|enter|add |no /i.test(text) ? 'error' : 'ok');
+    const toast = document.createElement('div');
+    toast.className = `ui-toast ${kind}`;
+    toast.setAttribute('role', kind === 'error' ? 'alert' : 'status');
+    const body = document.createElement('span');
+    body.textContent = text;
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.setAttribute('aria-label', 'Dismiss message');
+    close.textContent = '×';
+    close.addEventListener('click', () => toast.remove());
+    toast.append(body, close);
+    host.appendChild(toast);
+    setTimeout(() => toast.remove(), kind === 'error' ? 9000 : 5000);
+  }
+
+  // Existing call sites intentionally use this local name; shadowing the
+  // blocking browser API upgrades all of them to accessible, non-blocking UI.
+  function alert(message) { showToast(message); }
+
+  function confirmAction(message) {
+    return new Promise(resolve => {
+      const overlay = document.createElement('div');
+      overlay.className = 'ui-confirm-overlay';
+      overlay.innerHTML = `<div class="ui-confirm" role="dialog" aria-modal="true" aria-labelledby="ui-confirm-title"><h3 id="ui-confirm-title">Please confirm</h3><p>${uiEsc(message)}</p><div><button type="button" class="btn btn-secondary" data-answer="no">Cancel</button><button type="button" class="btn btn-primary" data-answer="yes">Continue</button></div></div>`;
+      const finish = answer => { document.removeEventListener('keydown', onKey); overlay.remove(); resolve(answer); };
+      const onKey = event => { if (event.key === 'Escape') finish(false); };
+      overlay.addEventListener('click', event => {
+        const answer = event.target.closest('[data-answer]');
+        if (answer) finish(answer.dataset.answer === 'yes');
+        else if (event.target === overlay) finish(false);
+      });
+      document.addEventListener('keydown', onKey);
+      document.body.appendChild(overlay);
+      overlay.querySelector('[data-answer="no"]').focus();
+    });
   }
 
   // AIO / GEO Selectors
@@ -366,11 +454,11 @@ document.addEventListener('DOMContentLoaded', () => {
         : `<span class="status-badge clean">Ranking</span>`;
 
       const actionBtn = row.leak
-        ? `<button class="btn btn-primary btn-xs btn-gen-trigger" data-query="${row.query}">Generate Page</button><button class="btn btn-secondary btn-xs btn-fanout-trigger" data-query="${row.query}" title="See the questions a citable page should answer">&#10067; Questions</button>`
+        ? `<button class="btn btn-primary btn-xs btn-gen-trigger" data-query="${uiEsc(row.query)}">Generate Page</button><button class="btn btn-secondary btn-xs btn-fanout-trigger" data-query="${uiEsc(row.query)}" title="See the questions a citable page should answer">&#10067; Questions</button>`
         : `<button class="btn btn-secondary btn-xs" disabled>Optimized</button>`;
 
       tr.innerHTML = `
-        <td class="font-medium">${row.query}</td>
+        <td class="font-medium">${uiEsc(row.query)}</td>
         <td>${row.impressions.toLocaleString()}</td>
         <td>${row.clicks.toLocaleString()}</td>
         <td>${row.ctr}%</td>
@@ -806,7 +894,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const bpResetBtn = document.getElementById('bp-reset');
   if (bpResetBtn) bpResetBtn.addEventListener('click', async () => {
-    if (!confirm('Reset the brand voice back to the defaults built from your brand docs? Your edits will be replaced.')) return;
+    if (!await confirmAction('Reset the brand voice back to the defaults built from your brand docs? Your edits will be replaced.')) return;
     bpResetBtn.disabled = true;
     try {
       const res = await authFetch('/api/brand-profile/reset', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
@@ -877,15 +965,16 @@ document.addEventListener('DOMContentLoaded', () => {
         throw new Error(data.error || 'Server failed to write article');
       }
 
+      const safeContent = sanitizeHtml(data.content);
       state.generatedArticle = {
         title: data.title,
-        content: data.content,
+        content: safeContent,
         slug: data.slug
       };
 
       // Populate preview panes
-      visualEditor.innerHTML = data.content;
-      codeEditor.value = data.content;
+      visualEditor.innerHTML = safeContent;
+      codeEditor.value = safeContent;
       renderClaims(data.claimsToCheck);
       renderBrandViolations(data.brandViolations);
 
@@ -943,7 +1032,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (mode === 'visual') {
       // Sync code changes to visual preview
-      visualEditor.innerHTML = codeEditor.value;
+      const safeContent = sanitizeHtml(codeEditor.value);
+      visualEditor.innerHTML = safeContent;
+      codeEditor.value = safeContent;
+      state.generatedArticle.content = safeContent;
       codeEditor.style.display = 'none';
       visualEditor.style.display = 'block';
     } else {
@@ -964,8 +1056,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   codeEditor.addEventListener('input', () => {
     if (state.generatedArticle) {
-      state.generatedArticle.content = codeEditor.value;
-      visualEditor.innerHTML = codeEditor.value;
+      const safeContent = sanitizeHtml(codeEditor.value);
+      state.generatedArticle.content = safeContent;
+      visualEditor.innerHTML = safeContent;
     }
   });
 
@@ -975,7 +1068,7 @@ document.addEventListener('DOMContentLoaded', () => {
       alert('Generate an article first!');
       return;
     }
-    const html = codeEditor.value;
+    const html = sanitizeHtml(codeEditor.value);
     navigator.clipboard.writeText(html).then(() => {
       showTemporaryButtonText(btnCopyHtml, 'HTML Copied!');
     });
@@ -1026,14 +1119,12 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const title = deployTitle.value;
-    const content = codeEditor.value;
+    const content = sanitizeHtml(codeEditor.value);
+    codeEditor.value = content;
     const status = deployStatus.value;
 
     btnPublishGhlNow.disabled = true;
     btnPublishGhlNow.innerText = 'Publishing to GHL...';
-
-    // Retrieve storage credentials
-    const credentials = getStoredCredentials();
 
     try {
       const res = await authFetch('/api/publish-ghl', {
@@ -1042,14 +1133,7 @@ document.addEventListener('DOMContentLoaded', () => {
         body: JSON.stringify({
           title,
           content,
-          status,
-          locationId: credentials.ghlLocation,
-          accessToken: credentials.ghlToken,
-          blogId: credentials.ghlBlog,
-          siteUrl: credentials.siteUrl,
-          blogPrefix: credentials.blogPrefix,
-          authorName: credentials.authorName,
-          authorUrl: credentials.authorUrl
+          status
         })
       });
 
@@ -1139,12 +1223,12 @@ document.addEventListener('DOMContentLoaded', () => {
       else statusClass = 'pending';
 
       tr.innerHTML = `
-        <td class="font-medium">${item.title}</td>
-        <td><span class="keyword-tag">${item.keyword}</span></td>
-        <td>${item.platform}</td>
-        <td>${item.date}</td>
-        <td><span class="status-badge ${statusClass}">${item.indexed}</span></td>
-        <td><a href="${item.url}" target="_blank" class="live-link">${item.url.replace('https://', '')}</a></td>
+        <td class="font-medium">${uiEsc(item.title)}</td>
+        <td><span class="keyword-tag">${uiEsc(item.keyword)}</span></td>
+        <td>${uiEsc(item.platform)}</td>
+        <td>${uiEsc(item.date)}</td>
+        <td><span class="status-badge ${statusClass}">${uiEsc(item.indexed)}</span></td>
+        <td><a href="${uiEsc(safeExternalUrl(item.url))}" target="_blank" rel="noopener noreferrer" class="live-link">${uiEsc(String(item.url || '').replace(/^https?:\/\//, ''))}</a></td>
       `;
       historyTableBody.appendChild(tr);
     });
@@ -1153,16 +1237,16 @@ document.addEventListener('DOMContentLoaded', () => {
   // --- SETTINGS STORAGE SYSTEM ---
   function getStoredCredentials() {
     return {
-      geminiKey: localStorage.getItem('seo_gemini_key') || '',
-      ghlToken: localStorage.getItem('seo_ghl_token') || '',
+      geminiKey: '',
+      ghlToken: '',
       ghlLocation: localStorage.getItem('seo_ghl_location') || '',
       ghlBlog: localStorage.getItem('seo_ghl_blog') || '',
       siteUrl: localStorage.getItem('seo_site_url') || '',
       blogPrefix: localStorage.getItem('seo_blog_prefix') || '/post',
       authorName: localStorage.getItem('seo_author_name') || '',
       authorUrl: localStorage.getItem('seo_author_url') || '',
-      gscJson: localStorage.getItem('seo_gsc_json') || '',
-      adminPassword: localStorage.getItem('seo_admin_password') || '',
+      gscJson: '',
+      adminPassword: sessionStorage.getItem('seo_admin_password') || '',
       clientValue: localStorage.getItem('seo_client_value') || '1395',
       convRate: localStorage.getItem('seo_conv_rate') || '2',
       captureRate: localStorage.getItem('seo_capture_rate') || '5'
@@ -1170,6 +1254,11 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function loadSettingsFromStorage() {
+    // Migrate away from persistent browser secret storage. Integration keys
+    // now live server-side; the admin password lasts only for this tab session.
+    const legacyAdmin = localStorage.getItem('seo_admin_password');
+    if (legacyAdmin && !sessionStorage.getItem('seo_admin_password')) sessionStorage.setItem('seo_admin_password', legacyAdmin);
+    ['seo_admin_password', 'seo_gemini_key', 'seo_ghl_token', 'seo_gsc_json'].forEach(key => localStorage.removeItem(key));
     const creds = getStoredCredentials();
     
     settingsGeminiKey.value = creds.geminiKey;
@@ -1208,20 +1297,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const adminPassword = settingsAdminPassword.value;
 
     // Store the admin password first so the save request below is authorized.
-    localStorage.setItem('seo_admin_password', adminPassword);
+    sessionStorage.setItem('seo_admin_password', adminPassword);
     // Business-value assumptions for the Summary dashboard estimates.
     if (settingsClientValue) localStorage.setItem('seo_client_value', settingsClientValue.value.trim() || '1395');
     if (settingsConvRate) localStorage.setItem('seo_conv_rate', settingsConvRate.value.trim() || '2');
     if (settingsCaptureRate) localStorage.setItem('seo_capture_rate', settingsCaptureRate.value.trim() || '5');
-    localStorage.setItem('seo_gemini_key', geminiKey);
-    localStorage.setItem('seo_ghl_token', ghlToken);
     localStorage.setItem('seo_ghl_location', ghlLocation);
     localStorage.setItem('seo_ghl_blog', ghlBlog);
     localStorage.setItem('seo_site_url', siteUrl);
     localStorage.setItem('seo_blog_prefix', blogPrefix);
     localStorage.setItem('seo_author_name', authorName);
     localStorage.setItem('seo_author_url', authorUrl);
-    localStorage.setItem('seo_gsc_json', gscJson);
 
     if (siteUrl) {
       displaySiteUrlBadge.innerText = siteUrl.replace('https://', '').replace('http://', '');
@@ -1235,12 +1321,19 @@ document.addEventListener('DOMContentLoaded', () => {
       });
       const data = await response.json();
       if (response.ok && data.success) {
-        alert('Configuration saved successfully in browser and synced to backend server!');
+        settingsGeminiKey.value = '';
+        settingsGhlToken.value = '';
+        settingsGscJson.value = '';
+        const openaiInput = document.getElementById('settings-openai-key');
+        const perplexityInput = document.getElementById('settings-perplexity-key');
+        if (openaiInput) openaiInput.value = '';
+        if (perplexityInput) perplexityInput.value = '';
+        alert(data.message || 'Configuration saved securely on the server.');
       } else {
-        alert(`Saved locally, but failed to sync to server: ${data.error || 'Unknown server error'}`);
+        alert(`Server settings were not saved: ${data.error || 'Unknown server error'}`);
       }
     } catch (err) {
-      alert(`Saved locally, but connection to server failed: ${err.message}`);
+      alert(`Could not save server settings: ${err.message}`);
     }
 
     switchTab('gsc-tab');
@@ -1301,7 +1394,10 @@ document.addEventListener('DOMContentLoaded', () => {
           const div = document.createElement('div');
           div.className = 'terminal-log-line';
           const localTime = new Date(log.timestamp).toLocaleTimeString();
-          div.innerHTML = `<span class="timestamp">${localTime}</span> ${log.message}`;
+          const time = document.createElement('span');
+          time.className = 'timestamp';
+          time.textContent = localTime;
+          div.append(time, document.createTextNode(` ${String(log.message || '')}`));
           autopilotLogsContainer.appendChild(div);
         });
       }
@@ -1910,11 +2006,11 @@ document.addEventListener('DOMContentLoaded', () => {
       const competitorsStr = item.competitors && item.competitors.length > 0 ? item.competitors.join(', ') : 'None';
 
       tr.innerHTML = `
-        <td>${date}</td>
-        <td><span class="keyword-tag">${item.query}</span></td>
+        <td>${uiEsc(date)}</td>
+        <td><span class="keyword-tag">${uiEsc(item.query)}</span></td>
         <td><span class="status-badge ${statusClass}">${statusText}</span></td>
         <td class="font-medium">${citedText}</td>
-        <td>${competitorsStr}</td>
+        <td>${uiEsc(competitorsStr)}</td>
       `;
       aioHistoryTableBody.appendChild(tr);
     });
@@ -2020,7 +2116,7 @@ document.addEventListener('DOMContentLoaded', () => {
           li.style.marginBottom = '6px';
           const label = s.title || (s.uri || '').replace(/^https?:\/\//, '');
           if (s.uri) {
-            li.innerHTML = `<a href="${s.uri}" target="_blank" class="live-link" style="text-decoration: underline;">${label}</a>`;
+            li.innerHTML = `<a href="${uiEsc(safeExternalUrl(s.uri))}" target="_blank" rel="noopener noreferrer" class="live-link" style="text-decoration: underline;">${uiEsc(label)}</a>`;
           } else {
             li.innerText = label;
           }
@@ -2045,7 +2141,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (aioSearchQueries) {
         if (latest.searchQueries && latest.searchQueries.length) {
           aioSearchQueries.style.display = 'block';
-          aioSearchQueries.innerHTML = `<strong style="color: var(--text-muted);">Google searches run:</strong> ${latest.searchQueries.map(q => `<span class="keyword-tag">${q}</span>`).join(' ')}`;
+          aioSearchQueries.innerHTML = `<strong style="color: var(--text-muted);">Google searches run:</strong> ${latest.searchQueries.map(q => `<span class="keyword-tag">${uiEsc(q)}</span>`).join(' ')}`;
         } else {
           aioSearchQueries.style.display = 'none';
           aioSearchQueries.innerHTML = '';
@@ -2056,7 +2152,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (aioSearchSuggestions) {
         if (latest.searchEntryPoint) {
           aioSearchSuggestions.style.display = 'block';
-          aioSearchSuggestions.innerHTML = latest.searchEntryPoint;
+          aioSearchSuggestions.innerHTML = sanitizeHtml(latest.searchEntryPoint);
         } else {
           aioSearchSuggestions.style.display = 'none';
           aioSearchSuggestions.innerHTML = '';
@@ -4194,11 +4290,11 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('rv-checks').innerHTML = checks.length ? checks.map(c => {
       const cls = c.status === 'pass' ? 'pass' : c.status === 'unknown' ? 'unknown' : (c.severity === 'warn' ? 'warn' : 'fail');
       const glyph = c.status === 'pass' ? '✓' : c.status === 'unknown' ? '?' : '!';
-      return `<li><div class="rv-ck ${cls}">${glyph}</div><div><div class="rv-ck-b">${c.label}</div><div class="rv-ck-d">${c.detail || ''}</div></div></li>`;
+      return `<li><div class="rv-ck ${cls}">${glyph}</div><div><div class="rv-ck-b">${uiEsc(c.label)}</div><div class="rv-ck-d">${uiEsc(c.detail || '')}</div></div></li>`;
     }).join('') : '<li class="rv-empty">No checks returned.</li>';
 
     const link = document.getElementById('rv-url');
-    if (link) { link.href = d.url; link.textContent = (d.url || '').replace(/^https?:\/\//, ''); }
+    if (link) { link.href = safeExternalUrl(d.url); link.rel = 'noopener noreferrer'; link.textContent = (d.url || '').replace(/^https?:\/\//, ''); }
     const chip = document.getElementById('rv-checked');
     if (chip) {
       chip.textContent = d.checkedAt ? `checked ${new Date(d.checkedAt).toLocaleString()}` : '—';
@@ -4218,7 +4314,7 @@ document.addEventListener('DOMContentLoaded', () => {
       reviewsData = j;
       renderReviews(j);
     } catch (e) {
-      if (checks) checks.innerHTML = `<li class="rv-empty">Couldn’t reach the reviews site — ${e.message}</li>`;
+      if (checks) checks.innerHTML = `<li class="rv-empty">Couldn’t reach the reviews site — ${uiEsc(e.message)}</li>`;
       const k = document.getElementById('rv-kpis'); if (k) k.innerHTML = '';
       const g = document.getElementById('rv-growth'); if (g) g.innerHTML = '';
       const s = document.getElementById('rv-split'); if (s) s.innerHTML = '';
