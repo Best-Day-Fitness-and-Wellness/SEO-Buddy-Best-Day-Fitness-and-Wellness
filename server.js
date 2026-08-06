@@ -3838,6 +3838,276 @@ async function reindexRepairedPosts() {
   saveHistory();
 }
 
+// ===========================================================================
+// REVIEWS SITE STATS  —  bestdayfitnessreviews.com
+// ---------------------------------------------------------------------------
+// The reviews hub is a single self-contained static page, so everything here is
+// derived by fetching that one URL. No new API keys, no new credentials, no new
+// dependency — which is why this can ship today rather than waiting on Google
+// Business Profile API access.
+//
+// Two jobs:
+//   1. Inventory & growth — how many reviews are published, on which platforms,
+//      and how that has grown month over month.
+//   2. Structured-data & SEO health — the checks that catch the failure modes
+//      this page is actually prone to: the visible cards silently drifting from
+//      the JSON-LD, an aggregateRating the page has not earned, and a social
+//      preview image that 404s (all three were real, found 2026-08-05).
+// ===========================================================================
+
+const REVIEWS_SNAPSHOTS_FILE = path.join(DATA_DIR, 'reviews-snapshots.json');
+let reviewsSnapshots = [];
+try {
+  reviewsSnapshots = JSON.parse(fs.readFileSync(REVIEWS_SNAPSHOTS_FILE, 'utf8'));
+  if (!Array.isArray(reviewsSnapshots)) reviewsSnapshots = [];
+} catch (e) { reviewsSnapshots = []; }
+function saveReviewsSnapshots() {
+  try { fs.writeFileSync(REVIEWS_SNAPSHOTS_FILE, JSON.stringify(reviewsSnapshots, null, 2)); }
+  catch (e) { console.error('[Reviews] snapshot save failed:', e.message); }
+}
+
+function revUrl() {
+  return (process.env.REVIEWS_URL || 'https://bestdayfitnessreviews.com').replace(/\/+$/, '');
+}
+
+async function revFetch(url, opts = {}, ms = 12000) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  try {
+    return await fetch(url, {
+      redirect: 'follow',
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; SEOBuddyBot/1.0)' },
+      signal: ctrl.signal,
+      ...opts,
+    });
+  } finally { clearTimeout(timer); }
+}
+
+// The page is our own known markup, so targeted regex beats adding a DOM
+// dependency to the Railway build. Every extractor below fails soft: a parse
+// miss becomes a reported check failure, never a thrown request.
+function parseReviewCards(html) {
+  const out = [];
+  const cardRe = /<div class="rev" data-plat="([a-z]+)">([\s\S]*?)<\/p><\/div>/g;
+  let m;
+  while ((m = cardRe.exec(html))) {
+    const [, plat, body] = m;
+    const name = (body.match(/<b>([^<]*)<\/b>/) || [])[1] || '';
+    const date = (body.match(/<div class="d">([^<]*)<\/div>/) || [])[1] || '';
+    // Star rows carry an explicit aria-label once the site renders real ratings;
+    // fall back to counting glyphs on older builds that hardcoded five.
+    let rating = Number((body.match(/aria-label="(\d) out of 5 stars"/) || [])[1]);
+    if (!rating) {
+      const rs = (body.match(/<div class="rs"[^>]*>([\s\S]*?)<\/div>/) || [])[1] || '';
+      const off = ((rs.match(/<span class="off">([★]*)<\/span>/) || [])[1] || '').length;
+      rating = ((rs.match(/★/g) || []).length) - off || null;
+    }
+    out.push({ platform: plat, author: name, date, rating: rating || null });
+  }
+  return out;
+}
+
+function parseJsonLd(html) {
+  const m = html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/);
+  if (!m) return null;
+  try { return JSON.parse(m[1]); } catch (e) { return { __parseError: e.message }; }
+}
+
+function metaContent(html, attr, val) {
+  const re = new RegExp(`<meta[^>]*${attr}=["']${val}["'][^>]*content=["']([^"']*)["']`, 'i');
+  const alt = new RegExp(`<meta[^>]*content=["']([^"']*)["'][^>]*${attr}=["']${val}["']`, 'i');
+  return (html.match(re) || html.match(alt) || [])[1] || null;
+}
+
+function monthlyGrowth(cards) {
+  const byMonth = {};
+  for (const c of cards) if (/^\d{4}-\d{2}$/.test(c.date)) byMonth[c.date] = (byMonth[c.date] || 0) + 1;
+  const months = Object.keys(byMonth).sort();
+  if (!months.length) return [];
+  // Fill gaps so the curve reads as time, not as a list of months that happened
+  // to have reviews.
+  const series = [];
+  let cursor = months[0], last = months[months.length - 1], total = 0;
+  let guard = 0;
+  while (cursor <= last && guard++ < 400) {
+    total += byMonth[cursor] || 0;
+    series.push({ month: cursor, added: byMonth[cursor] || 0, total });
+    let [y, mo] = cursor.split('-').map(Number);
+    mo++; if (mo > 12) { mo = 1; y++; }
+    cursor = `${y}-${String(mo).padStart(2, '0')}`;
+  }
+  return series;
+}
+
+async function computeReviewsStats() {
+  const base = revUrl();
+  const checks = [];
+  const add = (id, label, ok, detail, severity = 'error') =>
+    checks.push({ id, label, status: ok === null ? 'unknown' : ok ? 'pass' : 'fail', detail, severity });
+
+  // ---- fetch the page -----------------------------------------------------
+  const t0 = Date.now();
+  let html = '', status = 0, ok = false;
+  try {
+    const r = await revFetch(base + '/');
+    status = r.status; ok = r.ok;
+    html = await r.text();
+  } catch (e) {
+    return {
+      url: base, reachable: false, error: e.message,
+      checks: [{ id: 'reachable', label: 'Site responds', status: 'fail', detail: e.message, severity: 'error' }],
+    };
+  }
+  const loadMs = Date.now() - t0;
+
+  add('reachable', 'Site responds', ok, `HTTP ${status} in ${loadMs}ms`);
+  add('https', 'Served over HTTPS', base.startsWith('https://'), base);
+  add('speed', 'Responds under 1.5s', loadMs < 1500, `${loadMs}ms`, 'warn');
+
+  // ---- inventory ----------------------------------------------------------
+  const cards = parseReviewCards(html);
+  const byPlatform = cards.reduce((a, c) => ({ ...a, [c.platform]: (a[c.platform] || 0) + 1 }), {});
+  const rated = cards.filter(c => c.rating);
+  const avg = rated.length ? Math.round((rated.reduce((s, c) => s + c.rating, 0) / rated.length) * 10) / 10 : null;
+  const dates = cards.map(c => c.date).filter(d => /^\d{4}-\d{2}$/.test(d)).sort();
+
+  // ---- structured data ----------------------------------------------------
+  const ld = parseJsonLd(html);
+  if (!ld) {
+    add('jsonld', 'JSON-LD block present', false, 'No application/ld+json script found — the page is invisible to review rich-results.');
+  } else if (ld.__parseError) {
+    add('jsonld', 'JSON-LD parses', false, ld.__parseError);
+  } else {
+    add('jsonld', 'JSON-LD present and parses', true, `${(ld.review || []).length} review objects`);
+
+    // THE invariant. Visible cards and structured data must describe the same
+    // set — this is the drift that made the hand-maintained page dangerous.
+    const ldCount = (ld.review || []).length;
+    add('ld-match', 'JSON-LD matches visible cards', ldCount === cards.length,
+      ldCount === cards.length ? `${cards.length} both sides` : `${cards.length} cards vs ${ldCount} in JSON-LD`);
+
+    const ldRatings = (ld.review || []).map(r => r?.reviewRating?.ratingValue).filter(n => typeof n === 'number');
+    const mean = ldRatings.length ? Math.round((ldRatings.reduce((a, b) => a + b, 0) / ldRatings.length) * 10) / 10 : null;
+    const agg = ld.aggregateRating || {};
+    add('agg-honest', 'aggregateRating equals the real mean', mean != null && agg.ratingValue === mean,
+      `declared ${agg.ratingValue ?? '—'}, actual ${mean ?? '—'}`);
+    add('agg-count', 'aggregateRating count is at least what is shown',
+      typeof agg.reviewCount === 'number' && agg.reviewCount >= cards.length,
+      `declared ${agg.reviewCount ?? '—'} vs ${cards.length} published`, 'warn');
+
+    const below = ldRatings.filter(n => n < 5).length;
+    add('five-star', 'Every published review is 5★', below === 0,
+      below ? `${below} review(s) below 5★ are published` : `all ${ldRatings.length} are 5★`, 'warn');
+  }
+
+  // ---- on-page SEO --------------------------------------------------------
+  const title = (html.match(/<title>([^<]*)<\/title>/) || [])[1] || '';
+  const desc = metaContent(html, 'name', 'description') || '';
+  const canonical = (html.match(/<link[^>]*rel=["']canonical["'][^>]*href=["']([^"']*)["']/i) || [])[1] || '';
+  add('title', 'Title tag is a sensible length', title.length >= 30 && title.length <= 65, `${title.length} chars`, 'warn');
+  add('desc', 'Meta description is a sensible length', desc.length >= 70 && desc.length <= 165, `${desc.length} chars`, 'warn');
+  add('canonical', 'Canonical URL present', !!canonical, canonical || 'missing');
+
+  // ---- og:image actually resolves ----------------------------------------
+  // This one is not theoretical: og-image.png 404'd for months while the meta
+  // tag advertised it, so every share rendered a blank card. Pages served the
+  // HTML fallback, which is why nothing looked broken.
+  const ogImage = metaContent(html, 'property', 'og:image');
+  if (!ogImage) {
+    add('og-image', 'Social preview image declared', false, 'no og:image meta tag');
+  } else {
+    try {
+      const r = await revFetch(ogImage, { method: 'GET' }, 10000);
+      const ct = r.headers.get('content-type') || '';
+      add('og-image', 'Social preview image resolves', r.ok && ct.startsWith('image/'),
+        r.ok ? `HTTP ${r.status}, content-type ${ct || 'unknown'}` : `HTTP ${r.status}`);
+    } catch (e) {
+      add('og-image', 'Social preview image resolves', false, e.message);
+    }
+  }
+
+  // ---- crawlability -------------------------------------------------------
+  let sitemapLastmod = null;
+  try {
+    const r = await revFetch(base + '/sitemap.xml', {}, 8000);
+    const body = r.ok ? await r.text() : '';
+    const isXml = body.trim().startsWith('<?xml') || body.includes('<urlset');
+    sitemapLastmod = (body.match(/<lastmod>([^<]+)<\/lastmod>/) || [])[1] || null;
+    add('sitemap', 'sitemap.xml served', r.ok && isXml, r.ok ? (isXml ? `lastmod ${sitemapLastmod || 'absent'}` : 'served, but not XML') : `HTTP ${r.status}`, 'warn');
+    if (sitemapLastmod) {
+      const ageDays = Math.floor((Date.now() - new Date(sitemapLastmod).getTime()) / 86400000);
+      add('sitemap-fresh', 'sitemap lastmod is recent', ageDays <= 60, `${ageDays} days old`, 'warn');
+    }
+  } catch (e) { add('sitemap', 'sitemap.xml served', false, e.message, 'warn'); }
+
+  try {
+    const r = await revFetch(base + '/robots.txt', {}, 8000);
+    const body = r.ok ? await r.text() : '';
+    const blocksAll = /Disallow:\s*\/\s*$/m.test(body) && !/Allow:\s*\//m.test(body);
+    add('robots', 'robots.txt allows crawling', r.ok && !blocksAll, r.ok ? (blocksAll ? 'Disallow: / is blocking crawlers' : 'crawlable') : `HTTP ${r.status}`);
+  } catch (e) { add('robots', 'robots.txt allows crawling', null, e.message, 'warn'); }
+
+  // ---- platform totals shown in the page header ---------------------------
+  const headerTotal = Number(((html.match(/<b id="rev-count">([\d,]+)\+?<\/b>/) || [])[1] || '').replace(/,/g, '')) || null;
+  const platformTotals = {};
+  const gm = html.match(/<b>Google<\/b><div class="s">[^<]*?([\d.]+)\s*·\s*(\d+)/);
+  if (gm) platformTotals.google = { avgRating: Number(gm[1]), reviewCount: Number(gm[2]) };
+  const fm = html.match(/<b>Facebook<\/b><div class="s">[^<]*?(\d+)%\s*·\s*(\d+)/);
+  if (fm) platformTotals.facebook = { recommendPercent: Number(fm[1]), reviewCount: Number(fm[2]) };
+  const ym = html.match(/<b>Yelp<\/b><div class="s">[^<]*?(\d+)\s*reviews/);
+  if (ym) platformTotals.yelp = { reviewCount: Number(ym[1]) };
+
+  // ---- snapshot for growth going forward ----------------------------------
+  const today = new Date().toISOString().split('T')[0];
+  const row = { date: today, published: cards.length, byPlatform, headerTotal };
+  const idx = reviewsSnapshots.findIndex(s => s.date === today);
+  if (idx >= 0) reviewsSnapshots[idx] = row; else reviewsSnapshots.push(row);
+  if (reviewsSnapshots.length > 365) reviewsSnapshots = reviewsSnapshots.slice(-365);
+  saveReviewsSnapshots();
+
+  let delta30 = null;
+  const cutoff = Date.now() - 30 * 86400000;
+  const older = reviewsSnapshots.filter(s => new Date(s.date + 'T00:00:00Z').getTime() <= cutoff);
+  if (older.length) delta30 = cards.length - older[older.length - 1].published;
+
+  const failed = checks.filter(c => c.status === 'fail');
+  const score = checks.length
+    ? Math.round((checks.filter(c => c.status === 'pass').length / checks.filter(c => c.status !== 'unknown').length) * 100)
+    : null;
+
+  return {
+    url: base,
+    reachable: true,
+    checkedAt: new Date().toISOString(),
+    loadMs,
+    score,
+    inventory: {
+      published: cards.length,
+      byPlatform,
+      avgRating: avg,
+      newest: dates.length ? dates[dates.length - 1] : null,
+      oldest: dates.length ? dates[0] : null,
+      delta30,
+    },
+    growth: monthlyGrowth(cards),
+    platformTotals,
+    headerTotal,
+    checks,
+    problems: failed.length,
+    snapshots: reviewsSnapshots.slice(-90),
+    reviews: cards,
+  };
+}
+
+app.get('/api/reviews-stats', async (req, res) => {
+  try {
+    res.json({ success: true, ...(await computeReviewsStats()) });
+  } catch (e) {
+    console.error('[Reviews] stats failed:', e.message);
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`=======================================================`);
   console.log(`🚀 SEO Buddy - Total Rank System Dashboard is running!`);
