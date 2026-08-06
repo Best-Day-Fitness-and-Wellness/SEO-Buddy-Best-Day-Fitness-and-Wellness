@@ -663,6 +663,18 @@
 
       <!-- TAB 2: AI ARTICLE CREATOR -->
       <section class="tab-content" id="ai-tab">
+        <style>
+          #ai-tab .rec-drop{border:1.5px dashed var(--border-color);border-radius:12px;padding:18px;text-align:center;cursor:pointer;transition:var(--transition-smooth);background:var(--bg-secondary);margin-bottom:10px;}
+          #ai-tab .rec-drop:hover,#ai-tab .rec-drop.over{border-color:var(--color-primary);background:rgba(99,102,241,.06);}
+          #ai-tab .rec-drop b{display:block;font-size:var(--font-sm);color:var(--text-main);}
+          #ai-tab .rec-drop span{display:block;font-size:var(--font-xs);color:var(--text-muted);margin-top:5px;line-height:1.5;}
+          #ai-tab .rec-status{font-size:var(--font-xs);margin-bottom:8px;min-height:16px;}
+          #ai-tab .rec-status.err{color:var(--color-danger);}
+          #ai-tab .rec-status.ok{color:var(--color-success);}
+          #ai-tab .claims-box{border:1px solid rgba(245,158,11,.4);background:rgba(245,158,11,.08);border-radius:10px;padding:12px 14px;margin:12px 0;}
+          #ai-tab .claims-box h4{margin:0 0 8px;font-size:var(--font-sm);color:var(--color-warning);}
+          #ai-tab .claims-box li{font-size:var(--font-xs);color:var(--text-main);margin-bottom:5px;line-height:1.5;}
+        </style>
         <div class="split-view">
           <!-- Left: Control Panel -->
           <div class="split-panel creator-form-panel">
@@ -679,6 +691,18 @@
                 <label for="input-case-study">Information Gain / Case Study</label>
                 <textarea id="input-case-study" rows="5" class="form-input" placeholder="Example: At Best Day Fitness, we helped John (age 72) rebuild his knee stabilizer muscles barefoot, allowing him to play golf pain-free within 8 weeks. Add any real client success story here..."></textarea>
                 <small class="text-muted">Unique case studies tell Google your article isn't generic AI output.</small>
+              </div>
+
+              <div class="form-group">
+                <label for="input-transcript">Your own words <span class="text-muted" style="font-weight:400;">— optional, but this is the good stuff</span></label>
+                <div id="rec-drop" class="rec-drop">
+                  <b>Drop a recording here</b> or click to choose
+                  <span>Answer the question out loud, however it comes out · m4a, mp3, wav, mp4, mov · up to 18MB (a 10-min voice memo is ~5MB)</span>
+                </div>
+                <input type="file" id="rec-file" accept="audio/*,video/*" style="display:none;">
+                <div id="rec-status" class="rec-status"></div>
+                <textarea id="input-transcript" rows="6" class="form-input" placeholder="The transcript appears here once your recording is processed — or paste one in yourself if you already have it."></textarea>
+                <small class="text-muted">Nobody sees this. The article gets built from your stories and specifics instead of generic AI text — and you'll get a fact-check list back.</small>
               </div>
 
               <div class="form-row">
@@ -1376,6 +1400,16 @@
         #local-tab .la-nap-line{display:flex;justify-content:space-between;gap:8px;padding:4px 0;border-bottom:1px solid var(--border-color);}
         #local-tab .la-nap-line:last-child{border-bottom:none;}
         #local-tab .la-replies{margin-top:16px;}
+        #local-tab .sp-sec{margin-top:16px;}
+        #local-tab .sp-sec h4{font-family:var(--font-heading);font-size:var(--font-sm);font-weight:600;margin:0 0 8px;color:var(--text-main);}
+        #local-tab .sp-item{border:1px solid var(--border-color);background:var(--bg-secondary);border-radius:10px;padding:10px 12px;margin-bottom:7px;font-size:var(--font-sm);line-height:1.5;cursor:pointer;transition:var(--transition-smooth);}
+        #local-tab .sp-item:hover{border-color:var(--color-primary);}
+        #local-tab .sp-item.sel{border-color:var(--color-primary);box-shadow:0 0 0 2px rgba(99,102,241,.22);}
+        #local-tab .sp-script{white-space:pre-line;background:var(--panel);border:1px solid var(--border-color);border-radius:10px;padding:14px 16px;font-size:var(--font-sm);line-height:1.65;}
+        #local-tab .sp-plats{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;}
+        #local-tab .sp-plat{font-size:var(--font-xs);font-weight:600;padding:5px 11px;border-radius:999px;border:1px solid var(--border-color);background:var(--bg-secondary);color:var(--text-muted);cursor:pointer;user-select:none;}
+        #local-tab .sp-plat.done{background:rgba(16,185,129,.15);border-color:rgba(16,185,129,.45);color:var(--color-success);}
+        #local-tab .sp-err{color:var(--color-danger);font-size:var(--font-sm);margin-top:10px;}
       </style>
       <section class="tab-content" id="local-tab">
         <!-- Local SEO Autopilot -->
@@ -1403,6 +1437,19 @@
             <span class="lr-muted" id="la-run-note"></span>
           </div>
           <div id="la-replies" class="la-replies"></div>
+        </div>
+
+        <!-- Social pack — GBP posts cover Google; this covers everywhere else -->
+        <div class="content-card">
+          <h2>Social Post Pack</h2>
+          <p class="text-muted mb-4">A Google Business Profile post only reaches Google. Paste a transcript of yourself answering a customer question &mdash; the same one you used to write an article &mdash; and get five angles, five hooks, and a 30&#8209;second script in your own voice. One recording, seven platforms.</p>
+          <div class="form-group">
+            <label for="sp-transcript">Transcript</label>
+            <textarea id="sp-transcript" rows="5" class="form-input" placeholder="Paste the transcript here. Tip: the article generator on the 'Create a post' tab will transcribe a recording for you — copy it across."></textarea>
+            <small class="text-muted">Needs a couple of paragraphs to work with.</small>
+          </div>
+          <button class="btn btn-primary" id="btn-social-pack" type="button">Build the social pack</button>
+          <div id="sp-out"></div>
         </div>
 
         <!-- NAP Auditor -->
@@ -1691,123 +1738,6 @@
       <!-- TAB 5: API SETTINGS -->
       <!-- TAB: REVIEWS SITE — stats & health for bestdayfitnessreviews.com -->
       <!-- TAB: CONTENT STUDIO — question -> recording -> blog post + social pack -->
-      <section class="tab-content" id="studio-tab">
-        <style>
-          .st-steps{display:grid;gap:16px;}
-          .st-step{background:var(--bg-card);border:1px solid var(--border-color);border-radius:16px;padding:22px;box-shadow:var(--shadow-md);position:relative;}
-          .st-step.locked{opacity:.5;pointer-events:none;}
-          .st-step.done{border-color:rgba(16,185,129,.45);}
-          .st-h{display:flex;align-items:flex-start;gap:14px;margin-bottom:6px;}
-          .st-n{width:28px;height:28px;border-radius:9px;background:var(--color-primary);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px;flex:none;}
-          .st-step.done .st-n{background:var(--color-success);}
-          .st-title{font-family:var(--font-heading);font-size:var(--font-lg);font-weight:600;margin:0;color:var(--text-main);}
-          .st-hint{font-size:var(--font-sm);color:var(--text-muted);margin:2px 0 16px;line-height:1.5;}
-          .st-body{margin-left:42px;}
-          @media(max-width:640px){.st-body{margin-left:0;}}
-          .st-row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px;}
-          .st-q{border:1px solid var(--border-color);background:var(--bg-secondary);border-radius:12px;padding:14px 16px;margin-bottom:10px;cursor:pointer;transition:var(--transition-smooth);}
-          .st-q:hover{border-color:var(--color-primary);}
-          .st-q.sel{border-color:var(--color-primary);box-shadow:0 0 0 2px rgba(99,102,241,.25);}
-          .st-q-t{font-size:var(--font-md);color:var(--text-main);font-weight:600;}
-          .st-q-m{font-size:var(--font-xs);color:var(--text-muted);margin-top:5px;line-height:1.5;}
-          .st-tag{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:rgba(99,102,241,.15);color:#a5b4fc;margin-right:6px;}
-          .st-ta{width:100%;min-height:150px;font:inherit;font-size:var(--font-sm);line-height:1.6;padding:14px;border:1px solid var(--border-color);border-radius:12px;background:var(--bg-secondary);color:var(--text-main);resize:vertical;}
-          .st-ta:focus{outline:2px solid rgba(99,102,241,.3);border-color:var(--color-primary);}
-          .st-drop{border:2px dashed var(--border-color);border-radius:14px;padding:26px;text-align:center;color:var(--text-muted);font-size:var(--font-sm);cursor:pointer;transition:var(--transition-smooth);}
-          .st-drop:hover,.st-drop.over{border-color:var(--color-primary);color:var(--text-main);}
-          .st-meta{font-size:var(--font-xs);color:var(--text-dark);margin-top:8px;}
-          .st-out{background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:12px;padding:16px;margin-top:14px;}
-          .st-out h4{margin:0 0 6px;font-size:var(--font-sm);color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;font-weight:700;}
-          .st-field{margin-bottom:14px;}
-          .st-field .v{font-size:var(--font-sm);color:var(--text-main);line-height:1.55;word-break:break-word;}
-          .st-check{list-style:none;padding:0;margin:10px 0 0;}
-          .st-check li{display:flex;gap:10px;align-items:flex-start;padding:7px 0;font-size:var(--font-sm);color:var(--text-main);}
-          .st-ck{width:18px;height:18px;border-radius:5px;flex:none;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;margin-top:2px;}
-          .st-ck.ok{background:rgba(16,185,129,.15);color:var(--color-success);}
-          .st-ck.no{background:rgba(244,63,94,.15);color:var(--color-accent);}
-          .st-ck.i{background:rgba(255,255,255,.07);color:var(--text-muted);}
-          .st-pills{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;}
-          .st-pill{border:1px solid var(--border-color);border-radius:999px;padding:7px 14px;font-size:var(--font-xs);color:var(--text-muted);cursor:pointer;user-select:none;}
-          .st-pill.on{border-color:var(--color-success);color:var(--color-success);background:rgba(16,185,129,.08);}
-          .st-script{background:var(--bg-secondary);border-left:3px solid var(--color-primary);border-radius:0 12px 12px 0;padding:16px 18px;font-size:var(--font-md);line-height:1.75;color:var(--text-main);white-space:pre-wrap;}
-          .st-warn{border-left:3px solid var(--color-warning);background:rgba(245,158,11,.07);border-radius:0 10px 10px 0;padding:12px 15px;font-size:var(--font-sm);color:var(--text-main);margin-top:12px;}
-          .st-err{color:var(--color-accent);font-size:var(--font-sm);margin-top:10px;}
-          .st-busy{font-size:var(--font-sm);color:var(--text-muted);}
-          .st-copy{cursor:pointer;background:none;border:1px solid var(--border-color);color:var(--text-muted);border-radius:8px;padding:5px 11px;font-size:var(--font-xs);font-weight:600;}
-          .st-copy:hover{color:var(--text-main);border-color:var(--color-primary);}
-        </style>
-
-        <div class="st-steps">
-          <!-- 1. QUESTION -->
-          <div class="st-step" id="st-s1">
-            <div class="st-h"><div class="st-n">1</div><div>
-              <h3 class="st-title">Pick a question worth answering</h3>
-              <p class="st-hint">Pulled from your own Search Console &mdash; real queries people typed that already showed your site, ranked by the ones getting seen but not clicked. That&rsquo;s a better source than any keyword tool, and you already pay nothing for it.</p>
-            </div></div>
-            <div class="st-body">
-              <div class="st-row">
-                <button class="btn btn-primary" id="st-load-q" type="button">Find my questions</button>
-                <span class="st-busy" id="st-q-status"></span>
-              </div>
-              <div id="st-q-list"></div>
-              <div class="st-field" style="margin-top:14px;">
-                <h4 style="font-size:var(--font-xs);color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin:0 0 6px;">Or type your own</h4>
-                <input type="text" id="st-q-custom" class="form-input" placeholder="e.g. Is strength training safe after a knee replacement?">
-              </div>
-            </div>
-          </div>
-
-          <!-- 2. RECORDING -->
-          <div class="st-step locked" id="st-s2">
-            <div class="st-h"><div class="st-n">2</div><div>
-              <h3 class="st-title">Answer it out loud</h3>
-              <p class="st-hint">Record yourself answering, on your phone, however it comes out. Nobody sees this &mdash; we only want the words. Don&rsquo;t polish it; the stories and specifics are the whole point.</p>
-            </div></div>
-            <div class="st-body">
-              <div class="st-drop" id="st-drop">
-                <b>Drop a recording here</b> or click to choose<br>
-                <span class="st-meta">Audio or video &middot; m4a, mp3, wav, mp4, mov &middot; up to 18MB (a 10-minute voice memo is about 5MB)</span>
-              </div>
-              <input type="file" id="st-file" accept="audio/*,video/*" style="display:none">
-              <div class="st-row" style="margin-top:12px;"><span class="st-busy" id="st-t-status"></span></div>
-              <div class="st-field">
-                <h4 style="font-size:var(--font-xs);color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin:14px 0 6px;">Transcript <span id="st-t-words" class="st-meta"></span></h4>
-                <textarea class="st-ta" id="st-transcript" placeholder="The transcript appears here once your recording is processed — or paste one in yourself if you already have it."></textarea>
-              </div>
-            </div>
-          </div>
-
-          <!-- 3. BLOG -->
-          <div class="st-step locked" id="st-s3">
-            <div class="st-h"><div class="st-n">3</div><div>
-              <h3 class="st-title">Turn it into a blog post</h3>
-              <p class="st-hint">Written in your own words from the transcript, with the question placed in all four spots that matter for ranking. Fact-check it before it goes anywhere.</p>
-            </div></div>
-            <div class="st-body">
-              <div class="st-row">
-                <button class="btn btn-primary" id="st-gen-blog" type="button">Write the post</button>
-                <span class="st-busy" id="st-b-status"></span>
-              </div>
-              <div id="st-blog-out"></div>
-            </div>
-          </div>
-
-          <!-- 4. SOCIAL -->
-          <div class="st-step locked" id="st-s4">
-            <div class="st-h"><div class="st-n">4</div><div>
-              <h3 class="st-title">Turn it into social posts</h3>
-              <p class="st-hint">Five angles, five hooks, and a 30-second script in your voice &mdash; then the same video goes out on every platform. One recording, seven posts.</p>
-            </div></div>
-            <div class="st-body">
-              <div class="st-row">
-                <button class="btn btn-primary" id="st-gen-social" type="button">Build the social pack</button>
-                <span class="st-busy" id="st-s-status"></span>
-              </div>
-              <div id="st-social-out"></div>
-            </div>
-          </div>
-        </div>
-      </section>
 
       <section class="tab-content" id="reviews-tab">
         <style>

@@ -184,12 +184,12 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // Keep "Explore" highlighted while inside any tool reached through it.
-    const EXPLORE_TABS = ['gsc-tab', 'ai-tab', 'publish-tab', 'aio-tab', 'citations-tab', 'local-tab', 'onsite-tab', 'reviews-tab', 'studio-tab', 'summary-tab', 'grow-tab'];
+    const EXPLORE_TABS = ['gsc-tab', 'ai-tab', 'publish-tab', 'aio-tab', 'citations-tab', 'local-tab', 'onsite-tab', 'reviews-tab', 'summary-tab', 'grow-tab'];
     const navExp = document.getElementById('nav-explore');
     if (navExp && EXPLORE_TABS.includes(tabId)) navExp.classList.add('active');
 
     // Auto-expand the Advanced Tools group when landing on one of its tools.
-    if (['gsc-tab', 'ai-tab', 'publish-tab', 'aio-tab', 'citations-tab', 'local-tab', 'onsite-tab', 'reviews-tab', 'studio-tab'].includes(tabId)) {
+    if (['gsc-tab', 'ai-tab', 'publish-tab', 'aio-tab', 'citations-tab', 'local-tab', 'onsite-tab', 'reviews-tab'].includes(tabId)) {
       const ag = document.getElementById('nav-adv-group'); const at = document.getElementById('nav-adv-toggle');
       if (ag) ag.classList.add('open'); if (at) at.classList.add('open');
     }
@@ -218,10 +218,6 @@ document.addEventListener('DOMContentLoaded', () => {
       if (window.loadPerfDigest) window.loadPerfDigest();
       loadAutopilotDigest();
       loadSummary(); // refresh the KPI / stats / AI-standing / opportunities / content widgets that now live on Reports
-    } else if (tabId === 'studio-tab') {
-      pageTitle.innerText = 'Content Studio';
-      pageSubtitle.innerText = 'Answer one customer question out loud \u2014 get a blog post and a week of social posts out of it';
-      if (window.loadStudio) window.loadStudio();
     } else if (tabId === 'reviews-tab') {
       pageTitle.innerText = 'Reviews Site';
       pageSubtitle.innerText = 'How many reviews are published, how that’s growing, and whether the page is structurally sound';
@@ -460,12 +456,153 @@ document.addEventListener('DOMContentLoaded', () => {
     codeEditor.style.display = 'none';
   }
 
+  // ---------------------------------------------------------------------------
+  // Recording -> transcript. The only way the owner's first-hand expertise gets
+  // into an article; everything else here writes from the model's general
+  // knowledge. Feeds the optional "Your own words" box above.
+  // ---------------------------------------------------------------------------
+  const recDrop = document.getElementById('rec-drop');
+  const recFile = document.getElementById('rec-file');
+  const recStatus = document.getElementById('rec-status');
+
+  function recSay(msg, cls) {
+    if (!recStatus) return;
+    recStatus.className = 'rec-status' + (cls ? ' ' + cls : '');
+    recStatus.textContent = msg || '';
+  }
+
+  async function transcribeFile(file) {
+    if (!file) return;
+    const MAX = 18 * 1048576;
+    if (file.size > MAX) {
+      recSay(`That file is ${(file.size / 1048576).toFixed(1)}MB — the limit is 18MB. Record audio only instead of video, or trim it.`, 'err');
+      return;
+    }
+    recSay(`Transcribing ${file.name} (${(file.size / 1048576).toFixed(1)}MB)… this takes about as long as the recording.`);
+    try {
+      const b64 = await new Promise((resolve, reject) => {
+        const fr = new FileReader();
+        fr.onload = () => resolve(String(fr.result).split(',')[1]);
+        fr.onerror = () => reject(new Error('Could not read that file.'));
+        fr.readAsDataURL(file);
+      });
+      const res = await authFetch('/api/transcribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data: b64, mimeType: file.type }),
+      });
+      const j = await res.json();
+      if (!res.ok || !j.success) throw new Error(j.error || 'Transcription failed.');
+      const ta = document.getElementById('input-transcript');
+      if (ta) ta.value = j.transcript;
+      recSay(`Transcribed — ${j.words} words. Edit it if you like, then generate the article.`, 'ok');
+    } catch (err) {
+      recSay(err.message, 'err');
+    }
+  }
+
+  if (recDrop && recFile) {
+    recDrop.addEventListener('click', () => recFile.click());
+    recFile.addEventListener('change', () => transcribeFile(recFile.files[0]));
+    ['dragenter', 'dragover'].forEach(ev => recDrop.addEventListener(ev, e => {
+      e.preventDefault(); recDrop.classList.add('over');
+    }));
+    ['dragleave', 'drop'].forEach(ev => recDrop.addEventListener(ev, e => {
+      e.preventDefault(); recDrop.classList.remove('over');
+    }));
+    recDrop.addEventListener('drop', e => {
+      if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]) transcribeFile(e.dataTransfer.files[0]);
+    });
+  }
+
+  // Claims the model produced that a human must check. Generated copy has
+  // invented a wrong phone number before now, so this renders above the preview
+  // rather than somewhere the owner has to go looking for it.
+  function renderClaims(claims) {
+    const host = document.getElementById('visual-editor');
+    const old = document.getElementById('claims-box');
+    if (old) old.remove();
+    if (!host || !claims || !claims.length) return;
+    const box = document.createElement('div');
+    box.id = 'claims-box';
+    box.className = 'claims-box';
+    box.innerHTML = '<h4>Check these before publishing</h4><ul>' +
+      claims.map(c => '<li>' + String(c).replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch])) + '</li>').join('') +
+      '</ul>';
+    host.parentNode.insertBefore(box, host);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Social pack. Lives beside the GBP post because that is the other place the
+  // owner produces short posts — GBP covers Google, this covers the rest.
+  // ---------------------------------------------------------------------------
+  const spBtn = document.getElementById('btn-social-pack');
+  const spOut = document.getElementById('sp-out');
+  let spState = { transcript: '', ideaIndex: 1, hookIndex: 1 };
+
+  function spEsc(v) {
+    return String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  async function buildSocialPack(ideaIndex, hookIndex) {
+    const ta = document.getElementById('sp-transcript');
+    const transcript = ta ? ta.value.trim() : '';
+    if (transcript.length < 200) {
+      spOut.innerHTML = '<div class="sp-err">Need a transcript of at least a couple of paragraphs.</div>';
+      return;
+    }
+    spState = { transcript, ideaIndex: ideaIndex || 1, hookIndex: hookIndex || 1 };
+    spBtn.disabled = true;
+    spOut.innerHTML = '<p class="text-muted" style="margin-top:14px;">Working through ideas, hooks and a script…</p>';
+    try {
+      const res = await authFetch('/api/social-pack', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(spState),
+      });
+      const j = await res.json();
+      if (!res.ok || !j.success) throw new Error(j.error || 'Could not build the pack.');
+      renderSocialPack(j);
+    } catch (err) {
+      spOut.innerHTML = '<div class="sp-err">' + spEsc(err.message) + '</div>';
+    } finally {
+      spBtn.disabled = false;
+    }
+  }
+
+  function renderSocialPack(p) {
+    const ideas = (p.ideas || []).map((t, i) =>
+      `<div class="sp-item${i + 1 === p.ideaIndex ? ' sel' : ''}" data-sp-idea="${i + 1}">${spEsc(t)}</div>`).join('');
+    const hooks = (p.hooks || []).map((t, i) =>
+      `<div class="sp-item${i + 1 === p.hookIndex ? ' sel' : ''}" data-sp-hook="${i + 1}">${spEsc(t)}</div>`).join('');
+    const plats = (p.platforms || []).map(t => `<span class="sp-plat" data-sp-plat>${spEsc(t)}</span>`).join('');
+    spOut.innerHTML =
+      `<div class="sp-sec"><h4>Five angles <span class="text-muted" style="font-weight:400;">— tap one to rebuild around it</span></h4>${ideas}</div>` +
+      `<div class="sp-sec"><h4>Five hooks <span class="text-muted" style="font-weight:400;">— tap one to rewrite the script</span></h4>${hooks}</div>` +
+      `<div class="sp-sec"><h4>30-second script</h4><div class="sp-script">${spEsc(p.script)}</div>` +
+      `<div class="sp-plats">${plats}</div>` +
+      `<p class="text-muted" style="font-size:var(--font-xs);margin-top:10px;">Record it once, post the same video to each — tap a platform to tick it off.</p></div>`;
+  }
+
+  if (spBtn) spBtn.addEventListener('click', () => buildSocialPack(1, 1));
+
+  if (spOut) spOut.addEventListener('click', (e) => {
+    const idea = e.target.closest('[data-sp-idea]');
+    if (idea) return buildSocialPack(Number(idea.dataset.spIdea), 1);
+    const hook = e.target.closest('[data-sp-hook]');
+    if (hook) return buildSocialPack(spState.ideaIndex, Number(hook.dataset.spHook));
+    const plat = e.target.closest('[data-sp-plat]');
+    if (plat) plat.classList.toggle('done');
+  });
+
   // Generate Article Trigger
   btnGenerate.addEventListener('click', async () => {
     const keyword = inputKeyword.value.trim();
     const caseStudy = inputCaseStudy.value.trim();
     const ctaText = inputCtaText.value.trim();
     const ctaUrl = inputCtaUrl.value.trim();
+    const transcriptEl = document.getElementById('input-transcript');
+    const transcript = transcriptEl ? transcriptEl.value.trim() : '';
 
     if (!keyword) {
       alert('Please enter a target keyword.');
@@ -483,7 +620,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const res = await authFetch('/api/generate-article', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ keyword, caseStudy, ctaText, ctaUrl })
+        body: JSON.stringify({ keyword, caseStudy, ctaText, ctaUrl, transcript })
       });
 
       const data = await res.json();
@@ -501,6 +638,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // Populate preview panes
       visualEditor.innerHTML = data.content;
       codeEditor.value = data.content;
+      renderClaims(data.claimsToCheck);
 
       // Populate publish hub fields
       deployTitle.value = data.title;
@@ -1236,8 +1374,7 @@ document.addEventListener('DOMContentLoaded', () => {
       { icon: 'table', b: "Searches you're missing", s: 'Where you show up but get no clicks', tab: 'gsc-tab' },
       { icon: 'link', b: 'Where to get listed', s: 'Sites AI pulls from', tab: 'citations-tab' } ] },
     { g: 'Your content', items: [
-      { icon: 'dollar', b: 'Create a post', s: 'Have AI write an article', tab: 'ai-tab' },
-      { icon: 'brief', b: 'Content Studio', s: 'One recording \u2192 a blog post + 7 social posts', tab: 'studio-tab' },
+      { icon: 'dollar', b: 'Create a post', s: 'Write an article — from a keyword, or from your own recording', tab: 'ai-tab' },
       { icon: 'upload', b: 'Publish & index', s: 'Push content live, ask Google to index', tab: 'publish-tab' },
       { icon: 'code', b: 'Site optimization', s: 'Titles, links, schema', tab: 'onsite-tab' } ] },
     { g: 'Your presence', items: [
@@ -3826,255 +3963,5 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
 
-  // ===========================================================================
-  // CONTENT STUDIO — question -> recording -> blog post + social pack
-  // ===========================================================================
-  const studio = { question: null, transcript: '', blog: null, social: null };
-
-  function stEsc(s) {
-    return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  }
-  function stLock() {
-    const q = !!studio.question;
-    const t = studio.transcript.trim().length > 200;
-    document.getElementById('st-s2').classList.toggle('locked', !q);
-    document.getElementById('st-s1').classList.toggle('done', q);
-    document.getElementById('st-s3').classList.toggle('locked', !(q && t));
-    document.getElementById('st-s4').classList.toggle('locked', !(q && t));
-    document.getElementById('st-s2').classList.toggle('done', t);
-    document.getElementById('st-s3').classList.toggle('done', !!studio.blog);
-    document.getElementById('st-s4').classList.toggle('done', !!studio.social);
-  }
-  function stSaveSession() {
-    authFetch('/api/studio/session', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session: studio }),
-    }).catch(() => {});
-  }
-  function stCopyBtn(id, label) { return `<button class="st-copy" data-copy="${id}">${label || 'Copy'}</button>`; }
-
-  document.addEventListener('click', function (e) {
-    const b = e.target.closest && e.target.closest('.st-copy');
-    if (!b) return;
-    const src = document.getElementById(b.getAttribute('data-copy'));
-    if (!src) return;
-    const text = src.value !== undefined ? src.value : src.innerText;
-    navigator.clipboard.writeText(text).then(() => {
-      const old = b.textContent; b.textContent = 'Copied'; setTimeout(() => { b.textContent = old; }, 1400);
-    }).catch(() => {});
-  });
-
-  // ---- step 1: questions ----------------------------------------------------
-  function stPickQuestion(q) {
-    studio.question = q;
-    document.querySelectorAll('#st-q-list .st-q').forEach(el => el.classList.toggle('sel', el.getAttribute('data-q') === q));
-    const custom = document.getElementById('st-q-custom');
-    if (custom && custom.value.trim() !== q) custom.value = '';
-    stLock(); stSaveSession();
-  }
-
-  async function stLoadQuestions() {
-    const status = document.getElementById('st-q-status');
-    const list = document.getElementById('st-q-list');
-    status.textContent = 'Reading your Search Console data…';
-    try {
-      const r = await authFetch('/api/studio/questions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-      const j = await r.json();
-      if (!j.success) throw new Error(j.error || 'failed');
-      status.textContent = j.source === 'live_gsc'
-        ? `From ${j.sampled} real search queries`
-        : 'No Search Console data — these are inferred from your business type';
-      list.innerHTML = j.questions.map(q => `
-        <div class="st-q" data-q="${stEsc(q.question)}">
-          <div class="st-q-t">${stEsc(q.question)}</div>
-          <div class="st-q-m">
-            ${q.impressions ? `<span class="st-tag">${q.impressions} impressions</span>` : ''}
-            ${(q.clicks === 0 && q.impressions) ? '<span class="st-tag">0 clicks</span>' : ''}
-            ${q.basedOn ? `from &ldquo;${stEsc(q.basedOn)}&rdquo; &middot; ` : ''}${stEsc(q.why || '')}
-          </div>
-        </div>`).join('');
-      list.querySelectorAll('.st-q').forEach(el => el.addEventListener('click', () => stPickQuestion(el.getAttribute('data-q'))));
-    } catch (err) {
-      status.textContent = '';
-      list.innerHTML = `<div class="st-err">Couldn’t load questions — ${stEsc(err.message)}</div>`;
-    }
-  }
-
-  // ---- step 2: transcribe ---------------------------------------------------
-  async function stTranscribe(file) {
-    const status = document.getElementById('st-t-status');
-    const MAX = 18 * 1024 * 1024;
-    if (file.size > MAX) {
-      status.innerHTML = `<span class="st-err">That file is ${(file.size / 1048576).toFixed(1)}MB — the limit is 18MB. Record audio only instead of video, or trim it.</span>`;
-      return;
-    }
-    status.textContent = `Transcribing ${file.name} (${(file.size / 1048576).toFixed(1)}MB)… this takes about as long as the recording.`;
-    try {
-      const b64 = await new Promise((res, rej) => {
-        const fr = new FileReader();
-        fr.onload = () => res(String(fr.result).split(',')[1]);
-        fr.onerror = () => rej(new Error('could not read that file'));
-        fr.readAsDataURL(file);
-      });
-      const r = await authFetch('/api/studio/transcribe', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data: b64, mimeType: file.type, filename: file.name }),
-      });
-      const j = await r.json();
-      if (!j.success) throw new Error(j.error || 'failed');
-      document.getElementById('st-transcript').value = j.transcript;
-      studio.transcript = j.transcript;
-      document.getElementById('st-t-words').textContent = `· ${j.words} words`;
-      status.textContent = 'Done — read it over and fix anything it misheard.';
-      stLock(); stSaveSession();
-    } catch (err) {
-      status.innerHTML = `<span class="st-err">${stEsc(err.message)}</span>`;
-    }
-  }
-
-  // ---- step 3: blog ---------------------------------------------------------
-  async function stGenBlog() {
-    const status = document.getElementById('st-b-status');
-    const out = document.getElementById('st-blog-out');
-    status.textContent = 'Writing…';
-    out.innerHTML = '';
-    try {
-      const r = await authFetch('/api/studio/blog', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transcript: studio.transcript, question: studio.question }),
-      });
-      const j = await r.json();
-      if (!j.success) throw new Error(j.error || 'failed');
-      studio.blog = j; status.textContent = '';
-
-      const ck = (ok) => `<div class="st-ck ${ok ? 'ok' : 'no'}">${ok ? '✓' : '!'}</div>`;
-      out.innerHTML = `
-        <div class="st-out">
-          <div class="st-field"><h4>Title tag ${stCopyBtn('st-b-title')}</h4><div class="v" id="st-b-title">${stEsc(j.titleTag)}</div></div>
-          <div class="st-field"><h4>Meta description ${stCopyBtn('st-b-meta')}</h4><div class="v" id="st-b-meta">${stEsc(j.metaDescription)}</div></div>
-          <div class="st-field"><h4>H1</h4><div class="v">${stEsc(j.h1)}</div></div>
-          <div class="st-field"><h4>Slug</h4><div class="v">/${stEsc(j.slug)}</div></div>
-          <div class="st-field"><h4>Post ${stCopyBtn('st-b-html', 'Copy HTML')}</h4>
-            <textarea class="st-ta" id="st-b-html" style="min-height:220px">${stEsc(j.html)}</textarea></div>
-        </div>
-        <div class="st-out">
-          <h4>Is the question actually placed?</h4>
-          <ul class="st-check">
-            <li>${ck(j.placement.titleTag)}<span>Title tag</span></li>
-            <li>${ck(j.placement.metaDescription)}<span>Meta description</span></li>
-            <li>${ck(j.placement.h1)}<span>Heading 1</span></li>
-            <li>${ck(j.placement.body)}<span>In the body copy</span></li>
-          </ul>
-          ${j.placementOk ? '' : '<div class="st-warn">One or more placements are missing. Edit them in before publishing — this is the part the whole technique rests on.</div>'}
-        </div>
-        <div class="st-out">
-          <h4>Internal linking — do this after publishing</h4>
-          <ul class="st-check">${j.internalLinking.map(s => `<li><div class="st-ck i">·</div><span>${stEsc(s)}</span></li>`).join('')}</ul>
-        </div>
-        ${(j.claimsToCheck && j.claimsToCheck.length) ? `<div class="st-out">
-          <h4>Fact-check these before publishing</h4>
-          <ul class="st-check">${j.claimsToCheck.map(c => `<li><div class="st-ck no">!</div><span>${stEsc(c)}</span></li>`).join('')}</ul>
-          <div class="st-warn">This goes out under your name. AI invents numbers — verify every one of these.</div>
-        </div>` : ''}`;
-      stLock(); stSaveSession();
-    } catch (err) {
-      status.innerHTML = `<span class="st-err">${stEsc(err.message)}</span>`;
-    }
-  }
-
-  // ---- step 4: social -------------------------------------------------------
-  async function stGenSocial(ideaIndex, hookIndex) {
-    const status = document.getElementById('st-s-status');
-    const out = document.getElementById('st-social-out');
-    status.textContent = 'Building…';
-    try {
-      const r = await authFetch('/api/studio/social', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transcript: studio.transcript, ideaIndex: ideaIndex || 1, hookIndex: hookIndex || 1 }),
-      });
-      const j = await r.json();
-      if (!j.success) throw new Error(j.error || 'failed');
-      studio.social = j; status.textContent = '';
-
-      out.innerHTML = `
-        <div class="st-out">
-          <h4>Five angles — pick one to rebuild around</h4>
-          <ul class="st-check">${j.ideas.map((s, i) => `<li><div class="st-ck i">${i + 1}</div><span>${stEsc(s)}</span></li>`).join('')}</ul>
-          <div class="st-row" style="margin-top:12px;">
-            <span class="st-meta">Rebuild using angle:</span>
-            ${j.ideas.map((_, i) => `<button class="st-copy" data-idea="${i + 1}">${i + 1}</button>`).join('')}
-          </div>
-        </div>
-        <div class="st-out">
-          <h4>Hooks — the first 3 seconds decide everything</h4>
-          <ul class="st-check">${(j.hooks || []).map((s, i) => `<li><div class="st-ck i">${i + 1}</div><span>${stEsc(s)}</span></li>`).join('')}</ul>
-        </div>
-        <div class="st-out">
-          <h4>Script &middot; ~${j.estimatedSeconds}s, ${j.scriptWords} words ${stCopyBtn('st-s-script')}</h4>
-          <div class="st-script" id="st-s-script">${stEsc(j.script)}</div>
-          <div class="st-warn">Read one line, look up, say it. You don&rsquo;t need it in one take &mdash; edit the pauses out in Instagram&rsquo;s Reel editor, add captions there, then download it before posting anywhere.</div>
-        </div>
-        <div class="st-out">
-          <h4>Post the same video everywhere — tap as you go</h4>
-          <div class="st-pills">${j.platforms.map(p => `<span class="st-pill" data-plat="${stEsc(p)}">${stEsc(p)}</span>`).join('')}</div>
-          <div class="st-meta" style="margin-top:10px;">Seven platforms from one recording. Daily, that&rsquo;s ~196 posts a month.</div>
-        </div>`;
-
-      out.querySelectorAll('.st-pill').forEach(p => p.addEventListener('click', () => p.classList.toggle('on')));
-      out.querySelectorAll('[data-idea]').forEach(b => b.addEventListener('click', () => stGenSocial(Number(b.getAttribute('data-idea')), 1)));
-      stLock(); stSaveSession();
-    } catch (err) {
-      status.innerHTML = `<span class="st-err">${stEsc(err.message)}</span>`;
-    }
-  }
-
-  // ---- wiring ---------------------------------------------------------------
-  function loadStudio() {
-    if (loadStudio._wired) return;
-    loadStudio._wired = true;
-
-    document.getElementById('st-load-q').addEventListener('click', stLoadQuestions);
-    document.getElementById('st-q-custom').addEventListener('input', function () {
-      const v = this.value.trim();
-      if (v.length > 5) { studio.question = v; document.querySelectorAll('#st-q-list .st-q').forEach(el => el.classList.remove('sel')); }
-      else if (!v) { studio.question = null; }
-      stLock();
-    });
-
-    const drop = document.getElementById('st-drop');
-    const file = document.getElementById('st-file');
-    drop.addEventListener('click', () => file.click());
-    file.addEventListener('change', () => { if (file.files[0]) stTranscribe(file.files[0]); });
-    ['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
-    ['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
-    drop.addEventListener('drop', e => { const f = e.dataTransfer.files[0]; if (f) stTranscribe(f); });
-
-    const ta = document.getElementById('st-transcript');
-    ta.addEventListener('input', function () {
-      studio.transcript = this.value;
-      document.getElementById('st-t-words').textContent = this.value.trim() ? `· ${this.value.trim().split(/\s+/).length} words` : '';
-      stLock();
-    });
-    ta.addEventListener('blur', stSaveSession);
-
-    document.getElementById('st-gen-blog').addEventListener('click', stGenBlog);
-    document.getElementById('st-gen-social').addEventListener('click', () => stGenSocial(1, 1));
-
-    // Restore anything in progress — a transcript already cost credits to make.
-    fetch('/api/studio/session').then(r => r.json()).then(j => {
-      const s = j && j.session;
-      if (!s) return;
-      if (s.question) { studio.question = s.question; document.getElementById('st-q-custom').value = s.question; }
-      if (s.transcript) {
-        studio.transcript = s.transcript;
-        document.getElementById('st-transcript').value = s.transcript;
-        document.getElementById('st-t-words').textContent = `· ${s.transcript.trim().split(/\s+/).length} words`;
-      }
-      stLock();
-    }).catch(() => {});
-
-    stLock();
-  }
-  window.loadStudio = loadStudio;
 
 });
