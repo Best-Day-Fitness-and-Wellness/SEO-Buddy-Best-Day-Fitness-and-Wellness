@@ -1396,3 +1396,16 @@ body.light { --focus-ring:rgba(79,70,229,.15); }
 
 /* Comfortable reading width on wide screens (tools only; Today/Explore manage their own) */
 .tab-content:not(#today-tab):not(#explore-tab) { max-width:1160px; }
+
+/* Non-blocking feedback and confirmation UI */
+#ui-toast-host { position:fixed; right:20px; bottom:20px; z-index:3000; display:flex; flex-direction:column; gap:10px; width:min(420px,calc(100vw - 32px)); pointer-events:none; }
+.ui-toast { pointer-events:auto; display:flex; align-items:flex-start; justify-content:space-between; gap:14px; padding:13px 14px; border:1px solid var(--border-color); border-left:4px solid var(--color-primary); border-radius:12px; background:var(--bg-card); color:var(--text-main); box-shadow:var(--shadow-lg); font-size:var(--font-sm); line-height:1.45; animation:fadeIn .18s ease; }
+.ui-toast.ok { border-left-color:var(--color-success); }
+.ui-toast.error { border-left-color:var(--color-danger); }
+.ui-toast button { flex:0 0 auto; border:0; background:transparent; color:var(--text-muted); font-size:20px; line-height:1; cursor:pointer; padding:0 2px; }
+.ui-confirm-overlay { position:fixed; inset:0; z-index:3100; display:grid; place-items:center; padding:20px; background:rgba(2,6,23,.72); backdrop-filter:blur(5px); }
+.ui-confirm { width:min(480px,100%); padding:24px; border:1px solid var(--border-color); border-radius:18px; background:var(--bg-primary); box-shadow:var(--shadow-lg); }
+.ui-confirm h3 { margin:0 0 9px; color:var(--text-main); }
+.ui-confirm p { margin:0 0 22px; color:var(--text-muted); line-height:1.55; }
+.ui-confirm > div { display:flex; justify-content:flex-end; gap:10px; }
+@media(max-width:600px) { #ui-toast-host { right:16px; bottom:16px; } .ui-confirm > div { flex-direction:column-reverse; } .ui-confirm .btn { width:100%; } }

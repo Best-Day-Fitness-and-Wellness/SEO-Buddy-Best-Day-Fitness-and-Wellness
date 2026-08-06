@@ -2,13 +2,19 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const dotenv = require('dotenv');
-const { google } = require('googleapis');
-const { GoogleGenAI } = require('@google/genai');
 const path = require('path');
 const fs = require('fs');
+const dns = require('node:dns').promises;
+const net = require('node:net');
+const crypto = require('node:crypto');
+const { google } = require('googleapis');
+const { GoogleGenAI } = require('@google/genai');
 
-// Load environment variables
-dotenv.config();
+// Load UI-saved settings from the same durable directory used by the JSON
+// stores. Host-provided environment variables still win unless a user
+// explicitly saves a replacement through Settings.
+const CONFIG_DIR = process.env.DATA_DIR || __dirname;
+dotenv.config({ path: path.join(CONFIG_DIR, '.env') });
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -25,7 +31,7 @@ const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
 // folder on every redeploy, so the history/logs/audit JSON files must live on a
 // persistent disk. On Railway: attach a Volume and set DATA_DIR to its mount
 // path (e.g. /data). Defaults to the app folder for local development.
-const DATA_DIR = process.env.DATA_DIR || __dirname;
+const DATA_DIR = CONFIG_DIR;
 try {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 } catch (e) {
@@ -261,6 +267,24 @@ if (ALLOWED_ORIGIN) {
   app.use(cors({ origin: ALLOWED_ORIGIN.split(',').map(s => s.trim()) }));
 }
 
+// Baseline browser hardening without adding another runtime dependency. API
+// responses may contain business history and configuration state, so prevent
+// intermediary/browser caches from retaining them.
+app.disable('x-powered-by');
+app.set('trust proxy', 1);
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), geolocation=(), microphone=(self)');
+  res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
+  if (req.path.startsWith('/api/')) res.setHeader('Cache-Control', 'no-store');
+  if (req.secure || req.get('x-forwarded-proto') === 'https') {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
+  next();
+});
+
 // Recording uploads need far more than the default 100kb. Mounted path-first so
 // every other endpoint keeps the small limit.
 // Mounted path-first so the global limit below still protects every other route.
@@ -298,12 +322,34 @@ app.post('/api/business-profile', requireAuth, (req, res) => {
 // logs a loud startup warning. Provide the password from the client as either
 // an "Authorization: Bearer <password>" header or an "x-admin-token" header.
 // ----------------------------------------------------
+const authFailures = new Map();
 function requireAuth(req, res, next) {
   if (!ADMIN_PASSWORD) return next(); // open mode (no password configured)
+  const now = Date.now();
+  const key = req.ip || req.socket.remoteAddress || 'unknown';
+  const prior = authFailures.get(key);
   const authHeader = req.headers['authorization'] || '';
   const bearer = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
   const token = bearer || (req.headers['x-admin-token'] || '').trim();
-  if (token && token === ADMIN_PASSWORD) return next();
+  const supplied = Buffer.from(token);
+  const expected = Buffer.from(ADMIN_PASSWORD);
+  if (supplied.length === expected.length && crypto.timingSafeEqual(supplied, expected)) {
+    authFailures.delete(key);
+    return next();
+  }
+  if (prior && prior.resetAt > now && prior.count >= 8) {
+    res.setHeader('Retry-After', String(Math.ceil((prior.resetAt - now) / 1000)));
+    return res.status(429).json({ success: false, error: 'Too many incorrect password attempts. Wait a few minutes, then try again.' });
+  }
+  if (prior && prior.resetAt <= now) authFailures.delete(key);
+  const nextFailure = prior && prior.resetAt > now
+    ? { count: prior.count + 1, resetAt: prior.resetAt }
+    : { count: 1, resetAt: now + 15 * 60 * 1000 };
+  if (authFailures.size > 5000) {
+    for (const [address, entry] of authFailures) if (entry.resetAt <= now) authFailures.delete(address);
+    if (authFailures.size > 10000) authFailures.clear();
+  }
+  authFailures.set(key, nextFailure);
   return res.status(401).json({ success: false, error: 'Unauthorized. Enter the admin password in Settings to perform this action.' });
 }
 
@@ -575,6 +621,46 @@ function getGoogleAuth() {
 // Reusable Core Service Helpers
 // ----------------------------------------------------
 
+function escapeHtml(value) {
+  return String(value == null ? '' : value).replace(/[&<>"']/g, ch => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[ch]));
+}
+
+function safeHttpUrl(value, fallback = '') {
+  try {
+    const parsed = new URL(String(value || ''));
+    return ['http:', 'https:'].includes(parsed.protocol) && !parsed.username && !parsed.password ? parsed.toString() : fallback;
+  } catch (e) { return fallback; }
+}
+
+// The article editor intentionally accepts useful formatting, but scripts,
+// event handlers and active embedded content never belong in a blog post.
+function sanitizeArticleHtml(value) {
+  const safeActiveAttribute = (match, name, quote, quotedValue, bareValue) => {
+    const raw = String(quotedValue == null ? bareValue : quotedValue);
+    const decoded = raw
+      .replace(/&#x([0-9a-f]+);?/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+      .replace(/&#(\d+);?/g, (_, dec) => String.fromCharCode(parseInt(dec, 10)))
+      .replace(/&colon;/gi, ':')
+      .replace(/[\u0000-\u0020]+/g, '')
+      .toLowerCase();
+    if (/^(?:javascript|vbscript|data):/.test(decoded)) return '';
+    return quotedValue == null ? ` ${name}=${bareValue}` : ` ${name}=${quote}${quotedValue}${quote}`;
+  };
+  return String(value || '')
+    .replace(/<(script|iframe|object|embed|form|style|svg|math)\b[\s\S]*?<\/\1\s*>/gi, '')
+    .replace(/<(script|iframe|object|embed|form|style|svg|math)\b[^>]*\/?\s*>/gi, '')
+    .replace(/\s(?:on[a-z]+|srcdoc)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+    .replace(/\s(href|src|action|formaction)\s*=\s*(["'])([\s\S]*?)\2/gi, safeActiveAttribute)
+    .replace(/\s(href|src|action|formaction)\s*=\s*([^\s>]+)/gi, (match, name, bareValue) => safeActiveAttribute(match, name, '', null, bareValue))
+    .replace(/\sstyle\s*=\s*(["'])[^"']*(?:expression\s*\(|url\s*\(|@import|javascript:)[^"']*\1/gi, '');
+}
+
+function jsonForHtml(value) {
+  return JSON.stringify(value, null, 2).replace(/</g, '\\u003c');
+}
+
 // 1. Generation Helper
 // `transcript` is optional. When present it is the owner speaking in their own
 // words — the one input a competitor cannot copy and the strongest source of
@@ -661,6 +747,7 @@ Return the HTML directly. Do not include markdown block markers like \`\`\`html.
         claimsToCheck = claimsMatch[1].split('|').map(c => c.trim()).filter(Boolean);
         htmlContent = htmlContent.replace(claimsMatch[0], '').trim();
       }
+      htmlContent = sanitizeArticleHtml(htmlContent);
 
       return {
         success: true,
@@ -681,12 +768,16 @@ Return the HTML directly. Do not include markdown block markers like \`\`\`html.
   }
 
   // Mock Fallback
+  const safeKeyword = escapeHtml(keyword);
+  const safeCaseStudy = escapeHtml(caseStudy || 'We helped a local client recover balance and core stability, eliminating their fear of falling.');
+  const safeCtaText = escapeHtml(ctaText || 'Claim Free Consultation');
+  const safeCtaUrl = escapeHtml(safeHttpUrl(ctaUrl, '#'));
   const title = `The Ultimate Guide to ${keyword.charAt(0).toUpperCase() + keyword.slice(1)} | Best Day Fitness`;
   const slug = keyword.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
   const mockHtml = `<div class="seo-article-content">
-  <h1>The Ultimate Guide to ${keyword.charAt(0).toUpperCase() + keyword.slice(1)}</h1>
-  <p>At <strong>Best Day Fitness</strong> in St. Petersburg, Florida, we believe in functional movement that extends healthspan. This guide explores targeting <strong>${keyword}</strong> to improve mobility and posture.</p>
-  <h2>Why ${keyword.charAt(0).toUpperCase() + keyword.slice(1)} Matters</h2>
+  <h1>The Ultimate Guide to ${safeKeyword.charAt(0).toUpperCase() + safeKeyword.slice(1)}</h1>
+  <p>At <strong>Best Day Fitness</strong> in St. Petersburg, Florida, we believe in functional movement that extends healthspan. This guide explores targeting <strong>${safeKeyword}</strong> to improve mobility and posture.</p>
+  <h2>Why ${safeKeyword.charAt(0).toUpperCase() + safeKeyword.slice(1)} Matters</h2>
   <p>Our formula: Energy = Mobility + Posture + Strength helps seniors stay active and pain-free.</p>
   <h3>Key Benefits</h3>
   <ul>
@@ -697,11 +788,11 @@ Return the HTML directly. Do not include markdown block markers like \`\`\`html.
   <h2>Case Study</h2>
   <div class="case-study-box">
     <h4>Success Story</h4>
-    <p>${caseStudy || "We helped a local client recover balance and core stability, eliminating their fear of falling."}</p>
+    <p>${safeCaseStudy}</p>
   </div>
   <div class="cta-section">
     <p>Get started on your custom program today.</p>
-    <a href="${ctaUrl || '#'}" class="article-cta-btn">${ctaText || 'Claim Free Consultation'}</a>
+    <a href="${safeCtaUrl}" class="article-cta-btn">${safeCtaText}</a>
   </div>
   <h2>Frequently Asked Questions</h2>
   <div class="faq-item">
@@ -735,11 +826,11 @@ async function publishGhlHelper(title, content, status, config = {}) {
   const authorName = config.authorName || process.env.GHL_AUTHOR_NAME || '';
   const authorUrl = config.authorUrl || process.env.GHL_AUTHOR_URL || '';
 
-  let baseDomain = siteUrl.trim();
+  let baseDomain = String(siteUrl || '').trim();
   if (baseDomain.startsWith('sc-domain:')) {
     baseDomain = 'https://' + baseDomain.substring(10);
   }
-  baseDomain = baseDomain.replace(/\/$/, '');
+  baseDomain = (safeHttpUrl(baseDomain, 'https://bestdayfitness.com') || 'https://bestdayfitness.com').replace(/\/$/, '');
   
   const cleanPrefix = blogPrefix.startsWith('/') ? blogPrefix : `/${blogPrefix}`;
   const formattedPrefix = cleanPrefix.endsWith('/') ? cleanPrefix.slice(0, -1) : cleanPrefix;
@@ -747,7 +838,7 @@ async function publishGhlHelper(title, content, status, config = {}) {
   const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 
   // 1. Resolve Internal Links
-  let resolvedContent = content;
+  let resolvedContent = sanitizeArticleHtml(content);
   const linkRegex = /\[Link:\s*([^\]]+)\]/gi;
   resolvedContent = resolvedContent.replace(linkRegex, (match, p1) => {
     const term = p1.trim().toLowerCase();
@@ -758,9 +849,9 @@ async function publishGhlHelper(title, content, status, config = {}) {
       term.includes(h.keyword.toLowerCase())
     );
     if (matchedPost) {
-      return `<a href="${matchedPost.url}" class="internal-link" style="color: #1a73e8; text-decoration: underline;">${p1.trim()}</a>`;
+      return `<a href="${escapeHtml(safeHttpUrl(matchedPost.url, `${baseDomain}${formattedPrefix}`))}" class="internal-link" style="color: #1a73e8; text-decoration: underline;">${escapeHtml(p1.trim())}</a>`;
     }
-    return `<a href="${baseDomain}${formattedPrefix}" class="internal-link" style="color: #1a73e8; text-decoration: underline;">${p1.trim()}</a>`;
+    return `<a href="${escapeHtml(baseDomain + formattedPrefix)}" class="internal-link" style="color: #1a73e8; text-decoration: underline;">${escapeHtml(p1.trim())}</a>`;
   });
 
   // 2. Extract and Build FAQ Page Schema
@@ -790,12 +881,12 @@ async function publishGhlHelper(title, content, status, config = {}) {
         }
       }))
     };
-    schemaScripts += `\n<script type="application/ld+json">\n${JSON.stringify(faqSchema, null, 2)}\n</script>`;
+    schemaScripts += `\n<script type="application/ld+json">\n${jsonForHtml(faqSchema)}\n</script>`;
   }
 
   // 3. Build LocalBusiness Schema (shared builder — real NAP)
   const localBusinessSchema = buildLocalBusinessSchema(baseDomain);
-  schemaScripts += `\n<script type="application/ld+json">\n${JSON.stringify(localBusinessSchema, null, 2)}\n</script>`;
+  schemaScripts += `\n<script type="application/ld+json">\n${jsonForHtml(localBusinessSchema)}\n</script>`;
 
   // 4. Build Author Schema and visual box
   if (authorName) {
@@ -819,16 +910,16 @@ async function publishGhlHelper(title, content, status, config = {}) {
         }
       }
     };
-    schemaScripts += `\n<script type="application/ld+json">\n${JSON.stringify(authorSchema, null, 2)}\n</script>`;
+    schemaScripts += `\n<script type="application/ld+json">\n${jsonForHtml(authorSchema)}\n</script>`;
 
     // Add E-E-A-T trust bio block
     let authorHtml = `\n<div class="article-author-card" style="margin-top: 40px; padding: 20px; border-top: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.01); border-radius: 8px; display: flex; align-items: center; gap: 15px;">`;
     authorHtml += `<div class="author-info">`;
     authorHtml += `<span style="font-size: 11px; text-transform: uppercase; color: #888; letter-spacing: 0.5px; display: block; margin-bottom: 4px;">Published By Expert Coach</span>`;
     if (authorUrl) {
-      authorHtml += `<a href="${authorUrl}" target="_blank" style="font-size: 16px; font-weight: bold; color: #1a73e8; text-decoration: none;">${authorName}</a>`;
+      authorHtml += `<a href="${escapeHtml(safeHttpUrl(authorUrl, baseDomain))}" target="_blank" rel="noopener noreferrer" style="font-size: 16px; font-weight: bold; color: #1a73e8; text-decoration: none;">${escapeHtml(authorName)}</a>`;
     } else {
-      authorHtml += `<strong style="font-size: 16px; font-weight: bold; color: #fff;">${authorName}</strong>`;
+      authorHtml += `<strong style="font-size: 16px; font-weight: bold; color: #fff;">${escapeHtml(authorName)}</strong>`;
     }
     authorHtml += `<p style="font-size: 13px; color: #aaa; margin: 6px 0 0 0; line-height: 1.4;">Certified longevity, mobility, and functional movement specialist at Best Day Fitness.</p>`;
     authorHtml += `</div></div>`;
@@ -839,9 +930,9 @@ async function publishGhlHelper(title, content, status, config = {}) {
   // so Google discovers/indexes it (and AI due-diligence can find it). This is
   // the "link to your reviews site from your own website" step. Configurable per
   // location via REVIEWS_URL; defaults to Best Day's reviews site.
-  const reviewsUrl = process.env.REVIEWS_URL || 'https://bestdayfitnessreviews.com';
+  const reviewsUrl = safeHttpUrl(process.env.REVIEWS_URL || 'https://bestdayfitnessreviews.com');
   if (reviewsUrl) {
-    resolvedContent += `\n<p style="margin-top: 28px; font-size: 15px;">Curious what our clients say? <a href="${reviewsUrl}" style="color: #1a73e8; text-decoration: underline;">Read ${BUSINESS.name} reviews</a>.</p>`;
+    resolvedContent += `\n<p style="margin-top: 28px; font-size: 15px;">Curious what our clients say? <a href="${escapeHtml(reviewsUrl)}" style="color: #1a73e8; text-decoration: underline;">Read ${escapeHtml(BUSINESS.name)} reviews</a>.</p>`;
   }
 
   // Append schemas
@@ -1185,48 +1276,87 @@ function startAutopilotScheduler() {
 
 // 0. Save Configuration Settings
 app.post('/api/save-settings', requireAuth, (req, res) => {
-  const { geminiKey, openaiKey, perplexityKey, ghlToken, ghlLocation, ghlBlog, siteUrl, blogPrefix, authorName, authorUrl, gscJson } = req.body;
+  const { geminiKey, openaiKey, perplexityKey, ghlToken, ghlLocation, ghlBlog, siteUrl, blogPrefix, authorName, authorUrl, gscJson } = req.body || {};
 
   try {
-    let envContent = '';
+    const clean = (value, max = 10000) => typeof value === 'string' ? value.trim().slice(0, max) : '';
+    const saved = {};
+    const preserve = [
+      'GEMINI_API_KEY', 'OPENAI_API_KEY', 'PERPLEXITY_API_KEY',
+      'GHL_ACCESS_TOKEN', 'GHL_LOCATION_ID', 'GHL_BLOG_ID',
+      'GSC_SITE_URL', 'GHL_BLOG_PATH_PREFIX', 'GHL_AUTHOR_NAME',
+      'GHL_AUTHOR_URL', 'GOOGLE_APPLICATION_CREDENTIALS'
+    ];
+    for (const key of preserve) if (process.env[key]) saved[key] = process.env[key];
+
+    const replacements = {
+      GEMINI_API_KEY: clean(geminiKey),
+      OPENAI_API_KEY: clean(openaiKey),
+      PERPLEXITY_API_KEY: clean(perplexityKey),
+      GHL_ACCESS_TOKEN: clean(ghlToken),
+      GHL_LOCATION_ID: clean(ghlLocation, 500),
+      GHL_BLOG_ID: clean(ghlBlog, 500),
+      GSC_SITE_URL: clean(siteUrl, 2000),
+      GHL_BLOG_PATH_PREFIX: clean(blogPrefix, 500),
+      GHL_AUTHOR_NAME: clean(authorName, 500),
+      GHL_AUTHOR_URL: clean(authorUrl, 2000),
+    };
+    for (const [key, value] of Object.entries(replacements)) if (value) saved[key] = value;
+
+    if (saved.GSC_SITE_URL) {
+      if (saved.GSC_SITE_URL.startsWith('sc-domain:')) {
+        if (!/^sc-domain:[a-z0-9.-]+$/i.test(saved.GSC_SITE_URL)) {
+          return res.status(400).json({ success: false, error: 'Search Console domain properties must look like sc-domain:example.com.' });
+        }
+      } else {
+        let parsed;
+        try { parsed = new URL(saved.GSC_SITE_URL); } catch (e) { /* handled below */ }
+        if (!parsed || !['http:', 'https:'].includes(parsed.protocol)) {
+          return res.status(400).json({ success: false, error: 'The site URL must start with http:// or https://.' });
+        }
+      }
+    }
+    if (saved.GHL_BLOG_PATH_PREFIX && !saved.GHL_BLOG_PATH_PREFIX.startsWith('/')) {
+      saved.GHL_BLOG_PATH_PREFIX = '/' + saved.GHL_BLOG_PATH_PREFIX;
+    }
+    if (saved.GHL_AUTHOR_URL) {
+      let parsed;
+      try { parsed = new URL(saved.GHL_AUTHOR_URL); } catch (e) { /* handled below */ }
+      if (!parsed || !['http:', 'https:'].includes(parsed.protocol)) {
+        return res.status(400).json({ success: false, error: 'The author URL must start with http:// or https://.' });
+      }
+    }
     
     // Write service account file if gscJson is provided
-    if (gscJson && gscJson.trim() !== '') {
+    if (clean(gscJson, 2 * 1024 * 1024)) {
       try {
-        // Validate JSON
-        JSON.parse(gscJson);
-        const credentialsPath = path.join(__dirname, 'google-creations.json');
-        fs.writeFileSync(credentialsPath, gscJson);
-        envContent += `GOOGLE_APPLICATION_CREDENTIALS=google-creations.json\n`;
+        const credentials = JSON.parse(gscJson);
+        if (!credentials || typeof credentials !== 'object' || !credentials.client_email || !credentials.private_key) {
+          return res.status(400).json({ success: false, error: 'The Google credentials JSON is missing client_email or private_key.' });
+        }
+        const credentialsPath = path.join(DATA_DIR, 'google-creations.json');
+        fs.writeFileSync(credentialsPath, JSON.stringify(credentials), { encoding: 'utf8', mode: 0o600 });
+        try { fs.chmodSync(credentialsPath, 0o600); } catch (e) { /* Windows ignores POSIX modes */ }
+        saved.GOOGLE_APPLICATION_CREDENTIALS = credentialsPath;
       } catch (jsonErr) {
         console.error('[Settings] Invalid GSC JSON key:', jsonErr.message);
-      }
-    } else {
-      // If GOOGLE_APPLICATION_CREDENTIALS was set in the environment or file exists, keep it
-      if (fs.existsSync(path.join(__dirname, 'google-creations.json'))) {
-        envContent += `GOOGLE_APPLICATION_CREDENTIALS=google-creations.json\n`;
+        return res.status(400).json({ success: false, error: 'The Google credentials field must contain valid service-account JSON.' });
       }
     }
 
-    if (geminiKey) envContent += `GEMINI_API_KEY=${geminiKey}\n`;
-    // Optional multi-engine keys. Preserve an existing value when the field is left blank
-    // so saving other settings never silently drops a key that was already set.
-    const openaiFinal = openaiKey || process.env.OPENAI_API_KEY;
-    if (openaiFinal) envContent += `OPENAI_API_KEY=${openaiFinal}\n`;
-    const perplexityFinal = perplexityKey || process.env.PERPLEXITY_API_KEY;
-    if (perplexityFinal) envContent += `PERPLEXITY_API_KEY=${perplexityFinal}\n`;
-    if (ghlToken) envContent += `GHL_ACCESS_TOKEN=${ghlToken}\n`;
-    if (ghlLocation) envContent += `GHL_LOCATION_ID=${ghlLocation}\n`;
-    if (ghlBlog) envContent += `GHL_BLOG_ID=${ghlBlog}\n`;
-    if (siteUrl) envContent += `GSC_SITE_URL=${siteUrl}\n`;
-    if (blogPrefix) envContent += `GHL_BLOG_PATH_PREFIX=${blogPrefix}\n`;
-    if (authorName) envContent += `GHL_AUTHOR_NAME=${authorName}\n`;
-    if (authorUrl) envContent += `GHL_AUTHOR_URL=${authorUrl}\n`;
-
-    fs.writeFileSync(path.join(__dirname, '.env'), envContent);
+    // JSON quoting prevents line breaks in a pasted key/name from injecting a
+    // second environment variable. Keep this file on DATA_DIR so Railway
+    // volume-backed settings survive a deploy.
+    const envContent = Object.entries(saved)
+      .filter(([, value]) => value != null && String(value) !== '')
+      .map(([key, value]) => `${key}=${JSON.stringify(String(value))}`)
+      .join('\n') + '\n';
+    const settingsPath = path.join(DATA_DIR, '.env');
+    fs.writeFileSync(settingsPath, envContent, { encoding: 'utf8', mode: 0o600 });
+    try { fs.chmodSync(settingsPath, 0o600); } catch (e) { /* Windows ignores POSIX modes */ }
     
     // Reload dotenv
-    dotenv.config({ override: true });
+    dotenv.config({ path: settingsPath, override: true });
     
     // Re-initialize Gemini client if key is loaded
     if (process.env.GEMINI_API_KEY) {
@@ -1240,7 +1370,10 @@ app.post('/api/save-settings', requireAuth, (req, res) => {
 
     return res.json({
       success: true,
-      message: 'Configuration saved to server .env file and active environment.'
+      persistent: !!process.env.DATA_DIR,
+      message: process.env.DATA_DIR
+        ? 'Configuration saved to the persistent server volume and activated.'
+        : 'Configuration activated. Set DATA_DIR to a persistent volume before production so it survives redeploys.'
     });
   } catch (err) {
     console.error('[Settings] Failed to save server settings:', err.message);
@@ -1299,8 +1432,14 @@ app.get('/api/gsc-data', async (req, res) => {
 
 // 2. Generate Article Endpoint
 app.post('/api/generate-article', requireAuth, async (req, res) => {
-  const { keyword, caseStudy, ctaText, ctaUrl, transcript } = req.body;
+  const body = req.body || {};
+  const keyword = String(body.keyword || '').trim().slice(0, 300);
+  const caseStudy = String(body.caseStudy || '').trim().slice(0, 10000);
+  const ctaText = String(body.ctaText || '').trim().slice(0, 300);
+  const ctaUrl = String(body.ctaUrl || '').trim().slice(0, 2000);
+  const transcript = String(body.transcript || '').trim().slice(0, 60000);
   if (!keyword) return res.status(400).json({ error: 'Keyword is required' });
+  if (ctaUrl && !safeHttpUrl(ctaUrl)) return res.status(400).json({ error: 'CTA URL must start with http:// or https://.' });
   if (usageOverBudget()) return budgetBlock(res);
 
   try {
@@ -1314,15 +1453,24 @@ app.post('/api/generate-article', requireAuth, async (req, res) => {
 
 // 3. Publish to GoHighLevel
 app.post('/api/publish-ghl', requireAuth, async (req, res) => {
-  const { title, content, status, locationId, accessToken, blogId } = req.body;
+  const body = req.body || {};
+  const title = String(body.title || '').trim().slice(0, 300);
+  const content = sanitizeArticleHtml(String(body.content || '').slice(0, 2 * 1024 * 1024));
+  const status = ['draft', 'published'].includes(String(body.status || '').toLowerCase())
+    ? String(body.status).toLowerCase()
+    : 'draft';
+  if (!title) return res.status(400).json({ success: false, error: 'A title is required.' });
+  if (!content.trim()) return res.status(400).json({ success: false, error: 'Article content is required.' });
 
   try {
-    const data = await publishGhlHelper(title, content, status, { locationId, accessToken, blogId });
+    // Credentials and destination IDs come only from server-side settings.
+    // Never accept secret or routing overrides from a browser request.
+    const data = await publishGhlHelper(title, content, status);
     
     // Save to history list
     const historyEntry = {
       title,
-      keyword: req.body.keyword || 'Manual Entry',
+      keyword: String(body.keyword || 'Manual Entry').slice(0, 300),
       platform: data.source === 'mock_ghl' ? 'GHL (Mock Manual)' : `GoHighLevel (${status})`,
       date: new Date().toISOString().split('T')[0],
       indexed: 'Indexing Available',
@@ -1343,8 +1491,16 @@ app.post('/api/publish-ghl', requireAuth, async (req, res) => {
 
 // 4. Request Google Indexing
 app.post('/api/index-url', requireAuth, async (req, res) => {
-  const { url } = req.body;
-  if (!url) return res.status(400).json({ error: 'URL is required' });
+  const url = safeHttpUrl(req.body && req.body.url);
+  if (!url) return res.status(400).json({ error: 'A valid http:// or https:// URL is required.' });
+  const configured = String(process.env.GSC_SITE_URL || '').trim();
+  if (configured) {
+    const target = new URL(url);
+    const allowed = configured.startsWith('sc-domain:')
+      ? (target.hostname === configured.slice(10) || target.hostname.endsWith('.' + configured.slice(10)))
+      : url.startsWith(configured);
+    if (!allowed) return res.status(400).json({ error: 'The indexing URL must belong to the configured Search Console property.' });
+  }
 
   try {
     const data = await indexUrlHelper(url);
@@ -2675,8 +2831,114 @@ function parseGeminiJson(text) {
   try { return JSON.parse(raw); } catch (e) { return null; }
 }
 
+function isBlockedAddress(address) {
+  const value = String(address || '').toLowerCase().split('%')[0];
+  if (net.isIP(value) === 4) {
+    const p = value.split('.').map(Number);
+    return p[0] === 0 || p[0] === 10 || p[0] === 127 || p[0] >= 224
+      || (p[0] === 100 && p[1] >= 64 && p[1] <= 127)
+      || (p[0] === 169 && p[1] === 254)
+      || (p[0] === 172 && p[1] >= 16 && p[1] <= 31)
+      || (p[0] === 192 && (p[1] === 0 || p[1] === 168))
+      || (p[0] === 198 && (p[1] === 18 || p[1] === 19))
+      || (p[0] === 198 && p[1] === 51 && p[2] === 100)
+      || (p[0] === 203 && p[1] === 0 && p[2] === 113);
+  }
+  if (net.isIP(value) === 6) {
+    if (value.startsWith('::ffff:')) return isBlockedAddress(value.slice(7));
+    return value === '::' || value === '::1' || value.startsWith('fe8') || value.startsWith('fe9')
+      || value.startsWith('fea') || value.startsWith('feb') || value.startsWith('fc')
+      || value.startsWith('fd') || value.startsWith('ff') || value.startsWith('2001:db8:');
+  }
+  return true;
+}
+
+async function assertPublicHttpUrl(value) {
+  let parsed;
+  try { parsed = new URL(value); } catch (e) { throw new Error('Enter a valid public page URL.'); }
+  if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) {
+    throw new Error('Only public http:// or https:// page URLs are supported.');
+  }
+  if (parsed.port && !['80', '443'].includes(parsed.port)) {
+    throw new Error('Only standard public website ports (80 and 443) are supported.');
+  }
+  const host = parsed.hostname.toLowerCase().replace(/\.$/, '');
+  if (!host || host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') || host.endsWith('.internal')) {
+    throw new Error('Private or local network addresses cannot be scanned.');
+  }
+  if (net.isIP(host)) {
+    if (isBlockedAddress(host)) throw new Error('Private or reserved network addresses cannot be scanned.');
+  } else {
+    let records;
+    try { records = await dns.lookup(host, { all: true, verbatim: true }); }
+    catch (e) { throw new Error('That hostname could not be resolved.'); }
+    if (!records.length || records.some(record => isBlockedAddress(record.address))) {
+      throw new Error('That hostname resolves to a private or reserved network address.');
+    }
+  }
+  return parsed;
+}
+
+async function fetchPublicHtml(value, maxBytes = 2 * 1024 * 1024) {
+  let current = value;
+  for (let redirects = 0; redirects <= 4; redirects++) {
+    const parsed = await assertPublicHttpUrl(current);
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 12000);
+    let response;
+    try {
+      response = await fetch(parsed, {
+        redirect: 'manual',
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; SEOBuddyBot/1.0)' },
+        signal: ctrl.signal,
+      });
+      if ([301, 302, 303, 307, 308].includes(response.status)) {
+        const location = response.headers.get('location');
+        if (!location) throw new Error('The page redirected without a destination.');
+        if (response.body) await response.body.cancel();
+        current = new URL(location, parsed).toString();
+        continue;
+      }
+      if (!response.ok) return { response, html: '', url: parsed.toString() };
+      const declared = Number(response.headers.get('content-length') || 0);
+      if (declared > maxBytes) throw new Error('That page is too large to scan safely (2 MB limit).');
+      const reader = response.body && response.body.getReader ? response.body.getReader() : null;
+      if (!reader) {
+        const html = await response.text();
+        if (Buffer.byteLength(html) > maxBytes) throw new Error('That page is too large to scan safely (2 MB limit).');
+        return { response, html, url: parsed.toString() };
+      }
+      const chunks = [];
+      let total = 0;
+      while (true) {
+        const { done, value: chunk } = await reader.read();
+        if (done) break;
+        total += chunk.byteLength;
+        if (total > maxBytes) {
+          await reader.cancel();
+          throw new Error('That page is too large to scan safely (2 MB limit).');
+        }
+        chunks.push(Buffer.from(chunk));
+      }
+      return { response, html: Buffer.concat(chunks).toString('utf8'), url: parsed.toString() };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  throw new Error('That page redirected too many times.');
+}
+
 app.post('/api/onsite', requireAuth, async (req, res) => {
   const { tool, seed, keyword, currentTitle, url, query } = req.body || {};
+  const allowedTools = new Set(['keywords', 'titlemeta', 'links', 'fanout', 'aeoReadiness']);
+  if (!allowedTools.has(tool)) return res.status(400).json({ success: false, error: 'Unknown tool.' });
+  if (tool === 'aeoReadiness') {
+    let candidate = String(url || '').trim();
+    if (!candidate) return res.status(400).json({ success: false, error: 'Enter a page URL to check.' });
+    if (!/^https?:\/\//i.test(candidate)) candidate = 'https://' + candidate;
+    try { await assertPublicHttpUrl(candidate); }
+    catch (e) { return res.status(400).json({ success: false, error: e.message, data: { fetchError: e.message } }); }
+  }
   const geminiKey = process.env.GEMINI_API_KEY;
   if (!geminiKey) {
     return res.json({ success: true, unavailable: true, message: 'Add your Gemini API key in Settings to use the on-site tools.' });
@@ -2721,17 +2983,17 @@ app.post('/api/onsite', requireAuth, async (req, res) => {
       if (!target) return res.status(400).json({ error: 'Enter a page URL to check.' });
       if (!/^https?:\/\//i.test(target)) target = 'https://' + target;
 
-      // Fetch the live page HTML (public pages only).
+      // Fetch public page HTML only. Validate every redirect and cap the body
+      // so this tool cannot reach cloud metadata/private services or consume
+      // unbounded memory from a hostile URL.
       let html = '';
       try {
-        const ctrl = new AbortController();
-        const timer = setTimeout(() => ctrl.abort(), 12000);
-        const resp = await fetch(target, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; SEOBuddyBot/1.0)' }, signal: ctrl.signal });
-        clearTimeout(timer);
-        if (!resp.ok) return res.json({ success: true, data: { fetchError: `Couldn't load that page (HTTP ${resp.status}). Double-check the URL is public and correct.` } });
-        html = await resp.text();
+        const fetched = await fetchPublicHtml(target);
+        if (!fetched.response.ok) return res.json({ success: true, data: { fetchError: `Couldn't load that page (HTTP ${fetched.response.status}). Double-check the URL is public and correct.` } });
+        html = fetched.html;
+        target = fetched.url;
       } catch (e) {
-        return res.json({ success: true, data: { fetchError: `Couldn't load that page: ${e.message}. Make sure it's a public URL.` } });
+        return res.status(400).json({ success: false, error: e.message, data: { fetchError: e.message } });
       }
 
       // Extract title, H1–H3 headings, and a body-text excerpt for the auditor.
@@ -4335,9 +4597,20 @@ async function computeReviewsStats() {
   };
 }
 
+let reviewsStatsCache = null;
+let reviewsStatsPromise = null;
 app.get('/api/reviews-stats', async (req, res) => {
   try {
-    res.json({ success: true, ...(await computeReviewsStats()) });
+    const fresh = reviewsStatsCache && Date.now() - reviewsStatsCache.cachedAt < 5 * 60 * 1000;
+    if (!fresh) {
+      if (!reviewsStatsPromise) {
+        reviewsStatsPromise = computeReviewsStats()
+          .then(data => (reviewsStatsCache = { cachedAt: Date.now(), data }, data))
+          .finally(() => { reviewsStatsPromise = null; });
+      }
+      await reviewsStatsPromise;
+    }
+    res.json({ success: true, ...reviewsStatsCache.data });
   } catch (e) {
     console.error('[Reviews] stats failed:', e.message);
     res.status(500).json({ success: false, error: e.message });

@@ -109,6 +109,12 @@ npm start
 
 The dashboard boots in **Mock Mode** so you can explore every tab before connecting live services.
 
+Requires **Node.js 20 or newer**. Run the isolated route/security suite with:
+
+```bash
+npm test
+```
+
 ---
 
 ## Configuration (environment variables)
@@ -203,7 +209,8 @@ Requires **approved Business Profile API access** from Google. Once granted, aut
 ## Security
 
 - **Always set `ADMIN_PASSWORD` in production.** When set, the sensitive endpoints (any that write data, publish, or spend Gemini) require it; read‑only data views stay open so dashboards load without a password.
-- The dashboard sends the password as a Bearer token; enter it once in **Settings → Admin Password**.
+- The dashboard sends the password as a Bearer token. It is kept only for the current browser-tab session, not in persistent browser storage.
+- API keys entered in Settings are sent once to the server, cleared from the form after a successful save, and never retained in browser local storage. With `DATA_DIR` configured, the server stores its settings file and Google service-account file on that persistent volume with restricted file permissions.
 - If `ADMIN_PASSWORD` is unset, the server logs a startup warning and those endpoints are open — fine for local dev, not for public hosting.
 - Restrict cross‑origin access with `ALLOWED_ORIGIN` if needed.
 
@@ -214,7 +221,7 @@ Requires **approved Business Profile API access** from Google. Once granted, aut
 The app auto‑deploys from the GitHub `main` branch.
 
 1. Set the environment variables above in the service's **Variables**.
-2. **Attach a Volume** and set `DATA_DIR` to its mount path (e.g. `/data`). **Important:** container filesystems are wiped on every redeploy, so without a volume your Optimization Score history, audits, published‑content list, autopilot state, and Performance snapshots reset each deploy. On startup the server logs `💾 Data dir: … (persistent)` when a volume is configured.
+2. **Attach a Volume** and set `DATA_DIR` to its mount path (e.g. `/data`). **Important:** container filesystems are wiped on every redeploy, so without a volume your Optimization Score history, audits, published‑content list, autopilot state, Performance snapshots, and settings entered through the UI reset each deploy. On startup the server logs `💾 Data dir: … (persistent)` when a volume is configured.
 3. Set `ADMIN_PASSWORD` and enter the same value in Settings → Admin Password.
 
 Deploying by hand (GitHub web upload): the whole app is one bundle — `server.js` at the repo **root**, and `app.js` / `index.html` / `style.css` under **`public/`**.
@@ -361,8 +368,10 @@ State is stored as flat JSON in `DATA_DIR`:
 | `performance-digest.json` | Saved weekly digests + settings. |
 | `business-profile.json` | Business identity (name/address/phone/socials). |
 | `brand-profile.json` | Brand voice: tone, style rules, signature phrases, never‑use list, positioning, keywords, CTA. |
+| `.env` | Integration settings saved through the UI (server-side only). |
+| `google-creations.json` | Google service-account credentials saved through the UI (server-side only). |
 
-Point `DATA_DIR` at a persistent volume in production so this data survives redeploys. *(The GSC service‑account key saved from Settings is written separately as `google-creations.json` in the app folder.)*
+Point `DATA_DIR` at a persistent volume in production so this data survives redeploys.
 
 ---
 
