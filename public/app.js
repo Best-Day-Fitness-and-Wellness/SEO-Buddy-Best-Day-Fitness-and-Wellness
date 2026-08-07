@@ -479,7 +479,7 @@ document.addEventListener('DOMContentLoaded', () => {
         : `<span class="status-badge clean">Ranking</span>`;
 
       const actionBtn = row.leak
-        ? `<button class="btn btn-primary btn-xs btn-gen-trigger" data-query="${uiEsc(row.query)}">Generate Page</button><button class="btn btn-secondary btn-xs btn-fanout-trigger" data-query="${uiEsc(row.query)}" title="See the questions a citable page should answer">&#10067; Questions</button>`
+        ? `<button class="btn btn-secondary btn-xs btn-gen-trigger" data-query="${uiEsc(row.query)}">Generate Page</button><button class="btn btn-secondary btn-xs btn-fanout-trigger" data-query="${uiEsc(row.query)}" title="See the questions a citable page should answer">&#10067; Questions</button>`
         : `<button class="btn btn-secondary btn-xs" disabled>Optimized</button>`;
 
       tr.innerHTML = `
@@ -1054,7 +1054,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const [mv, dg, hs] = await Promise.all([
         fetch('/api/next-moves').then(r => r.json()).catch(() => ({ moves: [] })),
         fetch('/api/autopilot-digest').then(r => r.json()).catch(() => ({ items: [] })),
-        fetch('/api/health-score').then(r => r.json()).catch(() => null),
+        fetch('/api/health-score').then(r => r.json()).catch(() => null)
       ]);
       const moves = (mv.moves || []);
       const tasks = moves.filter(m => m.capability !== 'blocked');
@@ -1182,7 +1182,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const [pf, rv, hs] = await Promise.all([
         fetch('/api/performance').then(r => r.json()).catch(() => null),
         fetch('/api/reviews-stats').then(r => r.json()).catch(() => null),
-        fetch('/api/health-score').then(r => r.json()).catch(() => null),
+        fetch('/api/health-score').then(r => r.json()).catch(() => null)
       ]);
       if (!pf || !pf.current) {
         // Distinguish "never connected" from "connected, but this fetch didn't
@@ -1256,7 +1256,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const [bp, br, rd] = await Promise.all([
         fetch('/api/business-profile').then(r => r.json()).catch(() => null),
         fetch('/api/brand-profile').then(r => r.json()).catch(() => null),
-        fetch('/api/deploy-readiness').then(r => r.json()).catch(() => null),
+        fetch('/api/deploy-readiness').then(r => r.json()).catch(() => null)
       ]);
       const b = (bp && (bp.profile || bp.business)) || {};
       basics.innerHTML =
@@ -1735,6 +1735,54 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnRunAutopilotNow = document.getElementById('btn-run-autopilot-now');
   const autopilotLogsContainer = document.getElementById('autopilot-logs-container');
 
+  // Turns autopilot log lines into something an owner can act on. The single
+  // most common failure in this app is the Indexing API returning 403 because
+  // the service account has "Full" rather than "Owner" in Search Console — as
+  // a monospace line people scroll past it, so it gets a cause and a fix.
+  const SB_LOG_RULES = [
+    { re: /permission denied|403|failed to verify url ownership/i, tone: 'warn', icon: '!',
+      title: 'Google wouldn’t accept the indexing request',
+      note: 'Your service account needs <b>Owner</b> access in Search Console, not “Full”. Everything else published fine.' },
+    { re: /autopilot run complete|deployed and indexed/i, tone: 'ok', icon: '✓',
+      title: 'Published a new article', note: 'Written and posted to your website on its own.' },
+    { re: /requesting instant google indexing/i, tone: 'ok', icon: '✓',
+      title: 'Asked Google to index it', note: '' },
+    { re: /publishing article to gohighlevel/i, tone: 'ok', icon: '✓',
+      title: 'Published to your website', note: '' },
+    { re: /generating structural seo article|generating/i, tone: 'ok', icon: '✓',
+      title: 'Wrote a new article', note: '' },
+    { re: /background autopilot enabled|schedule/i, tone: '', icon: '○',
+      title: 'Schedule set', note: '' },
+    { re: /disabled|standing by/i, tone: '', icon: '○',
+      title: 'Autopilot is off', note: 'Turn it on and it writes, publishes and indexes without you.' },
+    { re: /error|failed/i, tone: 'warn', icon: '!',
+      title: 'Something didn’t finish', note: '' }
+  ];
+  function renderAutopilotFeed(logs) {
+    const host = document.getElementById('autopilot-feed'); if (!host) return;
+    if (!Array.isArray(logs) || !logs.length) {
+      host.innerHTML = '<div class="sb-feed-row"><span class="sb-fi">○</span><div class="sb-ft"><b>Nothing yet</b>'
+        + '<span>Turn the autopilot on and it will find a gap, write the page, publish it and ask Google to index it.</span></div></div>';
+      return;
+    }
+    const seen = new Set(), rows = [];
+    for (const log of logs) {
+      const msg = String(log.message || '');
+      const rule = SB_LOG_RULES.find(r => r.re.test(msg));
+      if (!rule) continue;
+      if (seen.has(rule.title)) continue;      // one row per kind, newest wins
+      seen.add(rule.title);
+      rows.push('<div class="sb-feed-row ' + rule.tone + '"><span class="sb-fi">' + rule.icon + '</span>'
+        + '<div class="sb-ft"><b>' + rule.title + '</b>' + (rule.note ? '<span>' + rule.note + '</span>' : '') + '</div>'
+        + '<span class="sb-fw">' + tdAgo(log.timestamp) + '</span></div>');
+      if (rows.length >= 5) break;
+    }
+    host.innerHTML = rows.length ? rows.join('')
+      : '<div class="sb-feed-row"><span class="sb-fi">○</span><div class="sb-ft"><b>Running</b><span>Nothing needing your attention.</span></div></div>';
+  }
+
+
+
   async function fetchHistory() {
     try {
       const res = await fetch('/api/history');
@@ -1772,6 +1820,9 @@ document.addEventListener('DOMContentLoaded', () => {
         autopilotNextRun.innerText = 'Not Scheduled';
         autopilotNextRun.style.color = 'var(--text-muted)';
       }
+
+      // Plain-English feed first; the raw log is unchanged behind the disclosure.
+      renderAutopilotFeed(data.logs);
 
       // Render logs
       autopilotLogsContainer.innerHTML = '';
@@ -1955,34 +2006,127 @@ document.addEventListener('DOMContentLoaded', () => {
     homeGoTab(m.tab);
   }
 
+
+  // --- SCORE RING (shared by Today and the full dashboard) ---
+  // Arc length is each pillar's real weight from computeHealthScore, so the
+  // ring *is* the weighting, drawn. Three dot states: lit (earned, in the
+  // pillar's hue), dim (measured, not earned), hollow (not measured — reads
+  // as a gap in the ring, which is exactly what it is).
+  const SB_PILLAR_VAR = { found: 'p1', local: 'p2', ai: 'p3', listed: 'p4', fresh: 'p5' };
+  function sbCssVar(n) { return getComputedStyle(document.body).getPropertyValue(n).trim(); }
+
+  function sbRing(el, hs, opts) {
+    if (!el) return;
+    opts = opts || {};
+    const size = opts.size || 'lg';
+    const pillars = (hs && hs.pillars) ? hs.pillars : [];
+    if (!pillars.length) { el.innerHTML = ''; return; }
+
+    const VB = 236, cx = 118, cy = 118;
+    const ringR = size === 'sm' ? 94 : 92;
+    const dotR = size === 'sm' ? 6.2 : 5.4;
+    const counts = pillars.map(p => Math.max(2, Math.round((p.weight || 20) / 2.5)));
+    const totalDots = counts.reduce((a, b) => a + b, 0);
+    const step = 360 / (totalDots + pillars.length);   // one blank slot between arcs
+    const dim = sbCssVar('--unmeasured');
+
+    let svg = '<svg viewBox="0 0 ' + VB + ' ' + VB + '" aria-hidden="true">', slot = 0;
+    pillars.forEach((p, i) => {
+      const hue = sbCssVar('--' + (SB_PILLAR_VAR[p.key] || 'p1') + '-g');
+      const lit = p.measured && p.score != null ? Math.round(p.score / 100 * counts[i]) : 0;
+      for (let d = 0; d < counts[i]; d++) {
+        const a = (slot * step - 90) * Math.PI / 180;
+        const x = (cx + Math.cos(a) * ringR).toFixed(1), y = (cy + Math.sin(a) * ringR).toFixed(1);
+        if (!p.measured) svg += '<circle cx="' + x + '" cy="' + y + '" r="' + (dotR - 1.1) + '" fill="none" stroke="' + dim + '" stroke-width="2"/>';
+        else if (d < lit) svg += '<circle cx="' + x + '" cy="' + y + '" r="' + dotR + '" fill="' + hue + '"/>';
+        else svg += '<circle cx="' + x + '" cy="' + y + '" r="' + (dotR - 1) + '" fill="' + dim + '"/>';
+        slot++;
+      }
+      slot++;
+    });
+    svg += '</svg>';
+
+    const measured = pillars.filter(p => p.measured).length;
+    const total = pillars.length;
+    let mid;
+    if (hs.overall == null) {
+      // Never a zero. Unmeasured is not the same as failing.
+      mid = opts.target === false
+        ? '<div><div class="sb-ring-of" style="max-width:118px;line-height:1.35">Nothing measured yet</div></div>'
+        : '<div><button class="sb-ring-start" id="sb-ring-start" type="button"><b>Start<br>here</b></button></div>';
+    } else {
+      const provisional = measured < total;
+      let chip = '';
+      if (provisional) chip = '<div><span class="sb-ring-chip">' + measured + ' of ' + total + ' measured</span></div>';
+      else if (hs.delta != null && hs.delta !== 0) chip = '<div><span class="sb-ring-chip ' + (hs.delta > 0 ? 'up' : 'dn') + '">' + (hs.delta > 0 ? '▲ +' : '▼ ') + hs.delta + ' in 28 days</span></div>';
+      mid = '<div><div class="sb-ring-n' + (provisional ? ' prov' : '') + '">' + hs.overall + '</div><div class="sb-ring-of">of 100</div>' + chip + '</div>';
+    }
+    el.className = 'sb-ring' + (size === 'sm' ? ' sm' : '');
+    el.innerHTML = svg + '<div class="sb-ring-mid">' + mid + '</div>';
+    const start = el.querySelector('#sb-ring-start');
+    if (start) start.addEventListener('click', () => switchTab('settings-tab'));
+  }
+
+  // "How much of your score is real" — a different question from "how good is
+  // it", which the single number currently conflates.
+  function sbCoverage(hs) {
+    if (!hs || !hs.pillars) return '';
+    const measuredWeight = hs.pillars.filter(p => p.measured).reduce((s, p) => s + (p.weight || 0), 0);
+    const totalWeight = hs.pillars.reduce((s, p) => s + (p.weight || 0), 0) || 100;
+    const pct = Math.round(measuredWeight / totalWeight * 100);
+    const bars = hs.pillars.map(p => '<i style="flex:' + (p.weight || 20) + (p.measured ? ';background:var(--' + (SB_PILLAR_VAR[p.key] || 'p1') + '-g)' : '') + '"></i>').join('');
+    const unmeasured = hs.pillars.filter(p => !p.measured);
+    const note = unmeasured.length
+      ? 'Coloured segments are measured. Grey is what we refuse to guess — connecting ' + unmeasured[0].label + ' alone would take this to ' + Math.round((measuredWeight + unmeasured[0].weight) / totalWeight * 100) + '%.'
+      : 'Every area is measured, so the score is the whole picture.';
+    return '<div class="sb-coverage"><div class="t">How much of your score is real<span>' + pct + '%</span></div><div class="bar">' + bars + '</div><p>' + note + '</p></div>';
+  }
+
+  const SB_WORDS = ['Nothing', 'One', 'Two', 'Three', 'Four', 'Five'];
   function renderHero(hs) {
     const hero = document.getElementById('home-hero'); if (!hero) return;
     hero.style.display = 'grid';
     const g = document.getElementById('home-gauge'), sc = document.getElementById('home-score');
     const hl = document.getElementById('home-headline'), sub = document.getElementById('home-sub');
+    // The conic gauge is retired; the dot ring renders into the same element.
+    g.style.background = 'none';
+    if (sc) sc.style.display = 'none';
+    sbRing(g, hs);
+    const measured = (hs.pillars || []).filter(p => p.measured).length;
+    const total = (hs.pillars || []).length || 5;
     if (hs.overall == null) {
-      sc.innerText = '—';
-      g.style.background = 'conic-gradient(var(--text-dark) 0% 0%, var(--gauge-track) 0% 100%)';
-      hl.innerHTML = 'Let’s measure your SEO &amp; AEO';
-      sub.innerText = 'Complete the quick setup and the moves below to light up your score.';
+      hl.innerHTML = 'Nothing measured yet';
+      sub.innerText = 'Connect Search Console first — it is 25% of the score on its own.';
       return;
     }
-    const pct = hs.overall;
-    const color = pct >= 75 ? 'var(--color-success)' : (pct >= 50 ? 'var(--color-warning)' : 'var(--color-accent)');
-    g.style.background = `conic-gradient(${color} 0% ${pct}%, var(--gauge-track) ${pct}% 100%)`;
-    sc.innerText = pct;
-    const trend = (hs.delta != null && hs.delta !== 0) ? `<span class="home-trend ${hs.delta > 0 ? 'up' : 'flat'}">${hs.delta > 0 ? '+' : ''}${hs.delta} this month</span>` : '';
-    hl.innerHTML = `Your SEO &amp; AEO is <em>${pct}% maximized</em>${trend}`;
-    sub.innerText = hs.measuredCount < hs.totalPillars
-      ? `${hs.measuredCount} of ${hs.totalPillars} areas measured — finish setup to measure them all.`
-      : `All ${hs.totalPillars} areas measured. Keep the momentum with your next moves below.`;
+    // The old copy said "100% maximized" off a single measured pillar. It now
+    // refuses to make that claim until every area is actually measured.
+    if (measured < total) {
+      hl.innerHTML = `${SB_WORDS[measured] || measured} of ${SB_WORDS[total] ? SB_WORDS[total].toLowerCase() : total} areas measured`;
+      sub.innerText = `Your score is ${hs.overall} across what we can see. The rest is unknown, not zero.`;
+    } else {
+      const trend = (hs.delta != null && hs.delta !== 0) ? `<span class="home-trend ${hs.delta > 0 ? 'up' : 'flat'}">${hs.delta > 0 ? '+' : ''}${hs.delta} this month</span>` : '';
+      hl.innerHTML = `Your SEO &amp; AEO is <em>${hs.overall}% maximized</em>${trend}`;
+      sub.innerText = `All ${total} areas measured, so this is the whole picture.`;
+    }
   }
   function renderPillars(hs) {
     const el = document.getElementById('home-pillars'); if (!el || !hs.pillars) return;
     el.style.display = 'grid';
+    // "How good is it" and "how much of it can we see" are different questions.
+    // The single number used to conflate them.
+    let cov = document.getElementById('home-coverage');
+    if (!cov) { cov = document.createElement('div'); cov.id = 'home-coverage'; el.parentNode.insertBefore(cov, el.nextSibling); }
+    cov.innerHTML = sbCoverage(hs);
     el.innerHTML = hs.pillars.map(p => {
       const detCls = p.status === 'warn' ? 'warnt' : (p.status === 'off' ? 'offt' : '');
-      return `<div class="home-pillar" data-tab="${HOME_TAB_MAP[p.key] || 'summary-tab'}"><span class="pdot ${p.status}"></span><span class="plbl">${sumEsc(p.label)}</span><div class="pdet ${detCls}">${sumEsc(p.detail)}</div></div>`;
+      // The dot carries the pillar's own hue so the eye links a tile to its arc
+      // in the ring. Unmeasured stays hollow, matching the hollow dots above.
+      const v = SB_PILLAR_VAR[p.key] || 'p1';
+      const dot = p.measured
+        ? `<span class="pdot" style="background:var(--${v}-g)"></span>`
+        : `<span class="pdot" style="background:transparent;box-shadow:inset 0 0 0 2px var(--unmeasured)"></span>`;
+      return `<div class="home-pillar" data-tab="${HOME_TAB_MAP[p.key] || 'summary-tab'}">${dot}<span class="plbl">${sumEsc(p.label)}</span><div class="pdet ${detCls}">${sumEsc(p.detail)}</div></div>`;
     }).join('');
     el.querySelectorAll('.home-pillar').forEach(c => c.addEventListener('click', () => homeGoTab(c.dataset.tab)));
   }
@@ -2044,9 +2188,12 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
     if (sec) sec.style.display = 'flex';
-    const trend = (hs && hs.delta) ? '<span class="trend">' + (hs.delta > 0 ? '▲ climbing' : 'this month') + '</span>' : '';
-    const scoreBlock = '<div class="td-kick">Your visibility</div><div class="td-score"><b>' + (pct != null ? pct : '—') + '</b><span class="of">/ 100</span>' + trend + '</div><div class="td-bar"><i style="width:' + (pct != null ? pct : 0) + '%"></i></div>';
-    hero.innerHTML = scoreBlock + '<div class="td-line"><b>Everything’s handled.</b> ' + moves.length + ' quick thing' + (moves.length > 1 ? 's' : '') + ' need' + (moves.length > 1 ? '' : 's') + ' your ok below — then you’re done.</div>';
+    // The flat bar is retired in favour of the ring, so Today and the full
+    // dashboard finally show one number with one visual identity.
+    hero.innerHTML = '<div class="td-kick">Your visibility</div>'
+      + '<div class="sb-ring" id="td-ring" style="width:216px"></div>'
+      + '<div class="td-line"><b>Everything’s handled.</b> ' + moves.length + ' quick thing' + (moves.length > 1 ? 's' : '') + ' need' + (moves.length > 1 ? '' : 's') + ' your ok below — then you’re done.</div>';
+    sbRing(document.getElementById('td-ring'), hs || {});
   }
   function renderTodayNeeds(nm){
     const el = document.getElementById('td-needs'); if (!el) return;
@@ -2067,6 +2214,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const a = document.getElementById('td-see'); if (a) a.addEventListener('click', function(){ switchTab('performance-tab'); });
   }
   async function loadToday(){
+    loadTodayTop();
     try {
       const r = await Promise.all([
         fetch('/api/health-score').then(function(x){return x.json();}).catch(function(){return {};}),
@@ -2083,6 +2231,205 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (e) { /* leave as-is */ }
   }
   window.loadToday = loadToday;
+
+
+  // --- GET STARTED ----------------------------------------------------------
+  // One list, derived rather than authored. The readiness board and next-moves
+  // both described setup and neither knew about the other; the board also spoke
+  // infrastructure ("attach a Railway volume") to a gym owner.
+  //
+  // Ordering is value divided by effort, which the old `impact: high|med|
+  // opportunity` strings could not express: Search Console is the biggest single
+  // pillar AND the most expensive step, so it is no longer first. Gemini is,
+  // because /api/nap-audit, /api/citation-scan and the AI visibility run all
+  // read GEMINI_API_KEY — three of five pillars cannot be measured without it.
+  const SB_STEPS = [
+    { key:'gemini', kind:'key', icon:'&#9881;', title:'Add your Gemini key',
+      why:'Three of the five things we measure need this key. It is free to create and takes about three minutes.',
+      badge:'unlocks 3', minutes:3, cap:'blocked', cta:'Add the key', tab:'settings-tab' },
+    { key:'autopilot', kind:'unlock', pillar:'p5', icon:'&#9998;', title:'Let SEO Buddy publish for you',
+      why:'Say yes once and it finds a gap, writes the page, publishes it and asks Google to index it — repeatedly, without you.',
+      points:15, minutes:0.2, cap:'approve', cta:'Turn it on', action:'enable-autopilot' },
+    { key:'local', kind:'unlock', pillar:'p2', icon:'&#9679;', title:'Check your details match everywhere',
+      why:'Google trusts businesses whose name, address and phone are identical across the web. One tap and Local listings stops being a guess.',
+      points:20, minutes:1, cap:'approve', cta:'Run the check', tab:'local-tab', needs:'gemini' },
+    { key:'ai', kind:'unlock', pillar:'p3', icon:'&#9673;', title:'Find out if AI recommends you',
+      why:'We ask Google and ChatGPT what they say about gyms near you, and count how often you come up.',
+      points:20, minutes:1, cap:'approve', cta:'Run the check', tab:'aio-tab', needs:'gemini' },
+    { key:'listed', kind:'unlock', pillar:'p4', icon:'&#8599;', title:'Find where AI looks you up',
+      why:'AI recommends businesses from a handful of third-party sources. We find which ones matter for you.',
+      points:20, minutes:2, cap:'approve', cta:'Scan', tab:'citations-tab', needs:'gemini' },
+    { key:'gsc', kind:'unlock', pillar:'p1', icon:'&#9678;', title:'See what people search before they find you',
+      why:'This turns your biggest pillar from a guess into a measurement — real rankings, real clicks, and the searches you appear in but get nothing from.',
+      points:25, minutes:5, cap:'blocked', cta:'Start', tab:'settings-tab' },
+    { key:'ghl', kind:'key', icon:'&#8593;', title:'Connect your website',
+      why:'GoHighLevel is where articles get published. Without it the content autopilot can write but not publish.',
+      badge:'unlocks publishing', minutes:4, cap:'blocked', cta:'Connect', tab:'settings-tab' },
+    { key:'business', kind:'protect', icon:'&#9873;', title:'Confirm your business details',
+      why:'Your name, address and phone are used in every post, listing check and piece of schema. Right now we are using the starter profile.',
+      minutes:2, cap:'manual', cta:'Confirm them', act:'setup' },
+    { key:'brand', kind:'protect', icon:'&#9834;', title:'Read through your brand voice',
+      why:'Everything we write runs on this — including the never-use list. Worth a read so it sounds like you.',
+      minutes:5, cap:'manual', cta:'Review it', tab:'brand-tab' },
+    { key:'admin', kind:'protect', icon:'&#128274;', title:'Lock this to you',
+      why:'Without a password, anyone with the link can change settings and publish to your website.',
+      minutes:1, cap:'manual', cta:'Set a password', tab:'settings-tab' },
+    // Deliberately reworded. The readiness board says "Attach a Railway volume
+    // and set DATA_DIR", which a gym owner cannot action and which is worth no
+    // points — so it is protective, and addressed to whoever set up the hosting.
+    { key:'storage', kind:'protect', icon:'&#128190;', title:'Keep your history between updates',
+      why:'Your score history and schedules reset whenever the app updates. This one is for whoever set up your hosting.',
+      minutes:5, cap:'manual', cta:'Show them how', tab:'settings-tab' }
+  ];
+  const SB_SNOOZE_DAYS = 7;
+  function sbSnoozed() { try { return JSON.parse(localStorage.getItem('seo_gs_snooze') || '{}'); } catch (e) { return {}; } }
+  function sbSnooze(key) {
+    const o = sbSnoozed(); o[key] = Date.now();
+    try { localStorage.setItem('seo_gs_snooze', JSON.stringify(o)); } catch (e) {}
+  }
+  function sbIsSnoozed(key) {
+    const t = sbSnoozed()[key];
+    // Resurfaces after a week, silently — no badge. Nothing in the old app
+    // could be deferred, so everything nagged forever.
+    return !!t && (Date.now() - t) < SB_SNOOZE_DAYS * 86400000;
+  }
+
+  function sbBuildSteps(rd, hs) {
+    const ok = {};
+    ((rd && rd.checks) || []).forEach(c => { ok[c.key] = !!c.ok; });
+    const pillar = {};
+    ((hs && hs.pillars) || []).forEach(p => { pillar[p.key] = p; });
+    const doneMap = {
+      gemini: !!ok.gemini, ghl: !!ok.ghl, gsc: !!ok.gsc, admin: !!ok.admin,
+      business: !!ok.business, brand: !!ok.brand, storage: !!ok.storage,
+      local:  !!(pillar.local  && pillar.local.measured),
+      ai:     !!(pillar.ai     && pillar.ai.measured),
+      listed: !!(pillar.listed && pillar.listed.measured),
+      autopilot: !!(pillar.fresh && pillar.fresh.measured)
+    };
+    const deps = {};
+    SB_STEPS.forEach(st => { if (st.needs) deps[st.needs] = (deps[st.needs] || 0) + 1; });
+    return SB_STEPS.map(st => {
+      const done = !!doneMap[st.key];
+      const locked = !done && !!st.needs && !doneMap[st.needs];
+      const value = st.points || 0;
+      const d = deps[st.key] || 0;
+      // group 0 = a gate something is actually waiting on, 1 = scoring work,
+      // 2 = protective. A "key" nothing depends on is just ordinary work.
+      const group = st.kind === 'protect' ? 2 : (st.kind === 'key' && d > 0 ? 0 : 1);
+      return Object.assign({}, st, { done, locked, deps: d, group, rate: value / Math.max(st.minutes, 0.2) });
+    }).sort((a, b) => {
+      if (a.done !== b.done) return a.done ? 1 : -1;
+      if (a.group !== b.group) return a.group - b.group;
+      if (a.locked !== b.locked) return a.locked ? 1 : -1;
+      if (b.deps !== a.deps) return b.deps - a.deps;
+      return b.rate - a.rate;
+    });
+  }
+
+  function sbStepCard(st, hero) {
+    const p = st.pillar || '';
+    const badge = st.kind === 'unlock'
+      ? '<span class="pts ' + p + '">+' + st.points + ' pts</span>'
+      : (st.badge ? '<span class="pts">' + st.badge + '</span>' : '');
+    const mins = st.minutes < 1 ? 'about 10 seconds' : ('about ' + st.minutes + ' minute' + (st.minutes > 1 ? 's' : ''));
+    const capLabel = { automatic: '&#10003; Automatic', approve: '&#9654; Needs approval', manual: '&#9679; You do it', blocked: '&#9650; Blocked until connected' }[st.cap] || '';
+    const why = st.locked
+      ? 'Needs your Gemini key first — it is the step above this one.'
+      : st.why;
+    const acts = st.kind === 'protect'
+      ? '<button class="gho" data-go="1" type="button">' + st.cta + '</button>'
+      : '<button class="pri" data-go="1" type="button"' + (st.locked ? ' disabled' : '') + '>' + st.cta + '</button>'
+        + '<button class="gho" data-how="1" type="button">Show me how</button>'
+        + '<button class="gho" data-not="1" type="button">Not now</button>';
+    return '<div class="sb-card' + (hero ? ' hero' : '') + (st.kind === 'protect' ? ' protect' : '') + (st.locked ? ' locked' : '') + '" data-key="' + st.key + '">'
+      + '<div class="r1"><span class="ic ' + p + '">' + st.icon + '</span><h4>' + st.title + '</h4>' + badge + '</div>'
+      + '<p>' + why + '</p>'
+      + '<div class="meta"><span class="sb-cap ' + st.cap + '">' + capLabel + '</span><span class="time">' + mins + '</span></div>'
+      + '<div class="acts">' + acts + '</div></div>';
+  }
+
+  function sbWireCards(host, steps) {
+    host.querySelectorAll('.sb-card').forEach(card => {
+      const st = steps.find(x => x.key === card.dataset.key); if (!st) return;
+      const go = card.querySelector('[data-go]');
+      if (go && !st.locked) go.addEventListener('click', () => {
+        if (st.action) return runMoveAction({ action: st.action, tab: st.tab }, go);
+        if (st.act === 'setup') { const b = document.getElementById('btn-open-setup'); if (b) b.click(); return; }
+        if (st.tab) switchTab(st.tab);
+      });
+      const how = card.querySelector('[data-how]');
+      // The 14-step tour taught you where things are. This answers the only
+      // question that matters at this moment: how do I do this one thing.
+      if (how) how.addEventListener('click', () => {
+        const fab = document.getElementById('asst-fab'); if (fab) fab.click();
+        setTimeout(() => {
+          const t = document.getElementById('asst-text'), s = document.getElementById('asst-send');
+          // Phrased from the step's own title so it reads naturally for all of
+          // them — "How do I add your Gemini key?" did not.
+          if (t && s) { t.value = st.title + ' — how do I do this?'; s.click(); }
+        }, 300);
+      });
+      const not = card.querySelector('[data-not]');
+      if (not) not.addEventListener('click', () => { sbSnooze(st.key); if (window.loadGetStarted) window.loadGetStarted(); });
+    });
+  }
+
+  async function sbFetchSteps() {
+    const [rd, hs] = await Promise.all([
+      fetch('/api/deploy-readiness').then(r => r.json()).catch(() => null),
+      fetch('/api/health-score').then(r => r.json()).catch(() => null)
+    ]);
+    return sbBuildSteps(rd, hs);
+  }
+
+  async function loadGetStarted() {
+    const host = document.getElementById('exp-getstarted');
+    if (!host) return;
+    const steps = await sbFetchSteps();
+    const done = steps.filter(s => s.done);
+    const open = steps.filter(s => !s.done && !sbIsSnoozed(s.key));
+    if (!open.length) {
+      host.innerHTML = '<div class="sb-gs-hdr"><div class="t"><b>You&rsquo;re set up</b><span>' + done.length + ' of ' + steps.length + '</span></div>'
+        + '<div class="pbar">' + steps.map(() => '<i class="on"></i>').join('') + '</div>'
+        + '<p>SEO Buddy is running on its own. New things to do will appear here when they come up.</p></div>';
+      return;
+    }
+    const mins = open.reduce((s, x) => s + x.minutes, 0);
+    const taps = open.filter(x => x.minutes <= 1).length;
+    const scoring = open.filter(x => x.kind !== 'protect');
+    const protect = open.filter(x => x.kind === 'protect');
+    let html = '<div class="sb-gs-hdr"><div class="t"><b>Get started</b><span>' + done.length + ' of ' + steps.length + ' done</span></div>'
+      // Fill from the left. `steps` is sorted with completed items last, so
+      // mapping over it directly put the finished segment on the right.
+      + '<div class="pbar">' + steps.map((s, i) => '<i class="' + (i < done.length ? 'on' : (i === done.length ? 'now' : '')) + '"></i>').join('') + '</div>'
+      + '<p>' + open.length + ' left, about ' + Math.round(mins) + ' minutes in total' + (taps ? (taps === 1 ? '. One of them is a single tap.' : '. ' + taps + ' of them are a single tap.') : '.') + '</p></div>';
+    html += '<div class="sb-gs">' + scoring.map((s, i) => sbStepCard(s, i === 0)).join('') + '</div>';
+    if (done.length) {
+      html += '<div class="sb-eyebrow">Already done</div><div class="sb-gs">'
+        + done.map(s => '<div class="sb-done"><span class="tk">&#10003;</span><b>' + s.title + '</b><span>'
+          + (s.kind === 'unlock' ? '+' + s.points + ' pts' : (s.badge || 'done')) + '</span></div>').join('') + '</div>';
+    }
+    if (protect.length) {
+      html += '<div class="sb-eyebrow">Keep it safe <span class="n">no effect on your score</span></div>'
+        + '<div class="sb-gs">' + protect.map(s => sbStepCard(s, false)).join('') + '</div>';
+    }
+    html += '<div class="sb-eyebrow">All tools</div>';
+    host.innerHTML = html;
+    sbWireCards(host, steps);
+  }
+  window.loadGetStarted = loadGetStarted;
+
+  // Today shows exactly one. Nobody meets nine cards at once.
+  async function loadTodayTop() {
+    const host = document.getElementById('td-getstarted'); if (!host) return;
+    const steps = await sbFetchSteps();
+    const next = steps.find(s => !s.done && !s.locked && s.kind !== 'protect' && !sbIsSnoozed(s.key));
+    if (!next) { host.innerHTML = ''; return; }
+    host.innerHTML = sbStepCard(next, true);
+    sbWireCards(host, steps);
+  }
+  window.loadTodayTop = loadTodayTop;
 
   // --- EXPLORE: grouped menu of every tool (routes to existing tabs) ---
   const EXP_ICONS = {
@@ -2120,11 +2467,11 @@ document.addEventListener('DOMContentLoaded', () => {
       { icon: 'todo', b: 'All to-dos', s: 'Your full prioritized list', tab: 'grow-tab' } ] },
     { g: 'Setup & help', items: [
       { icon: 'brief', b: 'Setup & business info', s: 'Your details + readiness check', act: 'setup' },
-      { icon: 'compass', b: 'Quick guide', s: 'The 1-minute guided tour', act: 'guide' },
       { icon: 'chat', b: 'Ask SEO Buddy', s: 'Chat with your AI assistant', act: 'ask' },
       { icon: 'gear', b: 'Settings', s: 'Connections & account', tab: 'settings-tab' } ] }
   ];
   function loadExplore(){
+    loadGetStarted();
     const host = document.getElementById('exp-groups'); if (!host) return;
     host.innerHTML = EXPLORE_GROUPS.map(function(grp){
       return '<div class="exp-group"><div class="exp-gl">' + grp.g + '</div><div class="exp-list">' + grp.items.map(function(it){
@@ -2137,7 +2484,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const go = row.getAttribute('data-go') || '';
         if (go.indexOf('tab:') === 0) { switchTab(go.slice(4)); }
         else if (go === 'act:setup') { const b = document.getElementById('btn-open-setup'); if (b) b.click(); }
-        else if (go === 'act:guide') { const b = document.getElementById('btn-start-wizard'); if (b) b.click(); }
         else if (go === 'act:ask') { const b = document.getElementById('asst-fab'); if (b) b.click(); }
       });
     });
@@ -3348,16 +3694,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function laRenderNap(nap, isNew) {
     if (!laNapBody) return;
-    if (!nap) { laNapBadge.innerHTML = ''; laNapBody.innerHTML = '<span class="lr-muted">Not checked yet — turn on the autopilot or click Run now.</span>'; return; }
+    if (!nap) { laNapBadge.innerHTML = ''; laNapBody.innerHTML = '<div class="sb-val">Not checked yet</div><div class="sb-verdict"><i class="sb-dot" style="background:var(--ink-3)"></i>We have not compared your details across the web yet.</div>'; return; }
     const bad = (nap.listings || []).filter(l => l.phoneMatch === false || l.addrMatch === false || l.nameMatch === false);
     laNapBadge.innerHTML = bad.length
       ? `<span class="la-badge new">${isNew ? 'NEW · ' : ''}${bad.length} mismatch${bad.length > 1 ? 'es' : ''}</span>`
       : `<span class="la-badge ok">consistent</span>`;
-    if (!bad.length) { laNapBody.innerHTML = `<span class="lr-muted">All ${nap.listings.length} listings match your canonical NAP. Checked ${laAgo(nap.checkedAt)}.</span>`; return; }
-    laNapBody.innerHTML = bad.map(l => {
+    if (!bad.length) { laNapBody.innerHTML = `<div class="sb-val">0<u>listings to fix</u></div><div class="sb-verdict"><i class="sb-dot" style="background:var(--p4-g)"></i>All ${nap.listings.length} match your official details. Checked ${laAgo(nap.checkedAt)}.</div>`; return; }
+    laNapBody.innerHTML = `<div class="sb-val">${bad.length}<u>listing${bad.length > 1 ? 's' : ''} to fix</u></div>`
+      + `<div class="sb-verdict"><i class="sb-dot" style="background:var(--p2-g)"></i>Wrong on ${bad.map(l => citEsc(l.platform || '?')).join(', ')}. Checked ${laAgo(nap.checkedAt)}.</div>`
+      + `<details class="sb-disclosure"><summary>Show what differs</summary><div>` + bad.map(l => {
       const issues = []; if (l.phoneMatch === false) issues.push('phone'); if (l.addrMatch === false) issues.push('address'); if (l.nameMatch === false) issues.push('name');
       return `<div class="la-nap-line"><span><b>${citEsc(l.platform || '?')}</b><br><span class="lr-muted">${citEsc(l.phone || l.address || '')}</span></span><span class="nap-bad">${issues.join(' + ')} off</span></div>`;
-    }).join('') + `<div class="lr-muted" style="margin-top:8px;">Align these to ${citEsc(nap.canonical.phone)} · ${citEsc(nap.canonical.address)}. Checked ${laAgo(nap.checkedAt)}.</div>`;
+    }).join('') + `<div class="lr-muted" style="margin-top:8px;">Align these to ${citEsc(nap.canonical.phone)} · ${citEsc(nap.canonical.address)}.</div></div></details>`;
   }
 
   function laRenderGbp(draft) {
@@ -3560,11 +3908,14 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!lrChecklistEl) return;
     const checks = lrLoadChecks();
     let total = 0, done = 0;
+    // Sentence case, one row per item, custom box so the tick is legible in
+    // both themes. The count moves into the section heading, so you know where
+    // you stand before reading a single line.
     lrChecklistEl.innerHTML = LR_CHECKLIST.map((g, gi) =>
-      `<div class="lr-check-group"><h4>${g.group}</h4>` + g.items.map((it, ii) => {
+      `<div class="sb-check-group">${g.group}</div>` + g.items.map((it, ii) => {
         const id = `c${gi}_${ii}`; total++; const on = !!checks[id]; if (on) done++;
-        return `<label class="lr-check-item ${on ? 'done' : ''}"><input type="checkbox" data-cid="${id}" ${on ? 'checked' : ''}> <span>${it}</span></label>`;
-      }).join('') + `</div>`
+        return `<label class="sb-check-item ${on ? 'done' : ''}"><input type="checkbox" data-cid="${id}" ${on ? 'checked' : ''}><span class="sb-box">&#10003;</span><span>${it}</span></label>`;
+      }).join('')
     ).join('');
     const pct = total ? Math.round(done / total * 100) : 0;
     document.getElementById('lr-score').innerText = pct + '%';
@@ -3602,13 +3953,44 @@ document.addEventListener('DOMContentLoaded', () => {
     return `<svg viewBox="0 0 ${w} ${h}" width="100%" style="max-height:${h}px;"><path d="${path}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linejoin="round"/>${dots}${labels}</svg>`;
   }
 
+  // Paints the measurement card's verdict dot alongside the delta text, so
+  // polarity is carried by colour as well as by the sentence. Rank improves as
+  // it falls, which is what opts.lowerBetter is for.
+  function sbDot(el, tone) {
+    const card = el.closest ? el.closest('.sb-metric') : null; if (!card) return;
+    const dot = card.querySelector('.sb-dot'); if (!dot) return;
+    dot.style.background = tone === 'up' ? 'var(--p4-g)' : tone === 'down' ? 'var(--p2-g)' : 'var(--ink-3)';
+  }
+  function sbMetricEmpty(valueEl, headline, reason, action) {
+    const card = valueEl.closest ? valueEl.closest('.sb-metric') : null;
+    valueEl.innerText = headline;
+    if (!card) return;
+    card.classList.add('empty');
+    const u = card.querySelector('.sb-val u'); if (u) u.style.display = 'none';
+    const d = card.querySelector('.perf-delta'); if (d) { d.className = 'perf-delta flat'; d.innerText = reason || ''; }
+    sbDot(card.querySelector('.sb-val'), 'flat');
+    // Only one card offers the fix. Three identical buttons for one cause is
+    // noise, and the empty state is meant to give a way forward, not nag.
+    let act = card.querySelector('.sb-acts');
+    if (action) {
+      if (!act) { act = document.createElement('div'); act.className = 'sb-acts'; card.appendChild(act); }
+      act.innerHTML = '<button class="btn btn-primary btn-sm" type="button">' + action.label + '</button>';
+      act.querySelector('button').addEventListener('click', () => switchTab(action.tab));
+    } else if (act) { act.remove(); }
+  }
+  function sbMetricFilled(valueEl) {
+    const card = valueEl.closest ? valueEl.closest('.sb-metric') : null; if (!card) return;
+    card.classList.remove('empty');
+    const u = card.querySelector('.sb-val u'); if (u) u.style.display = '';
+  }
   function perfDelta(el, cur, prev, opts) {
     opts = opts || {};
-    if (cur == null || prev == null) { el.className = 'perf-delta flat'; el.innerText = ''; return; }
+    if (cur == null || prev == null) { el.className = 'perf-delta flat'; el.innerText = ''; sbDot(el, 'flat'); return; }
     const diff = cur - prev;
-    if (Math.abs(diff) < (opts.eps || 0.0001)) { el.className = 'perf-delta flat'; el.innerText = 'no change'; return; }
+    if (Math.abs(diff) < (opts.eps || 0.0001)) { el.className = 'perf-delta flat'; el.innerText = 'no change'; sbDot(el, 'flat'); return; }
     const improved = opts.lowerBetter ? diff < 0 : diff > 0;
     el.className = 'perf-delta ' + (improved ? 'up' : 'down');
+    sbDot(el, improved ? 'up' : 'down');
     const arrow = improved ? '▲' : '▼';
     if (opts.lowerBetter) {
       el.innerText = `${arrow} ${Math.abs(diff).toFixed(1)} ${improved ? 'better' : 'worse'} (was ${prev})`;
@@ -3704,40 +4086,47 @@ document.addEventListener('DOMContentLoaded', () => {
 
       const cur = d.current, prev = d.previous;
       if (cur && prev) {
+        ['perf-impr', 'perf-clicks', 'perf-rank'].forEach(id => sbMetricFilled($(id)));
         $('perf-impr').innerText = cur.impressions.toLocaleString(); perfDelta($('perf-impr-d'), cur.impressions, prev.impressions, {});
         $('perf-clicks').innerText = cur.clicks.toLocaleString(); perfDelta($('perf-clicks-d'), cur.clicks, prev.clicks, {});
         $('perf-rank').innerText = cur.avgPosition; perfDelta($('perf-rank-d'), cur.avgPosition, prev.avgPosition, { lowerBetter: true, eps: 0.05 });
       } else {
-        $('perf-impr').innerText = '—'; $('perf-clicks').innerText = '—'; $('perf-rank').innerText = '—';
+        // A bare em-dash told the owner nothing and offered no way forward.
+        const why = 'Search Console isn\u2019t connected — about 5 minutes.';
+        sbMetricEmpty($('perf-impr'), 'Not measured yet', why, { label: 'Connect it', tab: 'settings-tab' });
+        sbMetricEmpty($('perf-clicks'), 'Not measured yet', why);
+        sbMetricEmpty($('perf-rank'), 'Not measured yet', why);
       }
 
       const leads = d.leads;
       if (leads && leads.available) {
+        sbMetricFilled($('perf-leads'));
         $('perf-leads').innerText = leads.current; perfDelta($('perf-leads-d'), leads.current, leads.previous, {});
-        $('perf-leads-note').innerText = 'new GHL leads' + (leads.approx ? ' (approx.)' : '');
+        $('perf-leads-note').innerText = 'new leads' + (leads.approx ? ' (approx.)' : '');
       } else {
-        $('perf-leads').innerText = '—'; $('perf-leads-d').innerText = ''; $('perf-leads-d').className = 'perf-delta flat';
-        $('perf-leads-note').innerText = (leads && leads.reason) ? leads.reason : 'GoHighLevel not connected';
+        sbMetricEmpty($('perf-leads'), 'Not measured yet', (leads && leads.reason) ? leads.reason : 'GoHighLevel isn\u2019t connected.', { label: 'Connect it', tab: 'settings-tab' });
       }
 
       // Branded search — real Tier-1 AI-visibility signal (from GSC)
       const br = d.brandedSearch;
       if (br && br.available && br.current) {
+        sbMetricFilled($('perf-branded'));
         $('perf-branded').innerText = (br.current.impressions || 0).toLocaleString();
         perfDelta($('perf-branded-d'), br.current.impressions, br.previous ? br.previous.impressions : null, {});
-        $('perf-branded-note').innerText = `${(br.current.clicks || 0).toLocaleString()} clicks · rising = AI driving awareness`;
+        $('perf-branded-note').innerText = `${(br.current.clicks || 0).toLocaleString()} clicks. Rising means AI is driving awareness.`;
       } else {
-        $('perf-branded').innerText = '—'; $('perf-branded-d').innerText = ''; $('perf-branded-d').className = 'perf-delta flat';
-        $('perf-branded-note').innerText = (br && br.reason) ? br.reason : 'Connect Search Console to see this.';
+        sbMetricEmpty($('perf-branded'), 'Not measured yet', (br && br.reason) ? br.reason : 'Search Console isn\u2019t connected.');
+        $('perf-branded-note').innerText = '';
       }
 
       // AI referral traffic — honest "not connected" state (needs GA4; never fabricated)
       const ar = d.aiReferral;
       if (ar && ar.available && ar.current != null) {
+        sbMetricFilled($('perf-airef'));
         $('perf-airef').innerText = Number(ar.current).toLocaleString();
-        $('perf-airef-note').innerText = 'visits from ChatGPT, Perplexity & Claude';
+        $('perf-airef-note').innerText = 'Visits from ChatGPT, Perplexity & Claude.';
       } else {
-        $('perf-airef').innerHTML = '<span style="font-size:0.95rem;color:var(--text-muted);font-weight:600;">Connect GA4</span>';
+        sbMetricEmpty($('perf-airef'), 'Not measured yet', '');
         $('perf-airef-note').innerText = (ar && ar.reason) ? ar.reason : 'Connect Google Analytics (GA4) to track this.';
       }
 
@@ -4006,214 +4395,10 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
 
-  // --- INTERACTIVE ONBOARDING WIZARD ---
-  const wizardSteps = [
-    {
-      tab: 'today-tab',
-      highlight: '#td-hero',
-      title: 'Step 1 · Today — what needs you',
-      text: 'This is where you land. Your <b>Optimization Score</b> shows how maximized your SEO &amp; AEO is right now, and underneath it <b>what needs you</b> — the highest-impact fixes, many with a one-tap button. Everything SEO Buddy handled on its own while you were away is listed below that.'
-    },
-    {
-      tab: 'performance-tab',
-      highlight: '.perf-hero, #perf-download-pdf',
-      title: 'Step 2 · Progress — is it working?',
-      text: 'The honest answer to “is any of this paying off”. Search performance this period vs last, your AI-visibility trend, new leads, and a plain-English weekly digest. You can download the whole thing as a <b>PDF report</b>.'
-    },
-    {
-      tab: 'explore-tab',
-      highlight: '#exp-groups',
-      title: 'Step 3 · Explore — every tool, grouped',
-      text: 'Today and Progress cover the everyday. Everything else lives here, grouped by what you are trying to do: <b>Get found</b>, <b>Your content</b>, <b>Your presence</b>, <b>More detail</b>, and <b>Setup &amp; help</b>. The next few steps walk the ones that matter most.'
-    },
-    {
-      tab: 'gsc-tab',
-      highlight: '#stat-gap-count',
-      title: 'Step 4 · Searches you’re missing',
-      text: 'Under <b>Get found</b>. These are searches where Google already shows you but nobody clicks — your quickest wins, straight from Search Console. Pick one and turn it into a page, or hit <b>❓ Questions</b> to see the sub-questions a page must answer to get cited by AI.'
-    },
-    {
-      tab: 'citations-tab',
-      highlight: '#btn-find-citations',
-      title: 'Step 5 · Where to get listed',
-      text: 'AI trusts directories, review sites and “best-of” lists more than your own pages. This finds the exact sources AI pulls from, then preps your listing details and drafts real pitch emails to get you on them.'
-    },
-    {
-      tab: 'ai-tab',
-      highlight: '#rec-dictate-wrap, .creator-form-panel',
-      title: 'Step 6 · Create a post — in your own words',
-      text: 'Under <b>Your content</b>. Give it a keyword and AI writes an <b>answer-first</b> article — direct answer up top, question-style headers, an FAQ — the structure AI engines actually quote.<br><br>The part worth using: <b>Your own words</b>. Hit <b>Dictate</b> and just talk, or drop in a recording and it transcribes. The article then gets built from <i>your</i> stories and specifics instead of generic AI text — which is the one thing a competitor cannot copy.'
-    },
-    {
-      tab: 'brand-tab',
-      highlight: '#bp-never',
-      title: 'Step 7 · Brand voice',
-      text: 'Everything SEO Buddy writes — articles, Google posts, review replies, outreach — reads from here. Your tone, the phrases that are yours, and a <b>never-use list</b>.<br><br>That list is enforced, not just requested: the words go into every prompt <i>and</i> the finished copy is checked for them afterwards, so anything that slips through gets flagged before you publish.'
-    },
-    {
-      tab: 'publish-tab',
-      highlight: '.deploy-controls-card',
-      title: 'Step 8 · Publish & index',
-      text: 'Push a page live, then paste its URL to request a Google crawl within hours. You can also switch on the <b>content autopilot</b> here to find a gap, write it, publish it and request indexing on a schedule — hands-off.'
-    },
-    {
-      tab: 'onsite-tab',
-      highlight: '#btn-os-aeo',
-      title: 'Step 9 · Site optimization',
-      text: 'The technical polish. The standout is the <b>AEO Readiness Check</b>: paste any page URL and SEO Buddy scores it against the 7-point checklist AI engines use to decide what to quote, then tells you exactly what to fix. Plus keyword ideas, sharper titles &amp; meta, internal-link suggestions, and ready-made <b>schema</b>.'
-    },
-    {
-      tab: 'local-tab',
-      highlight: '#btn-social-pack',
-      title: 'Step 10 · Local presence',
-      text: 'Under <b>Your presence</b>. Checks your Name, Address &amp; Phone match everywhere, drafts review replies and requests, and writes your weekly Google Business Profile post.<br><br>A Google post only reaches Google — so the <b>Social Post Pack</b> takes a transcript and gives you five angles, five hooks and a 30-second script for the other seven platforms. One recording, seven posts.'
-    },
-    {
-      tab: 'aio-tab',
-      highlight: '#av-run',
-      title: 'Step 11 · AI visibility',
-      text: 'Do ChatGPT and Google’s AI actually recommend you? This runs your tracked searches across the engines and scores how often you come up, with a <b>competitor leaderboard</b> showing who gets named instead. Alongside it: <b>FactCheck</b> for what AI gets wrong about you, a <b>crawler access</b> check, and <b>Reddit</b> threads worth joining.'
-    },
-    {
-      tab: 'reviews-tab',
-      highlight: '#rv-refresh',
-      title: 'Step 12 · Reviews site',
-      text: 'Your reviews site at a glance: how many are published, where they came from, how fast they are growing, and whether the structured data is healthy enough for Google and AI to read them. Problems are listed with the specific fix.'
-    },
-    {
-      tab: 'summary-tab',
-      highlight: '#home-hero',
-      title: 'Step 13 · More detail',
-      text: 'Under <b>More detail</b> in Explore: <b>Full dashboard</b> is every metric in one place when you want the numbers rather than the summary, and <b>All to-dos</b> is your complete prioritized list. Work it top to bottom and the score climbs.'
-    },
-    {
-      tab: 'today-tab',
-      highlight: '#asst-fab',
-      title: 'Step 14 · Meet your SEO Buddy Assistant',
-      text: 'See the <b>Ask SEO Buddy</b> button in the bottom-right? It is the fastest way to use everything here. Ask in plain English — <i>“How am I doing?”</i>, <i>“Who’s beating me in AI?”</i>, <i>“Write an article about balance classes.”</i> It answers from your <b>real data</b> and can do the work for you, always showing a preview to approve first. Nothing happens until you confirm.'
-    }
-  ];
-
-  let currentWizardStep = 0;
-  const wizardWidget = document.getElementById('wizard-widget');
-  const btnStartWizard = document.getElementById('btn-start-wizard');
-  const btnCloseWizard = document.getElementById('btn-close-wizard');
-  const btnWizardBack = document.getElementById('btn-wizard-back');
-  const btnWizardNext = document.getElementById('btn-wizard-next');
-  const wizardStepText = document.getElementById('wizard-step-text');
-  const wizardProgressDots = document.getElementById('wizard-progress-dots');
-
-  // In Owner mode the 14-step tool tour describes things that live behind Admin
-  // tools. Give that mode its own three-step walk instead.
-  const ownerSteps = [
-    { tab:'owner-today-tab', highlight:'#ow-tasks',
-      title:'Step 1 · Today — what needs you',
-      text:'Everything SEO Buddy is doing for you, and the short list of things it can’t do alone. Each item says who owns it: <b>Needs approval</b> means we do the work the moment you say yes. <b>You do it</b> means we’ve written it but can’t reach that system, so you’ll finish it. Nothing gets ticked off until it actually happened.' },
-    { tab:'owner-results-tab', highlight:'#ow-find',
-      title:'Step 2 · Results — is it working?',
-      text:'Visits, how often you appeared, where you rank, and what your reviews look like — compared with the month before. If a month goes backwards we say so plainly rather than hiding it.' },
-    { tab:'owner-business-tab', highlight:'#ow-basics',
-      title:'Step 3 · Business — your details',
-      text:'Your name, address and phone, how we sound when we write for you, and an honest table of what we can and can’t do on your behalf. Change anything here and it applies everywhere.' },
-  ];
-  const origSteps = wizardSteps.slice();
-  function useOwnerTour(on) {
-    wizardSteps.length = 0;
-    (on ? ownerSteps : origSteps).forEach(x => wizardSteps.push(x));
-  }
-  window.useOwnerTour = useOwnerTour;
-
-  btnStartWizard.addEventListener('click', () => {
-    useOwnerTour(document.body.classList.contains('owner-mode'));
-    startTour();
-  });
-  btnCloseWizard.addEventListener('click', endTour);
-  btnWizardBack.addEventListener('click', previousStep);
-  btnWizardNext.addEventListener('click', nextStep);
-
-  let tourFinished = false;
-  function startTour() {
-    currentWizardStep = 0;
-    tourFinished = false;
-    btnWizardBack.style.display = '';
-    wizardWidget.style.display = 'block';
-    btnStartWizard.style.display = 'none';
-    renderStep();
-  }
-
-  function endTour() {
-    wizardWidget.style.display = 'none';
-    btnStartWizard.style.display = 'flex';
-    clearHighlights();
-  }
-
-  function renderStep() {
-    clearHighlights();
-    const step = wizardSteps[currentWizardStep];
-    
-    // Switch to target tab
-    switchTab(step.tab);
-
-    // Build text
-    wizardStepText.innerHTML = `
-      <h4>${step.title}</h4>
-      <p style="font-size: 13px; color: var(--text-muted); margin-top: 5px;">${step.text}</p>
-    `;
-
-    // Render progress dots
-    wizardProgressDots.innerHTML = wizardSteps.map((_, idx) => 
-      `<span class="wizard-dot ${idx === currentWizardStep ? 'active' : ''}"></span>`
-    ).join('');
-
-    // Highlight target element if it exists
-    setTimeout(() => {
-      const el = document.querySelector(step.highlight);
-      if (el) {
-        el.classList.add('wizard-highlight');
-        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }
-    }, 150);
-
-    // Update buttons
-    btnWizardBack.disabled = (currentWizardStep === 0);
-    btnWizardNext.innerText = (currentWizardStep === wizardSteps.length - 1) ? 'Finish' : 'Next';
-  }
-
-  function nextStep() {
-    if (tourFinished) { endTour(); return; }
-    if (currentWizardStep < wizardSteps.length - 1) {
-      currentWizardStep++;
-      renderStep();
-    } else {
-      finishTour();
-    }
-  }
-
-  function finishTour() {
-    tourFinished = true;
-    clearHighlights();
-    switchTab('summary-tab');
-    wizardStepText.innerHTML = `
-      <h4>You’re all set </h4>
-      <p style="font-size: 13px; color: var(--text-muted); margin-top: 5px;">That’s the tour. Start on <b>Today</b>, work through <b>what needs you</b>, then check <b>Progress</b> to watch it pay off. You can reopen this anytime with the <b>Quick Guide</b> button.</p>
-    `;
-    wizardProgressDots.innerHTML = '';
-    btnWizardBack.style.display = 'none';
-    btnWizardNext.innerText = 'Done';
-  }
-
-  function previousStep() {
-    if (currentWizardStep > 0) {
-      currentWizardStep--;
-      renderStep();
-    }
-  }
-
-  function clearHighlights() {
-    document.querySelectorAll('.wizard-highlight').forEach(el => {
-      el.classList.remove('wizard-highlight');
-    });
-  }
+  // The 14-step guided tour was retired in favour of the per-card
+  // "Show me how" on each get-started card, which answers the only question
+  // that matters at that moment. Its markup, styles and this block are gone;
+  // the separate SETUP wizard (business info + readiness) is untouched.
 
   // --- SEO BUDDY ASSISTANT (grounded copilot) ---
   (function () {
@@ -4244,7 +4429,6 @@ document.addEventListener('DOMContentLoaded', () => {
       r.innerHTML = BOT_AV + inner;
       msgsEl.appendChild(r); scrollDown();
       r.querySelectorAll('.asst-chip').forEach(ch => ch.addEventListener('click', () => {
-        if (ch.dataset.tour) { close(); const b = document.getElementById('btn-start-wizard'); if (b) b.click(); return; }
         send(ch.dataset.send);
       }));
       if (action && (action.endpoint || action.clientAction)) renderAction(r.querySelector('.asst-botwrap'), action);
@@ -4307,8 +4491,7 @@ document.addEventListener('DOMContentLoaded', () => {
       addBot("Hi! I can see everything in your SEO Buddy. Ask me how you're doing, what to fix next, or how a tool works.", [
         { label: 'How am I doing?' },
         { label: 'Who’s beating me in AI?', send: "Who's beating me in AI search right now?" },
-        { label: 'What should I fix first?' },
-        { label: 'Show me around', tour: true }
+        { label: 'What should I fix first?' }
       ]);
     }
     async function send(text) {
@@ -4330,10 +4513,15 @@ document.addEventListener('DOMContentLoaded', () => {
         addBot(esc('Sorry — I hit a snag: ' + e.message + ' (If the app is password-protected, enter it in Settings.)'));
       } finally { busy = false; sendBtn.disabled = false; textEl.focus(); }
     }
-    function open() { panel.classList.add('open'); fab.style.display = 'none'; greet(); setTimeout(() => textEl.focus(), 50); }
-    function close() { panel.classList.remove('open'); fab.style.display = 'inline-flex'; }
+    function open() { panel.classList.add('open'); document.body.classList.add('asst-open'); fab.style.display = 'none'; greet(); setTimeout(() => textEl.focus(), 50); }
+    function close() { panel.classList.remove('open'); document.body.classList.remove('asst-open'); fab.style.display = 'inline-flex'; }
 
     fab.addEventListener('click', open);
+    // Starter questions in the dock. They teach people what the assistant can
+    // answer, which a bare bubble never did.
+    document.querySelectorAll('.sb-dock-wrap .sb-chip').forEach(chip => {
+      chip.addEventListener('click', () => { open(); setTimeout(() => send(chip.dataset.ask || chip.textContent.trim()), 260); });
+    });
     closeBtn.addEventListener('click', close);
     sendBtn.addEventListener('click', () => send());
     textEl.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
@@ -4665,18 +4853,33 @@ document.addEventListener('DOMContentLoaded', () => {
       ? 'tracking starts from today'
       : (inv.delta30 > 0 ? `+${inv.delta30} in the last 30 days` : (inv.delta30 === 0 ? 'no change in 30 days' : `${inv.delta30} in the last 30 days`));
 
+    // Measurement cards, same as Progress. Every number gets a unit, a pillar,
+    // and a verdict rather than an unlabelled accent colour.
     const kpis = [
-      { label: 'Published reviews', value: rvNum(inv.published), sub: deltaTxt, accent: 'var(--color-primary)' },
-      { label: 'Average rating', value: inv.avgRating != null ? inv.avgRating.toFixed(1) : '—', sub: inv.newest ? `newest review ${inv.newest}` : 'no dated reviews', accent: 'var(--color-success)' },
-      { label: 'Platform reach', value: reach ? String(reach) : '—', sub: 'total reviews across Google, Facebook & Yelp', accent: 'var(--color-warning)' },
-      { label: 'Health checks', value: d.score != null ? d.score + '%' : '—', sub: d.problems ? `${d.problems} need${d.problems === 1 ? 's' : ''} attention` : 'all checks passing', accent: d.problems ? 'var(--color-accent)' : 'var(--color-success)' },
+      { pillar: 'p2', label: 'Local listings', value: rvNum(inv.published), unit: 'published reviews', sub: deltaTxt,
+        tone: inv.delta30 > 0 ? 'up' : (inv.delta30 < 0 ? 'down' : 'flat') },
+      { pillar: 'p2', label: 'Local listings', value: inv.avgRating != null ? inv.avgRating.toFixed(1) : null, unit: 'average rating',
+        sub: inv.newest ? `Newest review ${inv.newest}.` : 'No dated reviews yet.', tone: 'flat',
+        empty: 'Not measured yet', why: 'No ratings found on your reviews page.' },
+      { pillar: 'p4', label: 'Get listed', value: reach ? String(reach) : null, unit: 'reviews across platforms',
+        sub: 'Google, Facebook and Yelp combined.', tone: 'flat',
+        empty: 'Not measured yet', why: 'No platform totals available yet.' },
+      { pillar: 'p1', label: 'Found on Google', value: d.score != null ? d.score : null, unit: '/ 100 page health',
+        sub: d.problems ? `${d.problems} thing${d.problems === 1 ? '' : 's'} to fix.` : 'Everything is passing.',
+        tone: d.problems ? 'down' : 'up', empty: 'Not measured yet', why: 'We could not read your reviews page.' }
     ];
-    document.getElementById('rv-kpis').innerHTML = kpis.map(k =>
-      `<div class="rv-kpi" style="--kpi-accent:${k.accent}">
-         <div class="rv-kpi-label">${k.label}</div>
-         <div class="rv-kpi-value">${k.value}</div>
-         <div class="rv-kpi-sub">${k.sub}</div>
-       </div>`).join('');
+    const dotFor = t => t === 'up' ? 'var(--p4-g)' : t === 'down' ? 'var(--p2-g)' : 'var(--ink-3)';
+    document.getElementById('rv-kpis').innerHTML = kpis.map(k => k.value == null
+      ? `<div class="sb-metric empty ${k.pillar}">
+           <div class="sb-top"><span class="sb-pill ${k.pillar}">${k.label}</span></div>
+           <div class="sb-val">${k.empty}</div>
+           <div class="sb-verdict"><i class="sb-dot" style="background:var(--ink-3)"></i>${k.why}</div>
+         </div>`
+      : `<div class="sb-metric ${k.pillar}">
+           <div class="sb-top"><span class="sb-pill ${k.pillar}">${k.label}</span></div>
+           <div class="sb-val">${k.value}<u>${k.unit}</u></div>
+           <div class="sb-verdict"><i class="sb-dot" style="background:${dotFor(k.tone)}"></i>${k.sub}</div>
+         </div>`).join('');
 
     document.getElementById('rv-growth').innerHTML = rvGrowthChart(d.growth);
 
