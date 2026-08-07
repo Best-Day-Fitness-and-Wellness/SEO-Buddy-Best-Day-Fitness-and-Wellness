@@ -27,3 +27,6 @@ local.json
 onsite.json
 reddit-threads.json
 usage.json
+health-score.json
+performance-digest.json
+reviews-snapshots.json
