@@ -1078,7 +1078,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       const note = document.getElementById('ow-score-note');
       if (hs && hs.overall != null) {
-        const d = hs.delta28 != null ? hs.delta28 : null;
+        const d = hs.delta != null ? hs.delta : null;
         note.innerHTML = d != null && d < 0
           ? `<div class="ow-note warn" style="margin-top:22px"><b>Your score slipped ${Math.abs(d)} points this month.</b>
                <p>Worth knowing, not worth worrying about. The full comparison is on <b>Results</b>.</p></div>`
@@ -1185,12 +1185,21 @@ document.addEventListener('DOMContentLoaded', () => {
         fetch('/api/health-score').then(r => r.json()).catch(() => null),
       ]);
       if (!pf || !pf.current) {
-        // No Search Console yet. Say so plainly rather than rendering empty
-        // shells that look like a bug or, worse, like zeroes.
+        // Distinguish "never connected" from "connected, but this fetch didn't
+        // come back". Telling an owner their Search Console isn't connected
+        // when it demonstrably is sends them to fix something that isn't broken.
         find.innerHTML = '';
-        document.getElementById('ow-find-note').innerHTML =
-          `<div class="ow-note warn"><b>We can’t show your search numbers yet.</b>
-             <p>Google Search Console isn’t connected, so we have nothing real to compare. Everything else on this page still works. It’s the first item on your Today list.</p></div>`;
+        let connected = false;
+        try {
+          const rd = await fetch('/api/deploy-readiness').then(r => r.json());
+          connected = !!(rd.checks || []).find(c => c.key === 'gsc' && c.ok);
+        } catch (e) { /* if even that fails, fall through to the softer message */ }
+        document.getElementById('ow-find-note').innerHTML = connected
+          ? `<div class="ow-note warn"><b>We couldn’t load your search numbers just now.</b>
+               <p>Google Search Console is connected — this looks like a hiccup fetching the figures, not a setup problem. Everything else on this page still works.
+               <button class="btn btn-primary" style="width:auto;margin-top:10px" data-ow-retry>Try again</button></p></div>`
+          : `<div class="ow-note warn"><b>We can’t show your search numbers yet.</b>
+               <p>Google Search Console isn’t connected, so we have nothing real to compare. Everything else on this page still works — it’s on your Today list.</p></div>`;
       } else if (pf && pf.current) {
         const c = pf.current, p = pf.previous || {};
         find.innerHTML =
@@ -1198,7 +1207,7 @@ document.addEventListener('DOMContentLoaded', () => {
           tile('Times you appeared', (c.impressions || 0).toLocaleString(), arrow(c.impressions, p.impressions)) +
           tile('Typical position', c.avgPosition, arrow(c.avgPosition, p.avgPosition, true) + ' · lower is better') +
           tile('Optimization score', (hs && hs.overall != null ? hs.overall : '–') + '<small> / 100</small>',
-               hs && hs.delta28 != null ? arrow(hs.overall, hs.overall - hs.delta28) : '<span class="ow-flat">■ building history</span>');
+               hs && hs.delta != null ? arrow(hs.overall, hs.overall - hs.delta) : '<span class="ow-flat">■ building history</span>');
         const down = (c.clicks || 0) < (p.clicks || 0);
         document.getElementById('ow-find-note').innerHTML = down
           ? `<div class="ow-note warn"><b>This period went the wrong way, and we’re not going to dress that up.</b>
@@ -1223,7 +1232,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!visits) {
         document.getElementById('ow-worth').innerHTML =
           `<div class="ow-note"><b>We need real visit numbers before we can estimate value.</b>
-             <p>Connect Search Console and this fills in on its own.</p></div>`;
+             <p>This fills in on its own once the search figures load.</p></div>`;
         return;
       }
       document.getElementById('ow-worth').innerHTML =
@@ -1233,6 +1242,10 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (e) { /* leave the shells; better empty than wrong */ }
   }
   window.loadOwnerResults = loadOwnerResults;
+
+  document.addEventListener('click', (e) => {
+    if (e.target.closest && e.target.closest('[data-ow-retry]')) loadOwnerResults();
+  });
 
   // ── Business ──
   async function loadOwnerBusiness() {
