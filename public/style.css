@@ -2657,3 +2657,183 @@ body.asst-open .sb-dock-wrap { display: none; }
 @media (prefers-reduced-motion: reduce) {
   .sb-track { scroll-behavior: auto; }
 }
+
+/* ==========================================================================
+   MOBILE LAYER
+   Everything below applies only at <=860px, the same breakpoint that already
+   turns the sidebar into an off-canvas drawer. Desktop is untouched.
+   ========================================================================== */
+@media (max-width: 860px) {
+
+  /* THE bug. .main-content is a grid item, and grid items default to
+     min-width:auto — they refuse to shrink below their min-content width. Its
+     min-content is 756px (the stepper rail drives it), so the 1fr column grew
+     to 756 and the whole page laid out wider than the phone: you saw the left
+     half and everything else was off-screen. This is the same fix the codebase
+     already applies elsewhere with the comment "Prevents flex/grid children
+     from overflowing" — it just never reached the one element that mattered. */
+  .main-content { min-width: 0; }
+  .app-container { min-width: 0; }
+
+  /* 48px gutters cost a quarter of a 390px screen. */
+  .main-content { padding: 22px 18px 132px; }
+
+  /* --- touch targets ---------------------------------------------------
+     44px is Apple's minimum and 48px is Google's. Height is set as a floor,
+     not a fixed size, so nothing that is already taller shrinks. Padding is
+     kept so short labels still get a comfortable horizontal hit area. */
+  .btn,
+  .sb-card .acts button,
+  .sb-step-nav,
+  .nav-item,
+  .perf-refresh,
+  .sb-chip,
+  button.pri, button.gho {
+    min-height: 44px;
+  }
+  .sb-card .acts button { padding: 11px 16px; }
+  /* "Not now" is a text action; give it a hit area without a visible box. */
+  .sb-card.illus .acts .nn { min-height: 44px; padding: 11px 8px; }
+
+  /* --- type floor ------------------------------------------------------
+     Nothing below 12px on a phone. These are the tokens the meta rows,
+     badges and eyebrows are built from. */
+  .sb-card .meta .time,
+  .sb-card .pts,
+  .sb-cap,
+  .sb-eyebrow,
+  .sb-ring-of,
+  .sb-step-pos,
+  .sb-step-foot,
+  .sb-done span,
+  .biz-chip .dm,
+  .td-count,
+  .sum-kpi-sub, .sum-kpi-extra { font-size: 12px !important; }
+
+  /* --- iOS input zoom --------------------------------------------------
+     Safari zooms the entire page when a focused field is under 16px, and it
+     does not zoom back out. Every input, textarea and select is pinned to
+     16px on mobile for that reason alone. */
+  input, textarea, select, .form-input {
+    font-size: 16px !important;
+    min-height: 44px;
+  }
+  textarea { min-height: 88px; }
+
+  /* --- the setup stepper ----------------------------------------------
+     Swipe is the gesture people already use here, and the two 36px arrows
+     were eating ~92px of a 390px screen. Dots stay: they are the position
+     indicator and they are still tappable. */
+  .sb-step-nav { display: none; }
+  .sb-stepdot { width: 10px; height: 10px; }
+  .sb-stepdot.on { width: 26px; }
+  .sb-dots { gap: 9px; margin-top: 16px; padding: 6px 0; }
+
+  /* One card per row, and the hero stops trying to span two columns. */
+  .sb-gs { grid-template-columns: 1fr; gap: 14px; }
+  .sb-card.illus.hero .sb-art { height: 168px; }
+
+  /* Wide tables scroll inside their own card instead of pushing the page. */
+  .content-card, .sb-card, .sum-panel { max-width: 100%; }
+  table { width: 100%; }
+}
+
+/* Phones proper, as opposed to small tablets. */
+@media (max-width: 560px) {
+  .main-content { padding: 18px 14px 132px; }
+  .app-header { flex-wrap: wrap; gap: 8px; }
+  .sb-step-hdr { flex-wrap: wrap; }
+}
+
+/* --------------------------------------------------------------------------
+   MOBILE LAYER, part two: the stragglers the first pass did not reach.
+   -------------------------------------------------------------------------- */
+@media (max-width: 860px) {
+
+  /* Wide tables become their own horizontal scroller rather than pushing the
+     page sideways. display:block on the table (not a wrapper) means no markup
+     change and it survives tables rendered later from JS. Verified the columns
+     stay aligned: head and body measure identically before and after, because
+     the rows still form a single anonymous table box inside the block. */
+  table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  table thead, table tbody, table tr { width: max-content; min-width: 100%; }
+
+  /* Type floor, continued. These are the per-tab utility classes that sit at
+     10–11.5px on desktop; the first pass only covered the shared card scale. */
+  .text-muted, .status-badge, .metric-label, .section-title-sm, .snippet-title,
+  .av-lb-title, .av-lb-delta, .sb-pill, .cit-chip, .cit-copy, .sb-fw,
+  .settings-section-title, .td-tag, .sb-ring-chip, .rd-sub, .l,
+  th, code, small { font-size: 12px !important; }
+
+  /* Standalone controls that were still under the 44px floor. Inline links
+     inside a paragraph are deliberately left alone — padding them out would
+     break the line box they sit in. */
+  .av-linkbtn, .cit-copy, .live-link, .rec-dictate, .td-btn,
+  .btn-xs, .sum-refresh { min-height: 44px; }
+  .av-linkbtn, .cit-copy { display: inline-flex; align-items: center; padding: 11px 14px; }
+}
+
+/* --------------------------------------------------------------------------
+   MOBILE LAYER, part three: the fixed-column grids.
+   Each of these declares a hard pixel column that is wider than a phone, so
+   the grid could not collapse no matter what the parent did.
+   -------------------------------------------------------------------------- */
+@media (max-width: 860px) {
+
+  /* Create a post: "380px 1fr" — the 380px column alone exceeded the 362px
+     available, so the editor sat half off-screen. */
+  .split-view { grid-template-columns: 1fr; gap: 16px; }
+
+  /* Publish: three fixed columns each, with a 200–220px action column last. */
+  .autopilot-config-row,
+  .deploy-grid { grid-template-columns: 1fr; gap: 12px; }
+  .deploy-action-wrapper .btn { height: auto; min-height: 44px; }
+
+  /* Reviews: the panel had collapsed to one column already, but the column
+     itself was 540px wide because .rv-split-top could not shrink below its
+     474px chart. Let the row wrap and let the chart be fluid. */
+  .rv-split-top { flex-wrap: wrap; min-width: 0; }
+  .rv-chart { width: 100%; height: auto; }
+
+  /* Safety net: no drawing should ever be able to push the page sideways. */
+  svg, img, canvas, video { max-width: 100%; }
+
+  /* Cards are grid/flex children too, and default min-width:auto is what let
+     a wide child hold them open. */
+  .content-card, .split-panel, .sum-panel, .sb-card { min-width: 0; }
+}
+
+/* --------------------------------------------------------------------------
+   MOBILE LAYER, part four: the last two.
+   -------------------------------------------------------------------------- */
+@media (max-width: 860px) {
+
+  /* .rv-split-val is white-space:nowrap and its label can be long enough to
+     hold the whole page open on its own. Let it wrap on a phone. */
+  .rv-split-val { white-space: normal; overflow-wrap: anywhere; text-align: right; }
+
+  /* The stepper dots are deliberately small — they are a position indicator,
+     not a button — but they are tappable, so they need a real hit area.
+     A transparent inset pseudo-element gives them 44px without changing how
+     they look or how they sit in the row. */
+  .sb-stepdot { position: relative; }
+  .sb-stepdot::after {
+    content: ''; position: absolute;
+    top: 50%; left: 50%; transform: translate(-50%, -50%);
+    width: 44px; height: 44px;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   MOBILE LAYER, part five: the last stragglers found by measuring.
+   -------------------------------------------------------------------------- */
+@media (max-width: 860px) {
+  /* Icon buttons came out 43x44 — one pixel short on the axis nobody checks. */
+  .btn { min-width: 44px; }
+  /* min-height does nothing on an inline box, which is why these two stayed
+     at 30–32px after the first pass. */
+  .live-link, .editor-tab {
+    display: inline-flex; align-items: center;
+    min-height: 44px; padding-top: 8px; padding-bottom: 8px;
+  }
+}
