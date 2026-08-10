@@ -1099,7 +1099,7 @@ const AUTOPILOT_CASE_STUDIES = {
 };
 
 async function runAutopilotCycle() {
-  logAutopilotActivity('Scanning GSC Content Gaps for leaks...');
+  logAutopilotActivity('Looking for searches you appear in but get no clicks from...');
   
   // Get keywords
   let keywords = MOCK_GSC_DATA;
@@ -1200,7 +1200,7 @@ async function runAutopilotCycle() {
     // 3. Request Google Indexing — NON-FATAL. The article is already published;
     // an indexing permission error must not discard a successful publish or
     // report the whole run as failed.
-    logAutopilotActivity(`Requesting instant Google Indexing for: ${publish.url}`);
+    logAutopilotActivity(`Asking Google to list: ${publish.url}`);
     let indexStatus = 'Indexing Requested';
     try {
       await indexUrlHelper(publish.url);
@@ -2513,7 +2513,7 @@ app.post('/api/citation-targets', requireAuth, async (req, res) => {
     return res.json({
       success: true,
       unavailable: true,
-      message: 'Add your Gemini API key in Settings to find citation targets (this uses live Google Search grounding).',
+      message: 'Add your Gemini key in Settings to find the sites AI cites (this runs a live Google search).',
       targets: []
     });
   }
@@ -3350,7 +3350,7 @@ app.get('/api/citation-worklist', (req, res) => {
 app.post('/api/citation-scan', requireAuth, async (req, res) => {
   const geminiKey = process.env.GEMINI_API_KEY;
   if (!geminiKey) {
-    return res.json({ success: true, unavailable: true, message: 'Add your Gemini API key in Settings to scan for citation targets (this uses live Google Search grounding).' });
+    return res.json({ success: true, unavailable: true, message: 'Add your Gemini key in Settings to scan the sites AI cites (this runs a live Google search).' });
   }
   if (usageOverBudget()) return budgetBlock(res);
   let queries = Array.isArray(req.body && req.body.queries) ? req.body.queries : (citationsDb.queries || []);
@@ -4084,7 +4084,7 @@ async function computeHealthScore() {
     const done = citationsDb.targets.filter(t => t.listed === true || (st[t.domain] && st[t.domain].status === 'live')).length;
     pillars.push({ key: 'listed', label: 'Get listed', weight: 20, measured: true, score: Math.round(done / total * 100), detail: `On ${done} of ${total} source${total > 1 ? 's' : ''} AI cites` });
   } else {
-    pillars.push({ key: 'listed', label: 'Get listed', weight: 20, measured: false, score: null, detail: 'Scan citation targets to measure' });
+    pillars.push({ key: 'listed', label: 'Get listed', weight: 20, measured: false, score: null, detail: 'Scan the sites AI cites to measure' });
   }
 
   // 5. Fresh content (15%) — recency + autopilot
@@ -4169,7 +4169,7 @@ const MOVE_CAPABILITY = {
                ownerCta: 'Show me the draft', realEffort: 'about 5 minutes' },
   autopilot: { capability: 'approve',  doerLabel: 'Needs approval',
                ownerTitle: 'Let SEO Buddy publish for you on a schedule',
-               ownerWhy: 'Say yes once and we find a gap, write the page, publish it and ask Google to index it — repeatedly, without you. That whole chain we can do end to end.',
+               ownerWhy: 'Say yes once and we find a gap, write the page, publish it and ask Google to list it — repeatedly, without you. That whole chain we can do end to end.',
                ownerCta: 'Turn it on', realEffort: 'about 10 seconds' },
   ai:        { capability: 'approve',  doerLabel: 'Needs approval',
                ownerWhy: "See whether ChatGPT and Google's AI recommend you. We run it; you just start it.",
