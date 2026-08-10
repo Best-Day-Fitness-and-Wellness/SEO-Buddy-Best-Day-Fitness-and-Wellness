@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SEO Buddy - Total Rank System Dashboard</title>
   <!-- Inter only: --font-heading and --font-body are both Inter now -->
-  <link rel="icon" href="/best-day-logo.png" type="image/png">
-  <link rel="apple-touch-icon" href="/best-day-logo.png">
+  <link rel="icon" href="/bd-mark.png" type="image/png">
+  <link rel="apple-touch-icon" href="/bd-mark.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <!-- Variable axis (400..900), not a weight list: style.css asks for 400 500 600 650 700 750 760 800 900.
@@ -35,29 +35,15 @@
     </script>
     <aside class="sidebar">
       <div class="logo-area">
-        <!-- Best Day mark, simplified: the full badge is unreadable at 42px,
-             so the tile carries the sun-over-waves in the brand colours. -->
-        <div class="logo-icon" aria-label="Best Day Fitness &amp; Wellness">
-          <svg viewBox="0 0 34 34" width="34" height="34" aria-hidden="true">
-            <circle cx="17" cy="15" r="5.4" fill="#f5b800"/>
-            <g stroke="#ff9900" stroke-width="1.7" stroke-linecap="round">
-              <line x1="17" y1="4.4" x2="17" y2="6.9"/>
-              <line x1="9.5" y1="7.5" x2="11.3" y2="9.3"/>
-              <line x1="24.5" y1="7.5" x2="22.7" y2="9.3"/>
-              <line x1="6.4" y1="15" x2="8.9" y2="15"/>
-              <line x1="27.6" y1="15" x2="25.1" y2="15"/>
-            </g>
-            <path d="M4.5 23.2c2.6 0 2.6-1.9 5.2-1.9s2.6 1.9 5.2 1.9 2.6-1.9 5.2-1.9 2.6 1.9 5.2 1.9 2.6-1.9 5.2-1.9"
-                  fill="none" stroke="#00e5ff" stroke-width="2.1" stroke-linecap="round"/>
-            <path d="M4.5 28c2.6 0 2.6-1.9 5.2-1.9s2.6 1.9 5.2 1.9 2.6-1.9 5.2-1.9 2.6 1.9 5.2 1.9 2.6-1.9 5.2-1.9"
-                  fill="none" stroke="#00e5ff" stroke-width="2.1" stroke-linecap="round" opacity=".55"/>
-          </svg>
+        <!-- The real Best Day mark (512x512, transparent). Not a redraw. -->
+        <div class="logo-icon">
+          <img src="bd-mark.png" alt="Best Day Fitness &amp; Wellness" width="40" height="40">
         </div>
         <span class="logo-text">SEO Buddy</span>
       </div>
       
       <div class="biz-chip" title="Your business">
-        <span class="av"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg></span>
+        <span class="av"><img src="bd-mark.png" alt="" width="30" height="30"></span>
         <div><div class="nm" id="biz-chip-name">Best Day Fitness</div><div class="dm" id="display-site-url">bestdayfitness.com</div></div>
       </div>
       <nav class="nav-menu">
@@ -148,7 +134,7 @@
         <div class="td-wrap">
           <div class="td-head">
             <div class="td-brand"><b id="td-biz">Best Day Fitness</b><span id="td-loc">St. Petersburg, FL</span></div>
-            <div class="td-logo"><img src="best-day-logo.png" alt="Best Day Fitness"></div>
+            <div class="td-logo"><img src="bd-mark.png" alt="Best Day Fitness"></div>
           </div>
           <div class="td-hero" id="td-hero"></div>
           <div id="td-getstarted"></div>
@@ -862,12 +848,15 @@
               <button class="btn btn-secondary btn-xs" id="btn-schema-faq" style="padding: 4px 10px; font-size: 11px;">FAQ Page Graph</button>
             </div>
 
-            <div class="schema-code-box" style="border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; overflow: hidden; background: rgba(0,0,0,0.2);">
-              <div class="code-header" style="display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.03); border-bottom: 1px solid rgba(255,255,255,0.08); padding: 8px 12px; font-size: 11px; color: var(--text-muted); font-weight: 500;">
+            <!-- These were white-on-black alphas from the old dark-only build. Over a
+                 light card they composited to a mid grey with a pale blue on top
+                 (3.80:1). Now on surface tokens so both themes work. -->
+            <div class="schema-code-box" style="border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--surface-2);">
+              <div class="code-header" style="display: flex; justify-content: space-between; align-items: center; background: var(--line-2); border-bottom: 1px solid var(--line); padding: 8px 12px; font-size: 11px; color: var(--ink-2); font-weight: 500;">
                 <span>JSON-LD Structured Markup</span>
-                <button class="btn btn-secondary btn-xs" id="btn-copy-schema" style="padding: 2px 8px; font-size: 10px; border-color: rgba(255,255,255,0.15);">Copy Schema</button>
+                <button class="btn btn-secondary btn-xs" id="btn-copy-schema" style="padding: 2px 8px; font-size: 10px;">Copy Schema</button>
               </div>
-              <textarea id="schema-code-output" readonly style="width: 100%; height: 280px; background: transparent; border: none; padding: 12px; color: #8ab4f8; font-family: monospace; font-size: 11px; line-height: 1.5; resize: none; outline: none;"></textarea>
+              <textarea id="schema-code-output" readonly style="width: 100%; height: 280px; background: transparent; border: none; padding: 12px; color: var(--ink); font-family: monospace; font-size: 11px; line-height: 1.5; resize: none; outline: none;"></textarea>
             </div>
           </div>
         </div>
