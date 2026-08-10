@@ -2451,54 +2451,76 @@ document.addEventListener('DOMContentLoaded', () => {
         + '</g></svg>';
     },
     // ---- Search Console: bars and a climbing line ----
+    // The first pass drew the arrow as an L-shaped corner bracket with a hollow
+    // circle at the tip, which read as a lollipop rather than an arrowhead. The
+    // second drew a proper head but ran the curve straight across the face of
+    // the bars, which looked like a mistake. Painting order fixes that: ground,
+    // then curve, then bars on top, so the line passes BEHIND them and emerges
+    // on the right. The head is drawn last, clear of everything.
     gsc: function (u) {
       return sbArtOpen(u)
         + '<defs><linearGradient id="g' + u + '" x1="0" y1="1" x2="0" y2="0">'
         +   '<stop offset="0" stop-color="#22229b"/><stop offset="1" stop-color="#4a4ad6"/></linearGradient>'
         + '<filter id="f' + u + '" x="-35%" y="-35%" width="170%" height="170%">'
-        +   '<feDropShadow dx="0" dy="6" stdDeviation="7" flood-color="#000075" flood-opacity=".2"/>'
+        +   '<feDropShadow dx="0" dy="6" stdDeviation="7" flood-color="#000075" flood-opacity=".18"/>'
         + '</filter></defs>'
-        + '<circle cx="266" cy="26" r="56" fill="#22229b" opacity=".09"/>'
+        + '<circle cx="278" cy="128" r="46" fill="#22229b" opacity=".08"/>'
+        + '<path d="M62 130 h156" stroke="#22229b" stroke-width="3" stroke-linecap="round"'
+        +   ' opacity=".16" fill="none"/>'
+        + '<path d="M60 108 C 104 100, 138 74, 176 54 S 216 33, 236 26"'
+        +   ' fill="none" stroke="#000075" stroke-width="4.5" stroke-linecap="round"/>'
         + '<g filter="url(#f' + u + ')">'
-        +   '<rect x="66" y="82" width="30" height="42" rx="9" fill="url(#g' + u + ')" opacity=".5"/>'
-        +   '<rect x="106" y="60" width="30" height="64" rx="9" fill="url(#g' + u + ')" opacity=".72"/>'
-        +   '<rect x="146" y="38" width="30" height="86" rx="9" fill="url(#g' + u + ')"/>'
+        +   '<rect x="72" y="82" width="30" height="42" rx="9" fill="url(#g' + u + ')" opacity=".55"/>'
+        +   '<rect x="112" y="60" width="30" height="64" rx="9" fill="url(#g' + u + ')" opacity=".78"/>'
+        +   '<rect x="152" y="38" width="30" height="86" rx="9" fill="url(#g' + u + ')"/>'
         + '</g>'
-        + '<g stroke="#000075" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round">'
-        +   '<path d="M68 70 L108 48 L148 28 L202 14"/><path d="M182 12 L204 13 L203 34"/>'
-        + '</g>'
-        + '<circle cx="202" cy="14" r="6.5" fill="#fff" stroke="#000075" stroke-width="4"/></svg>';
+        + '<path d="M254 20 L240 32 L236 18 Z" fill="#000075"/>'
+        + '</svg>';
     },
-    // ---- connect your website: a globe on a link ----
+    // ---- connect your website: a globe and a chain link ----
+    // The link was two parallel orange capsules, which read as two loose bars
+    // rather than a connection. Now the standard interlocking-link glyph: two
+    // rounded capsules on the same diagonal with a bar bridging them.
     ghl: function (u) {
       return sbArtOpen(u) + sbArtDefs(u, '#6f6fe0', '#22229b', '#000075')
-        + '<circle cx="262" cy="118" r="50" fill="#22229b" opacity=".10"/>'
+        + '<circle cx="272" cy="124" r="46" fill="#22229b" opacity=".09"/>'
         + '<g filter="url(#f' + u + ')">'
-        +   '<circle cx="118" cy="72" r="44" fill="url(#g' + u + ')"/>'
-        +   '<ellipse cx="104" cy="50" rx="24" ry="10" fill="url(#s' + u + ')" opacity=".4"/>'
+        +   '<circle cx="104" cy="74" r="42" fill="url(#g' + u + ')"/>'
+        +   '<ellipse cx="91" cy="53" rx="22" ry="9" fill="url(#s' + u + ')" opacity=".4"/>'
         + '</g>'
-        + '<g stroke="#fff" stroke-width="3.4" fill="none" opacity=".8">'
-        +   '<ellipse cx="118" cy="72" rx="19" ry="44"/><path d="M76 60 h84"/><path d="M76 86 h84"/>'
+        + '<g stroke="#fff" stroke-width="3.2" fill="none" opacity=".78">'
+        +   '<ellipse cx="104" cy="74" rx="18" ry="42"/><path d="M64 62 h80"/><path d="M64 86 h80"/>'
         + '</g>'
-        + '<g filter="url(#f' + u + ')" stroke="#ff9900" stroke-width="11" stroke-linecap="round" fill="none">'
-        +   '<path d="M186 92 l20 -20"/><path d="M216 62 l18 -18"/>'
+        + '<g filter="url(#f' + u + ')" transform="translate(206,74) rotate(-38)">'
+        +   '<rect x="-52" y="-15" width="56" height="30" rx="15" fill="none"'
+        +     ' stroke="#ff9900" stroke-width="9"/>'
+        +   '<rect x="-4" y="-15" width="56" height="30" rx="15" fill="none"'
+        +     ' stroke="#ff9900" stroke-width="9"/>'
         + '</g></svg>';
     },
-    // ---- business details: a storefront card ----
+    // ---- business details: a profile card ----
+    // Was a storefront whose awning was an unfilled outlined trapezoid — it read
+    // as a stray envelope flap hovering over the card rather than a roof. Same
+    // idea, told as the thing it actually is: your details on a card, checked.
     business: function (u) {
       return sbArtOpen(u) + sbArtDefs(u, '#ffffff', '#efede7', '#5b6472')
-        + '<circle cx="264" cy="30" r="52" fill="#5b6472" opacity=".07"/>'
+        + '<circle cx="272" cy="30" r="48" fill="#5b6472" opacity=".07"/>'
         + '<g filter="url(#f' + u + ')">'
-        +   '<rect x="86" y="46" width="148" height="80" rx="13" fill="#fff"/>'
-        +   '<path d="M80 46 l18 -22 h124 l18 22 z" fill="url(#g' + u + ')" stroke="#d8d4cb" stroke-width="2"/>'
+        +   '<rect x="76" y="30" width="168" height="94" rx="15" fill="#fff"/>'
+        +   '<path d="M76 45 a15 15 0 0 1 15 -15 h138 a15 15 0 0 1 15 15 v9 h-168z"'
+        +     ' fill="#e7e4dd"/>'
         + '</g>'
-        + '<g fill="#5b6472" opacity=".2">'
-        +   '<rect x="104" y="66" width="60" height="8" rx="4"/>'
-        +   '<rect x="104" y="82" width="94" height="7" rx="3.5"/>'
-        +   '<rect x="104" y="97" width="72" height="7" rx="3.5"/>'
+        + '<circle cx="112" cy="82" r="19" fill="#d8d4cb"/>'
+        + '<circle cx="112" cy="76" r="7" fill="#fff"/>'
+        + '<path d="M100 95 a12 12 0 0 1 24 0 z" fill="#fff"/>'
+        + '<g fill="#5b6472" opacity=".22">'
+        +   '<rect x="144" y="70" width="72" height="8" rx="4"/>'
+        +   '<rect x="144" y="86" width="52" height="8" rx="4"/>'
         + '</g>'
-        + '<rect x="196" y="92" width="26" height="26" rx="8" fill="#05b48f" opacity=".18"/>'
-        + '<path d="M203 105 l5 5 9 -11" stroke="#05745f" stroke-width="3.6" fill="none"'
+        + '<g filter="url(#f' + u + ')">'
+        +   '<circle cx="228" cy="110" r="18" fill="#05b48f"/>'
+        + '</g>'
+        + '<path d="M220 110 l6 6 11 -13" stroke="#fff" stroke-width="4" fill="none"'
         +   ' stroke-linecap="round" stroke-linejoin="round"/></svg>';
     },
     // ---- brand voice: a quote mark ----
@@ -2534,18 +2556,23 @@ document.addEventListener('DOMContentLoaded', () => {
         + '<rect x="156.5" y="96" width="7" height="18" rx="3.5" fill="#5b6472" opacity=".55"/></svg>';
     },
     // ---- keep your history: stacked disks ----
+    // The first version was white-on-white with a hairline border and all but
+    // disappeared against the neutral tint. Given real fill and edge contrast,
+    // plus a green tick so it reads as "kept" rather than "storage hardware".
     storage: function (u) {
+      var band = function (y, top) {
+        return '<path d="M100 ' + y + ' v-24 h120 v24" fill="#e7e4dd" stroke="#c9c4b9" stroke-width="2"/>'
+          + '<ellipse cx="160" cy="' + y + '" rx="60" ry="17" fill="' + (top ? '#fff' : '#e7e4dd')
+          + '" stroke="#c9c4b9" stroke-width="2"/>';
+      };
       return sbArtOpen(u) + sbArtDefs(u, '#ffffff', '#efede7', '#5b6472')
-        + '<circle cx="54" cy="30" r="46" fill="#5b6472" opacity=".07"/>'
+        + '<circle cx="52" cy="34" r="44" fill="#5b6472" opacity=".07"/>'
         + '<g filter="url(#f' + u + ')">'
-        +   '<ellipse cx="160" cy="104" rx="62" ry="18" fill="url(#g' + u + ')" stroke="#d8d4cb" stroke-width="2"/>'
-        +   '<path d="M98 104 v-26 h124 v26" fill="url(#g' + u + ')" stroke="#d8d4cb" stroke-width="2"/>'
-        +   '<ellipse cx="160" cy="78" rx="62" ry="18" fill="url(#g' + u + ')" stroke="#d8d4cb" stroke-width="2"/>'
-        +   '<path d="M98 78 v-26 h124 v26" fill="url(#g' + u + ')" stroke="#d8d4cb" stroke-width="2"/>'
-        +   '<ellipse cx="160" cy="52" rx="62" ry="18" fill="#fff" stroke="#d8d4cb" stroke-width="2"/>'
+        +   band(112, false) + band(86, false) + band(60, true)
         + '</g>'
-        + '<circle cx="196" cy="52" r="5" fill="#05b48f"/>'
-        + '<circle cx="196" cy="78" r="5" fill="#05b48f" opacity=".55"/></svg>';
+        + '<g filter="url(#f' + u + ')"><circle cx="222" cy="106" r="18" fill="#05b48f"/></g>'
+        + '<path d="M214 106 l6 6 11 -13" stroke="#fff" stroke-width="4" fill="none"'
+        +   ' stroke-linecap="round" stroke-linejoin="round"/></svg>';
     }
   };
 
@@ -2706,6 +2733,7 @@ document.addEventListener('DOMContentLoaded', () => {
       + '</div></div>';
   }
   window.loadGetStarted = loadGetStarted;
+  window.__art = sbArt;   // test hook: render one illustration in isolation
 
   // Today shows exactly one. Nobody meets nine cards at once.
   async function loadTodayTop() {
