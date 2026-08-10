@@ -1334,7 +1334,10 @@ body.nav-open #mobile-backdrop{display:block;}}
    -------------------------------------------------------------------------- */
 #explore-tab{ --td-surface:var(--surface); --td-surface2:var(--surface-2); --td-ink:var(--ink); --td-ink2:var(--ink-2); --td-ink3:var(--ink-3); --td-line:var(--line); --td-shadow:var(--shadow-md); }
 
-#explore-tab .exp-wrap{max-width:680px;margin:0 auto;color:var(--td-ink);font-family:var(--font-body);}
+/* Was 680px centred, which left the gallery two cards wide and floating right of
+   the page title — the same orphaning .td-wrap had. Explore is a gallery now, so
+   it takes the full capped content column and starts under its own heading. */
+#explore-tab .exp-wrap{max-width:1080px;margin:0;color:var(--td-ink);font-family:var(--font-body);}
 #explore-tab .exp-group{margin-bottom:22px;}
 #explore-tab .exp-gl{font-size:12px;text-transform:uppercase;letter-spacing:.12em;color:var(--td-ink3);font-weight:600;margin:0 4px 10px;}
 #explore-tab .exp-list{background:var(--td-surface);border:1px solid var(--td-line);border-radius:18px;overflow:hidden;box-shadow:var(--td-shadow);}
@@ -2444,7 +2447,52 @@ body.asst-open .sb-dock-wrap { display: none; }
    divided by effort. Three kinds, visually distinct, so a $0 protective
    step can never sit level with the thing gating 60% of the score.
    ------------------------------------------------------------------------- */
-.sb-gs { display: flex; flex-direction: column; gap: 12px; }
+/* A gallery, not a list. align-items:start so a short card never stretches to
+   match the tall hero sharing its row and open a dead gap above its buttons. */
+.sb-gs {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(288px, 1fr));
+  gap: 18px;
+  align-items: start;
+}
+/* The illustration panel. The tint comes from the step's pillar so the picture
+   and the colour agree; steps with no pillar take the neutral surface. */
+.sb-art { height: 152px; overflow: hidden; }
+.sb-art svg { width: 100%; height: 100%; display: block; }
+.sb-art.p1 { background: var(--p1-t); }
+.sb-art.p2 { background: var(--p2-t); }
+.sb-art.p3 { background: var(--p3-t); }
+.sb-art.p4 { background: var(--p4-t); }
+.sb-art.p5 { background: var(--p5-t); }
+.sb-art.neutral { background: var(--surface-2); }
+.sb-card.illus { padding: 0; overflow: hidden; display: flex; flex-direction: column; }
+.sb-card.illus .sb-body { padding: 16px 19px 19px; }
+.sb-card.illus.hero { grid-column: span 2; }
+.sb-card.illus.hero .sb-art { height: 200px; }
+@media (max-width: 900px) { .sb-card.illus.hero { grid-column: span 1; } }
+/* Finished steps stay browsable but stop competing for attention. */
+.sb-card.is-done { box-shadow: none; }
+.sb-card.is-done .sb-art { filter: saturate(.45) opacity(.75); }
+.sb-card.is-done h4 { color: var(--ink-2); }
+.sb-card .pts.done { background: var(--p4-t); color: var(--p4); display: inline-flex;
+  align-items: center; gap: 5px; }
+.sb-card .pts.done .tk { font-weight: 800; }
+/* Tighter actions inside an illustrated card: three pills at the full size
+   wrapped onto a second row in a 288px column. "Not now" drops its pill and
+   becomes a quiet text action, which is the right weight for it anyway. */
+.sb-card.illus .acts { gap: 7px; align-items: center; }
+.sb-card.illus .acts button { padding: 9px 15px; font-size: 13px; }
+.sb-card.illus .acts .nn {
+  background: none; border: 0; padding: 9px 4px;
+  font-family: var(--font-body); font-size: 13px; font-weight: 650;
+  color: var(--ink-3); cursor: pointer; text-decoration: underline;
+  text-underline-offset: 3px; text-decoration-color: var(--line);
+}
+.sb-card.illus .acts .nn:hover { color: var(--ink); text-decoration-color: currentColor; }
+/* The title row must not let a wide badge shove the heading onto its own line. */
+.sb-card.illus .r1 { flex-wrap: nowrap; align-items: flex-start; gap: 9px; }
+.sb-card.illus .r1 h4 { flex: 1; min-width: 0; }
+.sb-card.illus .r1 .pts { flex-shrink: 0; margin-top: 1px; }
 .sb-gs-hdr {
   background: var(--surface); border: 1px solid var(--line);
   border-radius: var(--radius-card); box-shadow: var(--shadow-md);

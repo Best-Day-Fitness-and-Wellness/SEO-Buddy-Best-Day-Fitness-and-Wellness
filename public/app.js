@@ -2327,8 +2327,245 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  function sbStepCard(st, hero) {
+  // ---------------------------------------------------------------------------
+  // Card artwork. Style A: rounded volumes, radial gradients, soft drop shadows.
+  //
+  // Every gradient and filter needs an id, and a card can appear in two tabs at
+  // once (Today's hero and Explore's gallery are both in the DOM). Duplicate ids
+  // in one document silently make the SECOND element reference the FIRST one's
+  // gradient, so each drawing is a function of a unique suffix rather than a
+  // string constant.
+  // ---------------------------------------------------------------------------
+  let SB_ART_N = 0;
+
+  // Shared plumbing: a tinted wash, a drop shadow, and a two-stop gradient.
+  function sbArtDefs(u, from, to, shadow) {
+    return '<defs>'
+      + '<radialGradient id="g' + u + '" cx=".34" cy=".28" r=".85">'
+      +   '<stop offset="0" stop-color="' + from + '"/><stop offset="1" stop-color="' + to + '"/>'
+      + '</radialGradient>'
+      + '<linearGradient id="s' + u + '" x1="0" y1="0" x2="1" y2="1">'
+      +   '<stop offset="0" stop-color="#fff" stop-opacity=".85"/>'
+      +   '<stop offset="1" stop-color="#fff" stop-opacity=".25"/>'
+      + '</linearGradient>'
+      + '<filter id="f' + u + '" x="-35%" y="-35%" width="170%" height="170%">'
+      +   '<feDropShadow dx="0" dy="7" stdDeviation="8" flood-color="' + shadow + '" flood-opacity=".24"/>'
+      + '</filter></defs>';
+  }
+  // `slice` fills the panel and crops the overflow — right for a 288px card whose
+  // panel is close to the 320x150 the drawings are composed in. The hero panel is
+  // more than twice as wide, so slice scales to cover the width and cuts the top
+  // and bottom off the subject. `meet` fits the whole drawing and lets the tint
+  // show at the sides instead.
+  let SB_ART_FIT = 'slice';
+  function sbArtOpen(u) {
+    return '<svg viewBox="0 0 320 150" preserveAspectRatio="xMidYMid ' + SB_ART_FIT + '" aria-hidden="true">';
+  }
+
+  const SB_ART = {
+    // ---- the Gemini key ----
+    gemini: function (u) {
+      return sbArtOpen(u) + sbArtDefs(u, '#ffe9a8', '#f5b800', '#8a6200')
+        + '<circle cx="258" cy="26" r="62" fill="#f5b800" opacity=".13"/>'
+        + '<circle cx="52" cy="134" r="50" fill="#f5b800" opacity=".10"/>'
+        + '<g filter="url(#f' + u + ')" transform="translate(160,76) rotate(-30)">'
+        +   '<circle cx="-42" cy="0" r="29" fill="url(#g' + u + ')"/>'
+        +   '<circle cx="-42" cy="0" r="12.5" fill="#fcf3d6"/>'
+        +   '<rect x="-15" y="-9" width="74" height="18" rx="9" fill="url(#g' + u + ')"/>'
+        +   '<rect x="30" y="6" width="11" height="20" rx="5.5" fill="url(#g' + u + ')"/>'
+        +   '<rect x="47" y="6" width="11" height="15" rx="5.5" fill="url(#g' + u + ')"/>'
+        +   '<ellipse cx="-42" cy="-14" rx="18" ry="7" fill="url(#s' + u + ')" opacity=".55"/>'
+        + '</g>'
+        + '<g fill="#8a6200" opacity=".42">'
+        +   '<path d="M252 100 l3.5 9 9 3.5 -9 3.5 -3.5 9 -3.5 -9 -9 -3.5 9 -3.5z"/>'
+        +   '<path d="M74 34 l2.5 6.5 6.5 2.5 -6.5 2.5 -2.5 6.5 -2.5 -6.5 -6.5 -2.5 6.5 -2.5z"/>'
+        + '</g></svg>';
+    },
+    // ---- autopilot: a page that writes and sends itself ----
+    autopilot: function (u) {
+      return sbArtOpen(u) + sbArtDefs(u, '#ffd75e', '#f5b800', '#8a6200')
+        + '<circle cx="264" cy="118" r="54" fill="#f5b800" opacity=".13"/>'
+        + '<g filter="url(#f' + u + ')">'
+        +   '<rect x="72" y="20" width="104" height="112" rx="13" fill="#fff"/>'
+        +   '<path d="M72 33 a13 13 0 0 1 13 -13 h78 a13 13 0 0 1 13 13 v13 h-104z" fill="url(#g' + u + ')"/>'
+        + '</g>'
+        + '<g fill="#8a6200" opacity=".26">'
+        +   '<rect x="88" y="62" width="72" height="7" rx="3.5"/>'
+        +   '<rect x="88" y="78" width="58" height="7" rx="3.5"/>'
+        +   '<rect x="88" y="94" width="40" height="7" rx="3.5"/>'
+        + '</g>'
+        + '<g filter="url(#f' + u + ')">'
+        +   '<path d="M196 84 L262 52 L238 116 L226 94 z" fill="url(#g' + u + ')"/>'
+        +   '<path d="M196 84 L262 52 L226 94 z" fill="#fff" opacity=".35"/>'
+        + '</g></svg>';
+    },
+    // ---- local listings: a pin over a street grid ----
+    local: function (u) {
+      return sbArtOpen(u) + sbArtDefs(u, '#ffc266', '#ff9900', '#a65b00')
+        + '<circle cx="44" cy="116" r="52" fill="#ff9900" opacity=".12"/>'
+        + '<g stroke="#a65b00" stroke-width="2.4" opacity=".2" stroke-linecap="round">'
+        +   '<path d="M22 106 h276"/><path d="M22 126 h276"/>'
+        +   '<path d="M110 20 v112"/><path d="M212 20 v112"/>'
+        + '</g>'
+        + '<ellipse cx="160" cy="124" rx="24" ry="6" fill="#a65b00" opacity=".18"/>'
+        + '<g filter="url(#f' + u + ')" transform="translate(160,62)">'
+        +   '<path d="M0 54 C0 54 31 22 31 -2 A31 31 0 1 0 -31 -2 C-31 22 0 54 0 54 Z" fill="url(#g' + u + ')"/>'
+        +   '<circle cx="0" cy="-2" r="12.5" fill="#fff5e6"/>'
+        +   '<ellipse cx="-10" cy="-16" rx="11" ry="5" fill="url(#s' + u + ')" opacity=".5"/>'
+        + '</g></svg>';
+    },
+    // ---- AI recommends you: a bubble that answers ----
+    ai: function (u) {
+      return sbArtOpen(u) + sbArtDefs(u, '#5ce4ff', '#00c4e8', '#00708f')
+        + '<circle cx="266" cy="118" r="50" fill="#00c4e8" opacity=".12"/>'
+        + '<g filter="url(#f' + u + ')">'
+        +   '<path d="M46 26 h150 a17 17 0 0 1 17 17 v44 a17 17 0 0 1 -17 17 h-86 l-25 21 v-21 h-39'
+        +     ' a17 17 0 0 1 -17 -17 v-44 a17 17 0 0 1 17 -17 z" fill="url(#g' + u + ')"/>'
+        +   '<ellipse cx="96" cy="42" rx="36" ry="9" fill="#fff" opacity=".3"/>'
+        + '</g>'
+        + '<g fill="#fff">'
+        +   '<rect x="66" y="54" width="82" height="8" rx="4" opacity=".95"/>'
+        +   '<rect x="66" y="70" width="112" height="8" rx="4" opacity=".68"/>'
+        +   '<rect x="66" y="86" width="58" height="8" rx="4" opacity=".48"/>'
+        + '</g>'
+        + '<g fill="#00708f">'
+        +   '<path d="M250 32 l4.5 11 11 4.5 -11 4.5 -4.5 11 -4.5 -11 -11 -4.5 11 -4.5z"/>'
+        +   '<path d="M222 14 l2.5 6.5 6.5 2.5 -6.5 2.5 -2.5 6.5 -2.5 -6.5 -6.5 -2.5 6.5 -2.5z" opacity=".55"/>'
+        + '</g></svg>';
+    },
+    // ---- get listed: a stack of directories, one ticked ----
+    listed: function (u) {
+      return sbArtOpen(u) + sbArtDefs(u, '#3ddcb8', '#05b48f', '#05745f')
+        + '<circle cx="46" cy="28" r="48" fill="#05b48f" opacity=".12"/>'
+        + '<g filter="url(#f' + u + ')">'
+        +   '<rect x="72" y="88" width="164" height="32" rx="11" fill="url(#g' + u + ')" opacity=".45"/>'
+        +   '<rect x="64" y="58" width="164" height="32" rx="11" fill="url(#g' + u + ')" opacity=".72"/>'
+        +   '<rect x="56" y="28" width="164" height="32" rx="11" fill="url(#g' + u + ')"/>'
+        +   '<ellipse cx="106" cy="38" rx="38" ry="7" fill="#fff" opacity=".28"/>'
+        + '</g>'
+        + '<g fill="#fff" opacity=".95">'
+        +   '<circle cx="78" cy="44" r="6.5"/><rect x="94" y="40" width="72" height="8" rx="4"/>'
+        + '</g>'
+        + '<g stroke="#05745f" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round">'
+        +   '<path d="M244 104 l8 8 16 -18"/>'
+        + '</g></svg>';
+    },
+    // ---- Search Console: bars and a climbing line ----
+    gsc: function (u) {
+      return sbArtOpen(u)
+        + '<defs><linearGradient id="g' + u + '" x1="0" y1="1" x2="0" y2="0">'
+        +   '<stop offset="0" stop-color="#22229b"/><stop offset="1" stop-color="#4a4ad6"/></linearGradient>'
+        + '<filter id="f' + u + '" x="-35%" y="-35%" width="170%" height="170%">'
+        +   '<feDropShadow dx="0" dy="6" stdDeviation="7" flood-color="#000075" flood-opacity=".2"/>'
+        + '</filter></defs>'
+        + '<circle cx="266" cy="26" r="56" fill="#22229b" opacity=".09"/>'
+        + '<g filter="url(#f' + u + ')">'
+        +   '<rect x="66" y="82" width="30" height="42" rx="9" fill="url(#g' + u + ')" opacity=".5"/>'
+        +   '<rect x="106" y="60" width="30" height="64" rx="9" fill="url(#g' + u + ')" opacity=".72"/>'
+        +   '<rect x="146" y="38" width="30" height="86" rx="9" fill="url(#g' + u + ')"/>'
+        + '</g>'
+        + '<g stroke="#000075" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round">'
+        +   '<path d="M68 70 L108 48 L148 28 L202 14"/><path d="M182 12 L204 13 L203 34"/>'
+        + '</g>'
+        + '<circle cx="202" cy="14" r="6.5" fill="#fff" stroke="#000075" stroke-width="4"/></svg>';
+    },
+    // ---- connect your website: a globe on a link ----
+    ghl: function (u) {
+      return sbArtOpen(u) + sbArtDefs(u, '#6f6fe0', '#22229b', '#000075')
+        + '<circle cx="262" cy="118" r="50" fill="#22229b" opacity=".10"/>'
+        + '<g filter="url(#f' + u + ')">'
+        +   '<circle cx="118" cy="72" r="44" fill="url(#g' + u + ')"/>'
+        +   '<ellipse cx="104" cy="50" rx="24" ry="10" fill="url(#s' + u + ')" opacity=".4"/>'
+        + '</g>'
+        + '<g stroke="#fff" stroke-width="3.4" fill="none" opacity=".8">'
+        +   '<ellipse cx="118" cy="72" rx="19" ry="44"/><path d="M76 60 h84"/><path d="M76 86 h84"/>'
+        + '</g>'
+        + '<g filter="url(#f' + u + ')" stroke="#ff9900" stroke-width="11" stroke-linecap="round" fill="none">'
+        +   '<path d="M186 92 l20 -20"/><path d="M216 62 l18 -18"/>'
+        + '</g></svg>';
+    },
+    // ---- business details: a storefront card ----
+    business: function (u) {
+      return sbArtOpen(u) + sbArtDefs(u, '#ffffff', '#efede7', '#5b6472')
+        + '<circle cx="264" cy="30" r="52" fill="#5b6472" opacity=".07"/>'
+        + '<g filter="url(#f' + u + ')">'
+        +   '<rect x="86" y="46" width="148" height="80" rx="13" fill="#fff"/>'
+        +   '<path d="M80 46 l18 -22 h124 l18 22 z" fill="url(#g' + u + ')" stroke="#d8d4cb" stroke-width="2"/>'
+        + '</g>'
+        + '<g fill="#5b6472" opacity=".2">'
+        +   '<rect x="104" y="66" width="60" height="8" rx="4"/>'
+        +   '<rect x="104" y="82" width="94" height="7" rx="3.5"/>'
+        +   '<rect x="104" y="97" width="72" height="7" rx="3.5"/>'
+        + '</g>'
+        + '<rect x="196" y="92" width="26" height="26" rx="8" fill="#05b48f" opacity=".18"/>'
+        + '<path d="M203 105 l5 5 9 -11" stroke="#05745f" stroke-width="3.6" fill="none"'
+        +   ' stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    },
+    // ---- brand voice: a quote mark ----
+    brand: function (u) {
+      return sbArtOpen(u) + sbArtDefs(u, '#ffffff', '#efede7', '#5b6472')
+        + '<circle cx="52" cy="118" r="48" fill="#5b6472" opacity=".07"/>'
+        + '<g filter="url(#f' + u + ')">'
+        +   '<rect x="74" y="28" width="172" height="84" rx="16" fill="#fff"/>'
+        +   '<path d="M110 112 l4 22 22 -22 z" fill="#fff"/>'
+        + '</g>'
+        + '<g fill="#5b6472" opacity=".55">'
+        +   '<path d="M112 54 q-14 6 -14 20 h14 v18 h-24 v-22 q0 -20 24 -26 z"/>'
+        +   '<path d="M150 54 q-14 6 -14 20 h14 v18 h-24 v-22 q0 -20 24 -26 z"/>'
+        + '</g>'
+        + '<g fill="#5b6472" opacity=".18">'
+        +   '<rect x="176" y="56" width="52" height="7" rx="3.5"/>'
+        +   '<rect x="176" y="72" width="40" height="7" rx="3.5"/>'
+        + '</g></svg>';
+    },
+    // ---- lock this to you: a padlock ----
+    admin: function (u) {
+      return sbArtOpen(u) + sbArtDefs(u, '#ffffff', '#efede7', '#5b6472')
+        + '<circle cx="262" cy="112" r="48" fill="#5b6472" opacity=".07"/>'
+        + '<g stroke="#5b6472" stroke-width="12" fill="none" opacity=".45">'
+        +   '<path d="M134 62 v-14 a26 26 0 0 1 52 0 v14"/>'
+        + '</g>'
+        + '<g filter="url(#f' + u + ')">'
+        +   '<rect x="112" y="60" width="96" height="70" rx="16" fill="url(#g' + u + ')"'
+        +     ' stroke="#d8d4cb" stroke-width="2"/>'
+        +   '<ellipse cx="146" cy="74" rx="22" ry="7" fill="#fff" opacity=".7"/>'
+        + '</g>'
+        + '<circle cx="160" cy="90" r="9" fill="#5b6472" opacity=".55"/>'
+        + '<rect x="156.5" y="96" width="7" height="18" rx="3.5" fill="#5b6472" opacity=".55"/></svg>';
+    },
+    // ---- keep your history: stacked disks ----
+    storage: function (u) {
+      return sbArtOpen(u) + sbArtDefs(u, '#ffffff', '#efede7', '#5b6472')
+        + '<circle cx="54" cy="30" r="46" fill="#5b6472" opacity=".07"/>'
+        + '<g filter="url(#f' + u + ')">'
+        +   '<ellipse cx="160" cy="104" rx="62" ry="18" fill="url(#g' + u + ')" stroke="#d8d4cb" stroke-width="2"/>'
+        +   '<path d="M98 104 v-26 h124 v26" fill="url(#g' + u + ')" stroke="#d8d4cb" stroke-width="2"/>'
+        +   '<ellipse cx="160" cy="78" rx="62" ry="18" fill="url(#g' + u + ')" stroke="#d8d4cb" stroke-width="2"/>'
+        +   '<path d="M98 78 v-26 h124 v26" fill="url(#g' + u + ')" stroke="#d8d4cb" stroke-width="2"/>'
+        +   '<ellipse cx="160" cy="52" rx="62" ry="18" fill="#fff" stroke="#d8d4cb" stroke-width="2"/>'
+        + '</g>'
+        + '<circle cx="196" cy="52" r="5" fill="#05b48f"/>'
+        + '<circle cx="196" cy="78" r="5" fill="#05b48f" opacity=".55"/></svg>';
+    }
+  };
+
+  // Unknown keys get the neutral card rather than a hole in the layout.
+  function sbArt(key, wide) {
+    const f = SB_ART[key] || SB_ART.business;
+    SB_ART_FIT = wide ? 'meet' : 'slice';
+    const out = f('x' + (++SB_ART_N));
+    SB_ART_FIT = 'slice';
+    return out;
+  }
+
+  // `art` draws the illustration panel. Today's single card and the Explore
+  // gallery share this builder, and only the gallery asks for artwork.
+  function sbStepCard(st, hero, art) {
     const p = st.pillar || '';
+    const tint = p || (st.kind === 'protect' ? 'neutral' : 'p5');
+    const artPanel = art
+      ? '<div class="sb-art ' + tint + '">' + sbArt(st.key, hero) + '</div>'
+      : '';
     const badge = st.kind === 'unlock'
       ? '<span class="pts ' + p + '">+' + st.points + ' pts</span>'
       : (st.badge ? '<span class="pts">' + st.badge + '</span>' : '');
@@ -2337,16 +2574,25 @@ document.addEventListener('DOMContentLoaded', () => {
     const why = st.locked
       ? 'Needs your Gemini key first — it is the step above this one.'
       : st.why;
+    const notBtn = '<button class="' + (art ? 'nn' : 'gho') + '" data-not="1" type="button">Not now</button>';
     const acts = st.kind === 'protect'
       ? '<button class="gho" data-go="1" type="button">' + st.cta + '</button>'
       : '<button class="pri" data-go="1" type="button"' + (st.locked ? ' disabled' : '') + '>' + st.cta + '</button>'
         + '<button class="gho" data-how="1" type="button">Show me how</button>'
-        + '<button class="gho" data-not="1" type="button">Not now</button>';
-    return '<div class="sb-card' + (hero ? ' hero' : '') + (st.kind === 'protect' ? ' protect' : '') + (st.locked ? ' locked' : '') + '" data-key="' + st.key + '">'
-      + '<div class="r1"><span class="ic ' + p + '">' + st.icon + '</span><h4>' + st.title + '</h4>' + badge + '</div>'
-      + '<p>' + why + '</p>'
-      + '<div class="meta"><span class="sb-cap ' + st.cap + '">' + capLabel + '</span><span class="time">' + mins + '</span></div>'
-      + '<div class="acts">' + acts + '</div></div>';
+        + notBtn;
+    // With artwork the icon chip is redundant — the picture already says what
+    // this is — so the title row drops it and keeps the badge.
+    const r1 = art
+      ? '<div class="r1"><h4>' + st.title + '</h4>' + badge + '</div>'
+      : '<div class="r1"><span class="ic ' + p + '">' + st.icon + '</span><h4>' + st.title + '</h4>' + badge + '</div>';
+    return '<div class="sb-card' + (hero ? ' hero' : '') + (art ? ' illus' : '') + (st.kind === 'protect' ? ' protect' : '') + (st.locked ? ' locked' : '') + '" data-key="' + st.key + '">'
+      + artPanel
+      + '<div class="sb-body">'
+      +   r1
+      +   '<p>' + why + '</p>'
+      +   '<div class="meta"><span class="sb-cap ' + st.cap + '">' + capLabel + '</span><span class="time">' + mins + '</span></div>'
+      +   '<div class="acts">' + acts + '</div>'
+      + '</div></div>';
   }
 
   function sbWireCards(host, steps) {
@@ -2370,6 +2616,10 @@ document.addEventListener('DOMContentLoaded', () => {
           if (t && s) { t.value = st.title + ' — how do I do this?'; s.click(); }
         }, 300);
       });
+      const open = card.querySelector('[data-open]');
+      if (open) open.addEventListener('click', () => {
+        switchTab(st.tab || SB_DONE_TAB[st.key] || 'settings-tab');
+      });
       const not = card.querySelector('[data-not]');
       if (not) not.addEventListener('click', () => { sbSnooze(st.key); if (window.loadGetStarted) window.loadGetStarted(); });
     });
@@ -2387,36 +2637,73 @@ document.addEventListener('DOMContentLoaded', () => {
     const host = document.getElementById('exp-getstarted');
     if (!host) return;
     const steps = await sbFetchSteps();
-    const done = steps.filter(s => s.done);
-    const open = steps.filter(s => !s.done && !sbIsSnoozed(s.key));
-    if (!open.length) {
-      host.innerHTML = '<div class="sb-gs-hdr"><div class="t"><b>You&rsquo;re set up</b><span>' + done.length + ' of ' + steps.length + '</span></div>'
-        + '<div class="pbar">' + steps.map(() => '<i class="on"></i>').join('') + '</div>'
-        + '<p>SEO Buddy is running on its own. New things to do will appear here when they come up.</p></div>';
-      return;
-    }
+    const done    = steps.filter(s => s.done);
+    const open    = steps.filter(s => !s.done && !sbIsSnoozed(s.key));
+    const scoring = open.filter(s => s.kind !== 'protect');
+    const protect = open.filter(s => s.kind === 'protect');
+
+    // This used to return early with "You're set up" and render nothing else,
+    // so a fully-configured install had no guide at all — the one screen the
+    // whole card layout exists for went blank the moment it was earned.
+    // Explore is a gallery of everything the app does, not a setup wizard, so
+    // finished steps stay on the shelf as cards you can reopen.
     const mins = open.reduce((s, x) => s + x.minutes, 0);
     const taps = open.filter(x => x.minutes <= 1).length;
-    const scoring = open.filter(x => x.kind !== 'protect');
-    const protect = open.filter(x => x.kind === 'protect');
-    let html = '<div class="sb-gs-hdr"><div class="t"><b>Get started</b><span>' + done.length + ' of ' + steps.length + ' done</span></div>'
-      // Fill from the left. `steps` is sorted with completed items last, so
-      // mapping over it directly put the finished segment on the right.
-      + '<div class="pbar">' + steps.map((s, i) => '<i class="' + (i < done.length ? 'on' : (i === done.length ? 'now' : '')) + '"></i>').join('') + '</div>'
-      + '<p>' + open.length + ' left, about ' + Math.round(mins) + ' minutes in total' + (taps ? (taps === 1 ? '. One of them is a single tap.' : '. ' + taps + ' of them are a single tap.') : '.') + '</p></div>';
-    html += '<div class="sb-gs">' + scoring.map((s, i) => sbStepCard(s, i === 0)).join('') + '</div>';
-    if (done.length) {
-      html += '<div class="sb-eyebrow">Already done</div><div class="sb-gs">'
-        + done.map(s => '<div class="sb-done"><span class="tk">&#10003;</span><b>' + s.title + '</b><span>'
-          + (s.kind === 'unlock' ? '+' + s.points + ' pts' : (s.badge || 'done')) + '</span></div>').join('') + '</div>';
+
+    let head;
+    if (!open.length) {
+      head = '<div class="sb-gs-hdr"><div class="t"><b>You&rsquo;re all set</b>'
+        + '<span>' + done.length + ' of ' + steps.length + '</span></div>'
+        + '<div class="pbar">' + steps.map(() => '<i class="on"></i>').join('') + '</div>'
+        + '<p>Everything is running. Below is every tool, so you can look at what '
+        + 'SEO Buddy does and run any of it again whenever you want.</p></div>';
+    } else {
+      head = '<div class="sb-gs-hdr"><div class="t"><b>Get started</b>'
+        + '<span>' + done.length + ' of ' + steps.length + ' done</span></div>'
+        // Fill from the left. `steps` is sorted with completed items last, so
+        // mapping over it directly put the finished segment on the right.
+        + '<div class="pbar">' + steps.map((s, i) =>
+            '<i class="' + (i < done.length ? 'on' : (i === done.length ? 'now' : '')) + '"></i>').join('') + '</div>'
+        + '<p>' + open.length + ' left, about ' + Math.round(mins) + ' minutes in total'
+        + (taps ? (taps === 1 ? '. One of them is a single tap.' : '. ' + taps + ' of them are a single tap.') : '.')
+        + '</p></div>';
+    }
+
+    let html = head;
+    if (scoring.length) {
+      html += '<div class="sb-gs">' + scoring.map((s, i) => sbStepCard(s, i === 0, true)).join('') + '</div>';
     }
     if (protect.length) {
       html += '<div class="sb-eyebrow">Keep it safe <span class="n">no effect on your score</span></div>'
-        + '<div class="sb-gs">' + protect.map(s => sbStepCard(s, false)).join('') + '</div>';
+        + '<div class="sb-gs">' + protect.map(s => sbStepCard(s, false, true)).join('') + '</div>';
+    }
+    if (done.length) {
+      html += '<div class="sb-eyebrow">Already running</div>'
+        + '<div class="sb-gs">' + done.map(s => sbDoneCard(s)).join('') + '</div>';
     }
     html += '<div class="sb-eyebrow">All tools</div>';
     host.innerHTML = html;
     sbWireCards(host, steps);
+  }
+
+  // A finished step, still on the shelf. Same artwork, muted, and the only
+  // action is "Open" — it is a reference card now, not a task.
+  // Where a finished step sends you, for the ones whose only handler was an
+  // action rather than a destination.
+  const SB_DONE_TAB = { autopilot: 'performance-tab', business: 'settings-tab' };
+
+  function sbDoneCard(st) {
+    const p = st.pillar || '';
+    const tint = p || (st.kind === 'protect' ? 'neutral' : 'p5');
+    const worth = st.kind === 'unlock' ? '+' + st.points + ' pts' : (st.badge || 'done');
+    return '<div class="sb-card illus is-done" data-key="' + st.key + '">'
+      + '<div class="sb-art ' + tint + '">' + sbArt(st.key) + '</div>'
+      + '<div class="sb-body">'
+      +   '<div class="r1"><h4>' + st.title + '</h4>'
+      +     '<span class="pts done"><span class="tk">&#10003;</span>' + worth + '</span></div>'
+      +   '<p>' + st.why + '</p>'
+      +   '<div class="acts"><button class="gho" data-open="1" type="button">Open</button></div>'
+      + '</div></div>';
   }
   window.loadGetStarted = loadGetStarted;
 
