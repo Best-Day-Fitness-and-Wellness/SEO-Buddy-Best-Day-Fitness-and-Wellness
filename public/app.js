@@ -2736,15 +2736,108 @@ document.addEventListener('DOMContentLoaded', () => {
   window.__art = sbArt;   // test hook: render one illustration in isolation
 
   // Today shows exactly one. Nobody meets nine cards at once.
+  // Today used to render exactly one card and silently swap it for the next one
+  // when you finished. One at a time, but with no sense that ten more existed —
+  // no position, no way back, no way to look ahead. This is the same set as the
+  // Explore gallery, presented as a guided walk: one card fills the column,
+  // swipe or arrow to move, dots for position. It collapses once nothing is open.
   async function loadTodayTop() {
     const host = document.getElementById('td-getstarted'); if (!host) return;
     const steps = await sbFetchSteps();
-    const next = steps.find(s => !s.done && !s.locked && s.kind !== 'protect' && !sbIsSnoozed(s.key));
-    if (!next) { host.innerHTML = ''; return; }
-    host.innerHTML = sbStepCard(next, true);
+    const done  = steps.filter(s => s.done);
+    // Locked steps stay in the walk so you can see what the key unlocks; the
+    // protective ones do not — they score nothing and would pad the count.
+    const open  = steps.filter(s => !s.done && s.kind !== 'protect' && !sbIsSnoozed(s.key));
+    if (!open.length) { host.innerHTML = ''; return; }
+
+    const total = open.length;
+    host.innerHTML =
+      '<section class="sb-step" aria-roledescription="carousel" aria-label="Set up SEO Buddy">'
+      + '<div class="sb-step-hdr">'
+      +   '<b>Set up SEO Buddy</b>'
+      +   '<span class="sb-step-pos" aria-live="polite">1 of ' + total + '</span>'
+      + '</div>'
+      + '<div class="sb-step-rail">'
+      +   '<button class="sb-step-nav prev" type="button" aria-label="Previous step" disabled>'
+      +     '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5 L8 12 L15 19"/></svg></button>'
+      +   '<div class="sb-track" tabindex="0" role="group" aria-label="Setup steps">'
+      +     open.map(st => '<div class="sb-slide">' + sbStepCard(st, true, true) + '</div>').join('')
+      +   '</div>'
+      +   '<button class="sb-step-nav next" type="button" aria-label="Next step">'
+      +     '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5 L16 12 L9 19"/></svg></button>'
+      + '</div>'
+      + '<div class="sb-dots">'
+      // NB the single `+` on the continuation line. It was doubled here, which
+      // made it a unary plus on the following string literal: `i + (+'" aria-…')`
+      // evaluates to NaN, so every dot rendered as data-i="NaN" with no label,
+      // and clicking any of them scrolled to 0 instead of to that step.
+      +   open.map((st, i) => '<button class="sb-stepdot' + (i ? '' : ' on') + '" type="button" data-i="' + i
+      +     '" aria-label="Step ' + (i + 1) + ' of ' + total + ': ' + st.title.replace(/"/g, '') + '"></button>').join('')
+      + '</div>'
+      // Deliberately not "N of 11": the walk holds only the scoring steps that
+      // are still open, so quoting the full catalogue here reads as a mismatch
+      // against the "1 of 6" above it.
+      + '<p class="sb-step-foot">' + done.length + ' done so far'
+      +   (total > 1 ? ' &middot; swipe or use the arrows to look ahead' : '') + '</p>'
+      + '</section>';
+
     sbWireCards(host, steps);
+    sbWireStepper(host, total);
   }
   window.loadTodayTop = loadTodayTop;
+
+  // Scroll-snap does the swiping; this only keeps the chrome in sync with it and
+  // lets the arrows and dots drive the same scroll. Deriving the index from
+  // scrollLeft (rather than tracking it separately) means a native swipe, an
+  // arrow click and a dot click can never disagree.
+  function sbWireStepper(host, total) {
+    const track = host.querySelector('.sb-track');
+    const prev  = host.querySelector('.sb-step-nav.prev');
+    const next  = host.querySelector('.sb-step-nav.next');
+    const pos   = host.querySelector('.sb-step-pos');
+    const dots  = Array.from(host.querySelectorAll('.sb-stepdot'));
+    if (!track) return;
+
+    const step = () => {
+      const a = track.querySelector('.sb-slide');
+      return a ? a.getBoundingClientRect().width + 16 : track.clientWidth;
+    };
+    const index = () => Math.round(track.scrollLeft / step());
+    const goTo = (i) => {
+      const n = Math.max(0, Math.min(total - 1, i));
+      track.scrollTo({ left: n * step(), behavior: 'smooth' });
+    };
+
+    function sync() {
+      const i = index();
+      if (pos) pos.textContent = (i + 1) + ' of ' + total;
+      if (prev) prev.disabled = i <= 0;
+      if (next) next.disabled = i >= total - 1;
+      dots.forEach((d, n) => d.classList.toggle('on', n === i));
+    }
+
+    let raf = 0;
+    track.addEventListener('scroll', () => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => { raf = 0; sync(); });
+    });
+    if (prev) prev.addEventListener('click', () => goTo(index() - 1));
+    if (next) next.addEventListener('click', () => goTo(index() + 1));
+    dots.forEach(d => d.addEventListener('click', () => goTo(+d.dataset.i)));
+    track.addEventListener('keydown', e => {
+      if (e.key === 'ArrowRight') { e.preventDefault(); goTo(index() + 1); }
+      if (e.key === 'ArrowLeft')  { e.preventDefault(); goTo(index() - 1); }
+    });
+    // A resize changes the slide width, so the saved scroll offset would land
+    // between two cards. Re-snap to whichever one was showing.
+    let rt = 0;
+    window.addEventListener('resize', () => {
+      clearTimeout(rt);
+      const i = index();
+      rt = setTimeout(() => { track.scrollTo({ left: i * step() }); sync(); }, 150);
+    });
+    sync();
+  }
 
   // --- EXPLORE: grouped menu of every tool (routes to existing tabs) ---
   const EXP_ICONS = {

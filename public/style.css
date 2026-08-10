@@ -2568,3 +2568,57 @@ body.asst-open .sb-dock-wrap { display: none; }
 }
 .sb-done b { font-size: 13.5px; font-weight: 600; }
 .sb-done span { font-size: 11.5px; color: var(--ink-3); margin-left: auto; white-space: nowrap; }
+/* --------------------------------------------------------------------------
+   TODAY — the setup stepper
+   One card fills the column; scroll-snap gives native swipe on touch and
+   trackpads, and the arrows and dots scroll the same track so the three input
+   methods can never disagree about which card is showing.
+   -------------------------------------------------------------------------- */
+.sb-step { margin-bottom: 26px; }
+.sb-step-hdr { display: flex; align-items: baseline; gap: 12px; margin-bottom: 12px; }
+.sb-step-hdr b { font-size: 17px; font-weight: 800; letter-spacing: -.025em; }
+.sb-step-pos { margin-left: auto; font-size: 12.5px; font-weight: 700; color: var(--ink-3);
+  font-variant-numeric: tabular-nums; }
+
+.sb-step-rail { display: flex; align-items: center; gap: 10px; }
+.sb-step-nav {
+  flex: 0 0 auto; width: 36px; height: 36px; border-radius: 50%;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink-2);
+  display: grid; place-items: center; cursor: pointer; transition: .15s;
+}
+.sb-step-nav svg { width: 18px; height: 18px; fill: none; stroke: currentColor;
+  stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.sb-step-nav:hover:not(:disabled) { border-color: var(--ink-3); color: var(--ink); }
+.sb-step-nav:disabled { opacity: .32; cursor: default; }
+
+.sb-track {
+  flex: 1 1 auto; min-width: 0;
+  display: flex; gap: 16px;
+  overflow-x: auto; overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;                 /* the dots are the scrollbar */
+  padding-bottom: 4px;
+}
+.sb-track::-webkit-scrollbar { display: none; }
+.sb-track:focus-visible { outline: 2px solid var(--action); outline-offset: 4px; border-radius: 22px; }
+/* flex-basis 100% with min-width 0 makes every slide exactly one track wide,
+   whatever the column is, so the snap points line up with the card edges. */
+.sb-slide { flex: 0 0 100%; min-width: 0; scroll-snap-align: start; scroll-snap-stop: always; }
+.sb-slide .sb-card { width: 100%; }
+
+/* .sb-stepdot, not .sb-dot: the Local presence panel already ships
+   `<i class="sb-dot">` status indicators, and a global .sb-dot rule here would
+   have resized every one of them. */
+.sb-dots { display: flex; justify-content: center; gap: 7px; margin-top: 14px; }
+.sb-stepdot {
+  width: 7px; height: 7px; padding: 0; border: 0; border-radius: 50%;
+  background: var(--line); cursor: pointer; transition: .18s;
+}
+.sb-stepdot:hover { background: var(--ink-3); }
+.sb-stepdot.on { background: var(--action); width: 20px; border-radius: 4px; }
+.sb-step-foot { margin-top: 10px; text-align: center; font-size: 12.5px; color: var(--ink-3); }
+
+/* Motion preference: snapping and smooth scrolling both go away. */
+@media (prefers-reduced-motion: reduce) {
+  .sb-track { scroll-behavior: auto; }
+}
