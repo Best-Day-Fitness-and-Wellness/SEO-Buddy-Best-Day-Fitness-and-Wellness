@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="512" height="512" role="img" aria-label="SEO Buddy">
+  <title>SEO Buddy</title>
+  <!--
+    The SEO Buddy mark: the app's own score ring, built from real dots.
+    Five arcs in the five pillar colours, in the same order and the same hues
+    the dashboard uses, so the mark and the product teach each other.
+
+    stroke-dasharray "0.1 15.5" with a round linecap is what turns a stroke into
+    a row of dots: a near-zero dash becomes a circle the width of the stroke,
+    and the gap sets the spacing. Changing stroke-width alone would resize the
+    dots AND their spacing together, so the gap is tuned to the width.
+  -->
+  <g fill="none" stroke-width="8.5" stroke-linecap="round" stroke-dasharray="0.1 15.5">
+    <path d="M50 9 a41 41 0 0 1 35.5 20.5" stroke="#000075"/>  <!-- Found on Google -->
+    <path d="M88 37 a41 41 0 0 1 -3 33"    stroke="#ff9900"/>  <!-- Local listings  -->
+    <path d="M81 76 a41 41 0 0 1 -27 15"   stroke="#00c4e8"/>  <!-- AI recommends   -->
+    <path d="M46 91 a41 41 0 0 1 -31 -19"  stroke="#05b48f"/>  <!-- Get listed      -->
+    <path d="M12 66 a41 41 0 0 1 30 -56"   stroke="#f5b800"/>  <!-- Fresh content   -->
+  </g>
+  <circle cx="50" cy="50" r="19" fill="#000075"/>
+  <path d="M43 52 l5 5 10 -12" fill="none" stroke="#ffffff" stroke-width="5.5"
+        stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
