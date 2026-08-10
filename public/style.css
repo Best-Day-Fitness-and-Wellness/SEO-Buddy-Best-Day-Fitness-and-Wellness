@@ -295,7 +295,12 @@ body.dark .logo-icon svg { --sb-mark-core: #eaeaf7; --sb-mark-tick: #000075; }
    instead of the viewport. */
 .main-content {
   padding: 2.5rem 3rem;
-  padding-bottom: 96px;
+  /* Clearance for the floating assistant, not decoration. The cluster is the
+     chip row + gap + button (~89px) sitting 24px off the bottom, so the last
+     element in a tab needs ~113px to scroll fully clear of it. 96px was sized
+     for the old sticky bar and left the final line of Local presence permanently
+     under the chips — the reachability sweep caught it. */
+  padding-bottom: 140px;
   /* Cap the content column. Without this the header stayed hard left while
      #today-tab's 620px .td-wrap centred itself in the full width — on a 2560px
      display that left an 787px gap between the page title and its own content.
@@ -2357,23 +2362,48 @@ background:var(--surface);border:1px solid var(--line);border-radius:20px;overfl
    to the bottom of the viewport, with matching padding reserved below the
    content so it can never cover anything.
    ------------------------------------------------------------------------- */
+/* Floating, not a bar. This used to be a full-bleed sticky strip pinned to the
+   foot of .main-content, which meant it only existed inside the scrolling column
+   and ate a band of every page.
+
+   position:fixed is also what makes it safe: the original sticky version was
+   captured by .main-content's overflow and pinned itself to the document foot,
+   and the full-width opaque band was the workaround for a right-aligned pill
+   landing on top of cards. Fixed leaves the flow entirely, so neither problem
+   applies. Verified no ancestor sets transform / filter / perspective / contain
+   / will-change, any of which would make itself the containing block and trap
+   this back inside the column.
+
+   .main-content keeps its 96px bottom padding so the last card still clears the
+   cluster at the end of a scroll. */
 .sb-dock-wrap {
-  position: sticky;
-  bottom: 0;
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
   z-index: 60;
-  margin: 26px -3rem -96px;          /* full-bleed inside .main-content's padding */
-  padding: 11px 3rem 13px;
-  background: var(--surface);
-  border-top: 1px solid var(--line);
+  margin: 0;
+  padding: 0;
+  background: none;
+  border: 0;
   display: flex;
-  align-items: center;
-  gap: 9px;
-  flex-wrap: wrap;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+  /* The cluster's own box spans the gap between the chips and the button; let
+     clicks through it and re-enable them on the controls themselves. */
+  pointer-events: none;
 }
+.sb-dock-wrap > * { pointer-events: auto; }
 body.asst-open .sb-dock-wrap { display: none; }
-.sb-dock-wrap .sb-chips { display: flex; gap: 8px; flex-wrap: wrap; flex: 1; min-width: 0; }
+.sb-dock-wrap .sb-chips {
+  display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end;
+  max-width: min(520px, calc(100vw - 60px));
+}
 .sb-dock-wrap .sb-chip {
-  background: var(--surface-2);
+  /* Opaque with a shadow now: there is no bar behind these, so they sit
+     directly on whatever content happens to be scrolled underneath. */
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
   border: 1px solid var(--line);
   border-radius: 999px;
   padding: 7px 13px;
@@ -2386,7 +2416,7 @@ body.asst-open .sb-dock-wrap { display: none; }
 }
 .sb-dock-wrap .sb-chip:hover { border-color: var(--ink-3); color: var(--ink); }
 @media (max-width: 900px) {
-  .sb-dock-wrap { margin-left: -1.25rem; margin-right: -1.25rem; padding-left: 1.25rem; padding-right: 1.25rem; }
+  .sb-dock-wrap { right: 16px; bottom: 16px; }
   .sb-dock-wrap .sb-chips { display: none; }}
 
 /* Score ring --------------------------------------------------------------
@@ -2470,6 +2500,11 @@ body.asst-open .sb-dock-wrap { display: none; }
 .sb-card.illus.hero { grid-column: span 2; }
 .sb-card.illus.hero .sb-art { height: 200px; }
 @media (max-width: 900px) { .sb-card.illus.hero { grid-column: span 1; } }
+/* An outstanding card on a page of ticks needs to win the eye. The accent rail
+   is on the card, not the section, so it still reads as "left to do" when the
+   only thing remaining is a no-points step under its own quiet heading. */
+.sb-card.is-open.illus { border-left: 3px solid var(--brand-orange); }
+.sb-card.is-open.illus.protect { border-left-color: var(--ink-3); }
 /* Finished steps stay browsable but stop competing for attention. */
 .sb-card.is-done { box-shadow: none; }
 .sb-card.is-done .sb-art { filter: saturate(.45) opacity(.75); }
