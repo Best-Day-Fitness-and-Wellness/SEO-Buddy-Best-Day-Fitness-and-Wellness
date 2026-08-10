@@ -13,7 +13,7 @@ document.addEventListener('DOMContentLoaded', () => {
         keyword: 'mobility training st pete',
         platform: 'GoHighLevel (Draft)',
         date: '2026-07-16',
-        indexed: 'Indexing Requested',
+        indexed: 'Asked Google to list it',
         url: 'https://bestdayfitness.com/post/mobility-training-st-pete'
       }
     ]
@@ -519,7 +519,7 @@ document.addEventListener('DOMContentLoaded', () => {
           const res = await authFetch('/api/onsite', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tool: 'fanout', query }) });
           const d = await res.json();
           if (!res.ok || !d.success) throw new Error(d.error || 'Request failed');
-          if (d.unavailable) { box.innerHTML = `<div class="fanout-empty">${citEsc(d.message || 'Add your Gemini API key in Settings to use this.')}</div>`; return; }
+          if (d.unavailable) { box.innerHTML = `<div class="fanout-empty">${citEsc(d.message || 'Add your Gemini key in Settings to use this.')}</div>`; return; }
           const qs = (d.data && d.data.questions) || [];
           box.innerHTML = qs.length
             ? `<div class="fanout-title">&#10067; Questions a citable page on &ldquo;${citEsc(query)}&rdquo; should answer:</div><ul class="fanout-list">${qs.map(x => `<li>${citEsc(x)}</li>`).join('')}</ul><div class="fanout-hint">Cover several of these in one article &mdash; AI engines cite pages that answer a cluster of related questions, not just one.</div>`
@@ -1586,6 +1586,8 @@ document.addEventListener('DOMContentLoaded', () => {
       // Update matches in history if any
       state.history.forEach(item => {
         if (item.url === url) {
+          // Canonical stored value, matching what the server writes. Four other
+          // call sites count submissions with /requested|indexed/i against it.
           item.indexed = 'Indexing Requested';
         }
       });
@@ -1595,19 +1597,26 @@ document.addEventListener('DOMContentLoaded', () => {
       alert(`Indexing Error: ${err.message}`);
     } finally {
       btnIndexNow.disabled = false;
-      btnIndexNow.innerText = 'Submit URL for Indexing';
+      btnIndexNow.innerText = 'Ask Google to list this page';
     }
   });
 
   function renderHistory() {
     historyTableBody.innerHTML = '';
 
+  // Stored statuses stay machine-readable; this is the only place a person
+  // sees them, so the plain-English wording lives here rather than in the data.
+  function sbIndexLabel(s) {
+    return ({ 'Indexing Requested': 'Asked Google to list it',
+              'Indexed': 'Listed on Google',
+              'Not Submitted': 'Not sent yet' })[s] || s || '\u2014';
+  }
+
     state.history.forEach(item => {
       const tr = document.createElement('tr');
       
       let statusClass = 'pending';
-      if (item.indexed === 'Indexing Requested') statusClass = 'pending';
-      else if (item.indexed === 'Indexed') statusClass = 'clean';
+      if (item.indexed === 'Indexed') statusClass = 'clean';
       else statusClass = 'pending';
 
       tr.innerHTML = `
@@ -1615,7 +1624,7 @@ document.addEventListener('DOMContentLoaded', () => {
         <td><span class="keyword-tag">${uiEsc(item.keyword)}</span></td>
         <td>${uiEsc(item.platform)}</td>
         <td>${uiEsc(item.date)}</td>
-        <td><span class="status-badge ${statusClass}">${uiEsc(item.indexed)}</span></td>
+        <td><span class="status-badge ${statusClass}">${uiEsc(sbIndexLabel(item.indexed))}</span></td>
         <td><a href="${uiEsc(safeExternalUrl(item.url))}" target="_blank" rel="noopener noreferrer" class="live-link">${uiEsc(String(item.url || '').replace(/^https?:\/\//, ''))}</a></td>
       `;
       historyTableBody.appendChild(tr);
@@ -1762,7 +1771,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const host = document.getElementById('autopilot-feed'); if (!host) return;
     if (!Array.isArray(logs) || !logs.length) {
       host.innerHTML = '<div class="sb-feed-row"><span class="sb-fi">○</span><div class="sb-ft"><b>Nothing yet</b>'
-        + '<span>Turn the autopilot on and it will find a gap, write the page, publish it and ask Google to index it.</span></div></div>';
+        + '<span>Turn the autopilot on and it will find a gap, write the page, publish it and ask Google to list it.</span></div></div>';
       return;
     }
     const seen = new Set(), rows = [];
@@ -1869,7 +1878,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const el = document.getElementById('autopilot-queue-list');
     if (!el) return;
     if (!queue || !queue.length) {
-      el.innerHTML = '<div class="text-muted" style="font-size:var(--font-xs);">Queue is empty — the autopilot will find content gaps automatically.</div>';
+      el.innerHTML = '<div class="text-muted" style="font-size:var(--font-xs);">Nothing queued — the autopilot will find the next search worth writing for.</div>';
       return;
     }
     el.innerHTML = queue.map((q, i) => `<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 10px;background:rgba(0,0,0,.2);border:1px solid var(--border-color);border-radius:8px;margin-bottom:6px;font-size:var(--font-sm);">
@@ -2248,7 +2257,7 @@ document.addEventListener('DOMContentLoaded', () => {
       why:'Three of the five things we measure need this key. It is free to create and takes about three minutes.',
       badge:'unlocks 3', minutes:3, cap:'blocked', cta:'Add the key', tab:'settings-tab' },
     { key:'autopilot', kind:'unlock', pillar:'p5', icon:'&#9998;', title:'Let SEO Buddy publish for you',
-      why:'Say yes once and it finds a gap, writes the page, publishes it and asks Google to index it — repeatedly, without you.',
+      why:'Say yes once and it finds a gap, writes the page, publishes it and asks Google to list it — repeatedly, without you.',
       points:15, minutes:0.2, cap:'approve', cta:'Turn it on', action:'enable-autopilot' },
     { key:'local', kind:'unlock', pillar:'p2', icon:'&#9679;', title:'Check your details match everywhere',
       why:'Google trusts businesses whose name, address and phone are identical across the web. One tap and Local listings stops being a guess.',
@@ -2266,7 +2275,7 @@ document.addEventListener('DOMContentLoaded', () => {
       why:'GoHighLevel is where articles get published. Without it the content autopilot can write but not publish.',
       badge:'unlocks publishing', minutes:4, cap:'blocked', cta:'Connect', tab:'settings-tab' },
     { key:'business', kind:'protect', icon:'&#9873;', title:'Confirm your business details',
-      why:'Your name, address and phone are used in every post, listing check and piece of schema. Right now we are using the starter profile.',
+      why:'Your name, address and phone are used in every post, listing check and piece of business-details code. Right now we are using the starter profile.',
       minutes:2, cap:'manual', cta:'Confirm them', act:'setup' },
     { key:'brand', kind:'protect', icon:'&#9834;', title:'Read through your brand voice',
       why:'Everything we write runs on this — including the never-use list. Worth a read so it sounds like you.',
@@ -2878,8 +2887,8 @@ document.addEventListener('DOMContentLoaded', () => {
     { g: 'Your content', items: [
       { icon: 'dollar', b: 'Create a post', s: 'Write an article — from a keyword, or from your own recording', tab: 'ai-tab' },
       { icon: 'brief', b: 'Brand voice', s: 'Your tone, phrases, and the words to never use', tab: 'brand-tab' },
-      { icon: 'upload', b: 'Publish & index', s: 'Push content live, ask Google to index', tab: 'publish-tab' },
-      { icon: 'code', b: 'Site optimization', s: 'Titles, links, schema', tab: 'onsite-tab' } ] },
+      { icon: 'upload', b: 'Publish & list on Google', s: 'Push content live, ask Google to list it', tab: 'publish-tab' },
+      { icon: 'code', b: 'Site optimization', s: 'Titles, links, business details', tab: 'onsite-tab' } ] },
     { g: 'Your presence', items: [
       { icon: 'pin', b: 'Local presence', s: 'Listings, reviews, Google posts', tab: 'local-tab' },
       { icon: 'globe', b: 'AI visibility', s: "Do ChatGPT & Google's AI recommend you", tab: 'aio-tab' },
@@ -3004,7 +3013,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const leaks = gscData.filter(d => d.leak);
     const totalImpr = leaks.reduce((s, d) => s + (d.impressions || 0), 0);
     $('sum-opps-count').innerText = leaks.length;
-    $('sum-opps-extra').innerText = leaks.length ? `~${totalImpr.toLocaleString()} monthly impressions behind them` : '';
+    $('sum-opps-extra').innerText = leaks.length ? `~${totalImpr.toLocaleString()} times a month you were shown but got nothing` : '';
 
     const barsWrap = $('sum-opps-bars');
     const topLeaks = leaks.slice().sort((a, b) => (b.impressions || 0) - (a.impressions || 0)).slice(0, 5);
@@ -3206,7 +3215,7 @@ document.addEventListener('DOMContentLoaded', () => {
     navigator.clipboard.writeText(schemaCodeOutput.value);
     btnCopySchema.innerText = 'Copied!';
     setTimeout(() => {
-      btnCopySchema.innerText = 'Copy Schema';
+      btnCopySchema.innerText = 'Copy code';
     }, 2000);
   });
 
@@ -3239,7 +3248,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       // Honest "no Gemini key" state — never render fabricated results.
       if (data.unavailable) {
-        alert(data.message || 'Add your Gemini API key in Settings to run a real audit.');
+        alert(data.message || 'Add your Gemini key in Settings to run a real check.');
         renderAioHistory(data.history || []);
         return;
       }
@@ -3335,7 +3344,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let avMetric = 'visibility';
   const AV_METRIC_META = {
     visibility: { label: 'Visibility Score', desc: 'Percentage of AI answers that mention your brand.' },
-    shareOfVoice: { label: 'Share of Voice', desc: 'Your share of all brand mentions vs competitors in AI answers.' },
+    shareOfVoice: { label: 'How often you are named', desc: 'Your share of all brand mentions vs competitors in AI answers.' },
     sentiment: { label: 'Sentiment', desc: 'How positively AI describes you when it mentions you (100 = all positive).' }
   };
   const avEl = id => document.getElementById(id);
@@ -3632,10 +3641,10 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!acState) return;
     const upd = avEl('ac-updated'); if (upd) upd.innerText = acState.updatedAt ? ('Checked ' + avAgo(acState.updatedAt)) : '';
     const runBtn = avEl('ac-run');
-    if (runBtn) { if (acState.running) { runBtn.disabled = true; runBtn.innerHTML = 'Checking…'; if (!acPollTimer) acStartPolling(); } else if (!runBtn.dataset.busy) { runBtn.disabled = false; runBtn.innerHTML = 'Check crawler access'; } }
+    if (runBtn) { if (acState.running) { runBtn.disabled = true; runBtn.innerHTML = 'Checking…'; if (!acPollTimer) acStartPolling(); } else if (!runBtn.dataset.busy) { runBtn.disabled = false; runBtn.innerHTML = 'Check access'; } }
     const body = avEl('ac-body'); if (!body) return;
     const l = acState.latest;
-    if (!l) { body.innerHTML = `<div class="fc-empty">Click <b>Check crawler access</b> to scan <b>${avEsc(acState.site || 'your site')}/robots.txt</b> and confirm the AI engines are allowed to read your site.</div>`; return; }
+    if (!l) { body.innerHTML = `<div class="fc-empty">Click <b>Check access</b> to scan <b>${avEsc(acState.site || 'your site')}/robots.txt</b> and confirm the AI engines are allowed to read your site.</div>`; return; }
     const banner = l.blocked > 0
       ? `<div class="ac-banner bad">&#9888; ${l.blocked} of ${l.total} AI crawlers are BLOCKED in robots.txt — those engines can't read your site. Fix this first.</div>`
       : `<div class="ac-banner good">&#10003; All ${l.total} major AI crawlers are allowed to read ${avEsc(l.site)}.</div>`;
@@ -3678,7 +3687,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (runBtn) { if (rdState.running) { runBtn.disabled = true; runBtn.innerHTML = 'Searching Reddit…'; if (!rdPollTimer) rdStartPolling(); } else if (!runBtn.dataset.busy) { runBtn.disabled = false; runBtn.innerHTML = 'Find Reddit threads'; } }
     const body = avEl('rd-body'); if (!body) return;
     const l = rdState.latest;
-    if (!l) { body.innerHTML = `<div class="fc-empty">${rdState.anyConfigured ? 'Click <b>Find Reddit threads</b> to surface real discussions where you can add value and get cited by AI.' : 'Add your <b>Gemini API key</b> in Settings — Reddit discovery uses live Google Search.'}</div>`; return; }
+    if (!l) { body.innerHTML = `<div class="fc-empty">${rdState.anyConfigured ? 'Click <b>Find Reddit threads</b> to surface real discussions where you can add value and get cited by AI.' : 'Add your <b>Gemini key</b> in Settings — Reddit discovery uses live Google Search.'}</div>`; return; }
     if (!l.threads || !l.threads.length) { body.innerHTML = `<div class="fc-empty">No clear Reddit threads surfaced this time. Try again later — new discussions appear all the time.</div>`; return; }
     body.innerHTML = l.threads.map(t => `
       <div class="rd-thread">
@@ -3701,7 +3710,7 @@ document.addEventListener('DOMContentLoaded', () => {
   window.loadReddit = loadReddit;
   const rdRunBtn = avEl('rd-run');
   if (rdRunBtn) rdRunBtn.addEventListener('click', async () => {
-    if (rdState && !rdState.anyConfigured) { alert('Add your Gemini API key in Settings to search Reddit (uses live Google Search grounding).'); return; }
+    if (rdState && !rdState.anyConfigured) { alert('Add your Gemini key in Settings to search Reddit (this runs a live Google search).'); return; }
     rdRunBtn.disabled = true; rdRunBtn.dataset.busy = '1'; rdRunBtn.innerHTML = 'Searching Reddit…';
     try {
       const r = await authFetch('/api/reddit-threads/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
@@ -3802,7 +3811,7 @@ document.addEventListener('DOMContentLoaded', () => {
         kf('Photo checklist', (kit.photoChecklist || []).map(p => '☐ ' + citEsc(p)).join('&nbsp;&nbsp; '), null) +
       `</div>` +
       `<div style="margin-top:12px;"><button class="cit-pa" id="btn-cit-kit-regen" type="button">↻ Regenerate descriptions with AI</button></div>` +
-      `<div class="cit-hint">Paste these exact fields on every site so your NAP stays identical — which also lifts your Local SEO score. Phone is your canonical <b>(727) 334-1472</b>.</div>`;
+      `<div class="cit-hint">Paste these exact details on every site so they match everywhere — matching is what lifts your local ranking. The number we treat as correct is <b>(727) 334-1472</b>.</div>`;
     const regen = document.getElementById('btn-cit-kit-regen');
     if (regen) regen.onclick = citRegenKit;
   }
@@ -4188,7 +4197,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (laToggle) laToggle.checked = !!s.enabled;
     if (laMeta) laMeta.innerHTML = s.hasKey
       ? `Autopilot is <b style="color:${s.enabled ? 'var(--color-success)' : 'var(--text-muted)'}">${s.enabled ? 'ON' : 'OFF'}</b> · NAP check ${laDue(s.lastNapRun, s.napIntervalDays)} · GBP post ${laDue(s.lastGbpRun, s.gbpIntervalDays)}`
-      : `<span class="nap-bad">Add your Gemini API key in Settings to enable the autopilot.</span>`;
+      : `<span class="nap-bad">Add your Gemini key in Settings to turn the autopilot on.</span>`;
     laRenderNap(s.nap, s.napNewMismatch);
     laRenderGbp(s.gbpDraft);
     laRenderReplies(s.replyHistory);
@@ -4320,8 +4329,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const LR_CHECKLIST = [
     { group: 'Google Business Profile', items: ['GBP claimed & verified', 'Primary + relevant secondary categories set', 'Complete, accurate hours (including holidays)', '10+ quality photos (interior, exterior, team, clients)', 'Full business description with local keywords', 'Services/products listed on the profile', 'A few Q&As seeded on the profile'] },
     { group: 'Reviews', items: ['Actively requesting reviews from happy clients', 'Responding to every review (good and bad)', 'Maintaining a 4.5★+ average', 'Earning at least one new review per week'] },
-    { group: 'NAP & Citations', items: ['NAP identical on website, Google, Yelp, Facebook', 'Listed in the top local + industry directories', 'Business name consistent (no keyword stuffing)'] },
-    { group: 'On‑site Local Signals', items: ['City/service in your title tags and H1s', 'LocalBusiness schema on the site', 'Embedded Google Map + NAP in the footer', 'Dedicated location/service pages for key areas'] }
+    { group: 'Name, address and phone', items: ['Name, address and phone identical on your site, Google, Yelp and Facebook', 'Listed in the top local + industry directories', 'Business name consistent (no keyword stuffing)'] },
+    { group: 'On‑site Local Signals', items: ['City/service in your title tags and H1s', 'Business details code on your site', 'Google Map and your address in the footer', 'Dedicated location/service pages for key areas'] }
   ];
   const lrChecklistEl = document.getElementById('lr-checklist');
   function lrLoadChecks() { try { return JSON.parse(localStorage.getItem('seo_local_checklist') || '{}'); } catch (e) { return {}; } }
@@ -4652,7 +4661,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (oaToggle) oaToggle.checked = !!s.enabled;
     if (oaMeta) oaMeta.innerHTML = s.hasKey
       ? `Autopilot is <b style="color:${s.enabled ? 'var(--color-success)' : 'var(--text-muted)'}">${s.enabled ? 'ON' : 'OFF'}</b> · next run ${oaDue(s.lastRun, s.intervalDays)}`
-      : `<span style="color:var(--color-accent)">Add your Gemini API key in Settings to enable the autopilot.</span>`;
+      : `<span style="color:var(--color-accent)">Add your Gemini key in Settings to turn the autopilot on.</span>`;
     oaRenderIdeas(s.ideas);
     oaRenderLinks(s.links);
     oaRenderTm(s.titlemeta);
@@ -4722,7 +4731,7 @@ document.addEventListener('DOMContentLoaded', () => {
     </div>`).join('');
   });
 
-  // AEO Readiness Check — score a real page against the course's AEO checklist
+  // Will AI quote this page? — score a real page against the course's AEO checklist
   const btnOsAeo = document.getElementById('btn-os-aeo');
   if (btnOsAeo) btnOsAeo.addEventListener('click', async () => {
     const url = (document.getElementById('os-aeo-url').value || '').trim();
