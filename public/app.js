@@ -1607,7 +1607,13 @@ document.addEventListener('DOMContentLoaded', () => {
   // Stored statuses stay machine-readable; this is the only place a person
   // sees them, so the plain-English wording lives here rather than in the data.
   function sbIndexLabel(s) {
+    // The full set the server can write, read off production rather than guessed:
+    // 'Indexing Requested' (13 records) and 'Indexing Available' (3). The second
+    // means the page is live on the site but Google has not been told yet, which
+    // is exactly why the /requested|indexed/i submission count does not match it
+    // — the label has to keep that distinction, not blur it.
     return ({ 'Indexing Requested': 'Asked Google to list it',
+              'Indexing Available': 'Live, not sent to Google',
               'Indexed': 'Listed on Google',
               'Not Submitted': 'Not sent yet' })[s] || s || '\u2014';
   }
