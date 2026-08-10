@@ -2837,3 +2837,99 @@ body.asst-open .sb-dock-wrap { display: none; }
     min-height: 44px; padding-top: 8px; padding-bottom: 8px;
   }
 }
+
+
+/* ==========================================================================
+   EMPTY STATES
+   An empty panel used to be one grey sentence. These are the moments a new
+   studio owner meets most often — before any check has run, everything on
+   these tabs is empty — so they are the cheapest place to add warmth.
+
+   The illustration is a CSS ::before with an inlined SVG rather than markup,
+   for one practical reason: every one of these panels is re-rendered from JS
+   when data arrives, so anything added to the DOM would be wiped. Styling the
+   class the render path already emits survives that.
+   ========================================================================== */
+/* Block flow, NOT flex-column. These panels are sentences with inline <b> and
+   <a> in them; as flex items each inline fragment became its own line and
+   "No worklist yet. Click Scan now to find..." broke into three stacked pieces.
+   A centred block with a block-level ::before keeps the sentence a sentence. */
+.editor-empty, .av-empty, .fc-empty, .cit-empty, .os-empty,
+#aio-tab .text-center.text-muted {
+  display: block;
+  text-align: center;
+  padding: 30px 22px;
+  color: var(--ink-2);
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+.editor-empty::before, .av-empty::before, .fc-empty::before, .cit-empty::before,
+.os-empty::before, #aio-tab .text-center.text-muted::before {
+  content: '';
+  display: block;
+  width: 132px; height: 99px;
+  margin: 0 auto 12px;
+  background: center / contain no-repeat;
+}
+/* Keep the sentence to a readable measure rather than one long line. */
+.av-empty, .fc-empty, .cit-empty, #aio-tab .text-center.text-muted {
+  max-width: 48ch; margin-inline: auto;
+}
+/* The headline inside an empty state, where the render path emits one. */
+.editor-empty h3 { font-size: 17px; font-weight: 750; color: var(--ink); margin: 0; }
+.editor-empty p, .editor-empty .text-muted { margin: 0; max-width: 42ch; }
+.editor-empty svg { display: none; }   /* the old grey glyph */
+
+/* A tighter variant for the small inline panels on Site optimization. */
+.os-empty { padding: 22px 16px; font-size: 13px; }
+.os-empty::before { width: 104px; height: 78px; }
+
+.editor-empty::before { background-image: url("data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 160 120%22> <defs><linearGradient id=%22a%22 x1=%220%22 y1=%220%22 x2=%221%22 y2=%221%22><stop offset=%220%22 stop-color=%22%23ffd75e%22/><stop offset=%221%22 stop-color=%22%23f5b800%22/></linearGradient></defs> <circle cx=%22128%22 cy=%2230%22 r=%2230%22 fill=%22%23f5b800%22 opacity=%22.14%22/> <circle cx=%2230%22 cy=%2296%22 r=%2224%22 fill=%22%23f5b800%22 opacity=%22.10%22/> <rect x=%2244%22 y=%2220%22 width=%2276%22 height=%2286%22 rx=%2211%22 fill=%22%23ffffff%22 stroke=%22%23e7e4dd%22 stroke-width=%222%22/> <path d=%22M44 31a11 11 0 0 1 11-11h54a11 11 0 0 1 11 11v9H44z%22 fill=%22url(%23a)%22/> <g fill=%22%238a6200%22 opacity=%22.26%22><rect x=%2257%22 y=%2255%22 width=%2250%22 height=%226%22 rx=%223%22/><rect x=%2257%22 y=%2269%22 width=%2238%22 height=%226%22 rx=%223%22/><rect x=%2257%22 y=%2283%22 width=%2228%22 height=%226%22 rx=%223%22/></g> <g transform=%22translate(112,80) rotate(38)%22><rect x=%22-5%22 y=%22-26%22 width=%2210%22 height=%2238%22 rx=%223%22 fill=%22url(%23a)%22/><polygon points=%22-5,12 5,12 0,22%22 fill=%22%238a6200%22/></g> </svg>"); }
+.av-empty::before, .fc-empty::before { background-image: url("data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 160 120%22> <defs><linearGradient id=%22b%22 x1=%220%22 y1=%220%22 x2=%221%22 y2=%221%22><stop offset=%220%22 stop-color=%22%235ce4ff%22/><stop offset=%221%22 stop-color=%22%2300c4e8%22/></linearGradient></defs> <circle cx=%22132%22 cy=%2288%22 r=%2226%22 fill=%22%2300c4e8%22 opacity=%22.13%22/> <path d=%22M28 22h84a14 14 0 0 1 14 14v30a14 14 0 0 1-14 14H62l-18 15V80H28a14 14 0 0 1-14-14V36a14 14 0 0 1 14-14z%22 fill=%22url(%23b)%22/> <g fill=%22%23ffffff%22><rect x=%2230%22 y=%2240%22 width=%2252%22 height=%227%22 rx=%223.5%22 opacity=%22.95%22/><rect x=%2230%22 y=%2254%22 width=%2272%22 height=%227%22 rx=%223.5%22 opacity=%22.65%22/></g> <g fill=%22%2300708f%22><path d=%22M126 26l3.5 9 9 3.5-9 3.5-3.5 9-3.5-9-9-3.5 9-3.5z%22/></g> </svg>"); }
+.cit-empty::before { background-image: url("data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 160 120%22> <defs><linearGradient id=%22c%22 x1=%220%22 y1=%220%22 x2=%221%22 y2=%221%22><stop offset=%220%22 stop-color=%22%233ddcb8%22/><stop offset=%221%22 stop-color=%22%2305b48f%22/></linearGradient></defs> <circle cx=%2228%22 cy=%2226%22 r=%2224%22 fill=%22%2305b48f%22 opacity=%22.13%22/> <rect x=%2234%22 y=%2272%22 width=%2298%22 height=%2224%22 rx=%228%22 fill=%22url(%23c)%22 opacity=%22.45%22/> <rect x=%2228%22 y=%2246%22 width=%2298%22 height=%2224%22 rx=%228%22 fill=%22url(%23c)%22 opacity=%22.72%22/> <rect x=%2222%22 y=%2220%22 width=%2298%22 height=%2224%22 rx=%228%22 fill=%22url(%23c)%22/> <g fill=%22%23ffffff%22><circle cx=%2236%22 cy=%2232%22 r=%225%22/><rect x=%2247%22 y=%2228%22 width=%2246%22 height=%227%22 rx=%223.5%22/></g> <path d=%22M132 84l6 6 11-13%22 fill=%22none%22 stroke=%22%2305745f%22 stroke-width=%224%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22/> </svg>"); }
+.os-empty::before { background-image: url("data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 160 120%22> <defs><radialGradient id=%22d%22 cx=%22.35%22 cy=%22.3%22 r=%22.8%22><stop offset=%220%22 stop-color=%22%23ffe9a8%22/><stop offset=%221%22 stop-color=%22%23f5b800%22/></radialGradient></defs> <circle cx=%22130%22 cy=%2294%22 r=%2224%22 fill=%22%23f5b800%22 opacity=%22.13%22/> <circle cx=%2276%22 cy=%2250%22 r=%2226%22 fill=%22url(%23d)%22/> <path d=%22M66 72h20v8a10 10 0 0 1-20 0z%22 fill=%22%23a65b00%22 opacity=%22.55%22/> <g stroke=%22%23f5b800%22 stroke-width=%224%22 stroke-linecap=%22round%22><path d=%22M76 12v8%22/><path d=%22M44 22l5 6%22/><path d=%22M108 22l-5 6%22/><path d=%22M34 50h8%22/><path d=%22M118 50h-8%22/></g> <circle cx=%2276%22 cy=%2250%22 r=%2211%22 fill=%22%23fff5e6%22 opacity=%22.8%22/> </svg>"); }
+#aio-tab .text-center.text-muted::before { background-image: url("data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 160 120%22> <circle cx=%2234%22 cy=%2230%22 r=%2224%22 fill=%22%235b6472%22 opacity=%22.08%22/> <circle cx=%2280%22 cy=%2260%22 r=%2234%22 fill=%22none%22 stroke=%22%23c9c4b9%22 stroke-width=%225%22/> <path d=%22M80 38v24l16 10%22 fill=%22none%22 stroke=%22%2322229b%22 stroke-width=%225%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22/> <path d=%22M46 44a38 38 0 1 1-2 20%22 fill=%22none%22 stroke=%22%2322229b%22 stroke-width=%225%22 stroke-linecap=%22round%22 opacity=%22.35%22/> <polygon points=%2238,34 56,44 36,52%22 fill=%22%2322229b%22 opacity=%22.35%22/> </svg>"); }
+
+@media (max-width: 860px) {
+  .editor-empty::before, .av-empty::before, .fc-empty::before,
+  .cit-empty::before, #aio-tab .text-center.text-muted::before { width: 108px; height: 81px; }
+  .os-empty::before { width: 88px; height: 66px; }
+}
+
+
+/* ==========================================================================
+   TOOL-GROUP HEADINGS
+   The tool tabs run 1,700–2,700px as an undifferentiated stack of cards, so
+   there is nothing to orient against while scrolling and no way to tell a
+   one-tap check from a deep tool. These break the stack into chapters using
+   the same eyebrow language as the Explore gallery.
+   ========================================================================== */
+.tool-group {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin: 34px 0 14px;
+}
+.tool-group:first-child { margin-top: 0; }
+.tool-group b {
+  font-size: 11px; font-weight: 800; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--ink-3); white-space: nowrap;
+}
+.tool-group span {
+  font-size: 12.5px; color: var(--ink-3); font-weight: 500;
+  text-transform: none; letter-spacing: 0;
+}
+.tool-group i { flex: 1; height: 1px; background: var(--line); }
+@media (max-width: 860px) {
+  .tool-group { flex-wrap: wrap; gap: 6px 10px; margin: 26px 0 12px; }
+  .tool-group i { display: none; }
+  .tool-group b { font-size: 12px; }
+}
+
+/* The autopilot card holds three small side-by-side panels that share the
+   .os-empty class with the full-width ones. Illustrating each of them repeated
+   the same lightbulb three times in a row, which reads as a rendering fault
+   rather than as art. The drawing is for a panel you meet on its own. */
+#onsite-tab .oa-panel .os-empty::before,
+#onsite-tab .oa-grid .os-empty::before { display: none; }
+#onsite-tab .oa-panel .os-empty { padding: 14px 10px; }
