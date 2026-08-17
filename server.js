@@ -578,6 +578,39 @@ const MOCK_GSC_DATA = [
 // ----------------------------------------------------
 // Google API Helpers
 // ----------------------------------------------------
+// Service-account JSON almost never arrives clean. It gets copied through a
+// document, an email or a chat window on its way to a hosting dashboard, and
+// those all silently curl the quotes: "type" becomes “type”, and JSON.parse
+// dies at position 4 — the exact character where the first property name of a
+// downloaded key file begins.
+//
+// Strict parse first, always. The repair is a fallback, it only runs when the
+// strict parse has already failed, and its result is only accepted if it
+// yields a usable key. Verified against a fully-curled key: it parses and the
+// private_key comes back byte-identical.
+function parseServiceAccountJson(raw) {
+  const text = String(raw == null ? '' : raw);
+  try {
+    return { creds: JSON.parse(text), repaired: false };
+  } catch (strictErr) {
+    const mended = text
+      .replace(/^\uFEFF/, '')            // byte-order mark from a text editor
+      .replace(/[\u201C\u201D\u201E\u201F\u2033]/g, '"')  // curled double quotes
+      .replace(/\u00A0/g, ' ');          // non-breaking space from a web paste
+    if (mended === text) return { creds: null, repaired: false, error: strictErr.message };
+    try {
+      const creds = JSON.parse(mended);
+      // Only trust the repair if it produced something actually usable.
+      if (creds && creds.client_email && creds.private_key) {
+        return { creds, repaired: true };
+      }
+      return { creds: null, repaired: false, error: strictErr.message };
+    } catch (e2) {
+      return { creds: null, repaired: false, error: strictErr.message };
+    }
+  }
+}
+
 function getGoogleAuth() {
   const credentialsPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
   if (!credentialsPath) return null;
@@ -585,7 +618,15 @@ function getGoogleAuth() {
   try {
     // Check if it's a raw JSON string (used for cloud deployments to avoid committing keyfiles)
     if (credentialsPath.trim().startsWith('{')) {
-      const keys = JSON.parse(credentialsPath);
+      const parsed = parseServiceAccountJson(credentialsPath);
+      if (!parsed.creds) {
+        console.error('[Google Auth] Failed to load credentials:', parsed.error);
+        return null;
+      }
+      if (parsed.repaired) {
+        console.warn('[Google Auth] Credentials JSON had curled quotes or a stray byte-order mark; repaired automatically. Re-paste from a plain text editor to silence this.');
+      }
+      const keys = parsed.creds;
       return new google.auth.JWT(
         keys.client_email,
         null,
@@ -1330,7 +1371,14 @@ app.post('/api/save-settings', requireAuth, (req, res) => {
     // Write service account file if gscJson is provided
     if (clean(gscJson, 2 * 1024 * 1024)) {
       try {
-        const credentials = JSON.parse(gscJson);
+        // Same repair as getGoogleAuth: a paste that travelled through a
+        // document arrives with curled quotes and would otherwise be rejected
+        // with a message the person cannot act on.
+        const parsedKey = parseServiceAccountJson(gscJson);
+        if (!parsedKey.creds) {
+          return res.status(400).json({ success: false, error: 'The Google credentials field must contain valid service-account JSON. ' + (parsedKey.error || '') });
+        }
+        const credentials = parsedKey.creds;
         if (!credentials || typeof credentials !== 'object' || !credentials.client_email || !credentials.private_key) {
           return res.status(400).json({ success: false, error: 'The Google credentials JSON is missing client_email or private_key.' });
         }
@@ -2415,30 +2463,31 @@ app.get('/api/gsc-diagnostics', requireAuth, async (req, res) => {
   // ---- 2. the credentials variable ----
   const rawCreds = String(process.env.GOOGLE_APPLICATION_CREDENTIALS || '');
   const looksJson = rawCreds.trim().startsWith('{');
-  let creds = null, credsProblem = null, resolvedPath = null;
+  let creds = null, credsProblem = null, resolvedPath = null, credsRepaired = false;
 
   if (!rawCreds) {
     credsProblem = 'GOOGLE_APPLICATION_CREDENTIALS is not set.';
   } else if (looksJson) {
-    try {
-      creds = JSON.parse(rawCreds);
-    } catch (e) {
-      credsProblem = 'The variable holds JSON, but it will not parse — usually a truncated paste or mangled line breaks in the private key.';
+    const parsed = parseServiceAccountJson(rawCreds);
+    if (parsed.creds) {
+      creds = parsed.creds;
+      if (parsed.repaired) credsRepaired = true;
+    } else {
+      credsProblem = 'The variable holds JSON, but it will not parse — usually curled "smart" quotes from pasting through a document, a truncated paste, or mangled line breaks in the private key. Parser said: ' + (parsed.error || 'unknown');
     }
   } else {
     resolvedPath = path.isAbsolute(rawCreds) ? rawCreds : path.join(__dirname, rawCreds);
     if (!fs.existsSync(resolvedPath)) {
       credsProblem = `The variable points at ${resolvedPath}, and no file exists there. google-creations.json is gitignored, so it is never in the deployed image — a repo-relative path will always be empty here.`;
     } else {
-      try {
-        creds = JSON.parse(fs.readFileSync(resolvedPath, 'utf8'));
-      } catch (e) {
-        credsProblem = `A file exists at ${resolvedPath} but it is not valid JSON.`;
-      }
+      const fromFile = parseServiceAccountJson(fs.readFileSync(resolvedPath, 'utf8'));
+      if (fromFile.creds) { creds = fromFile.creds; if (fromFile.repaired) credsRepaired = true; }
+      else credsProblem = `A file exists at ${resolvedPath} but it is not valid JSON. Parser said: ${fromFile.error || 'unknown'}`;
     }
   }
   add('credentialsPresent', 'Service account file', !!creds,
-    credsProblem || (looksJson ? 'Stored directly in the variable.' : `Loaded from ${resolvedPath}.`));
+    credsProblem || (looksJson ? 'Stored directly in the variable.' : `Loaded from ${resolvedPath}.`)
+      + (credsRepaired ? ' Note: the quotes had been curled by a document paste — repaired automatically, but re-paste from a plain text editor when convenient.' : ''));
 
   // ---- 3. shape of the key ----
   const hasEmail = !!(creds && creds.client_email);
