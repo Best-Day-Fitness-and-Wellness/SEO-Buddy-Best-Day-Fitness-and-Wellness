@@ -1489,6 +1489,19 @@
               <textarea id="settings-gsc-json" rows="4" class="form-input" placeholder="Paste service_account JSON content here..."></textarea>
             </div>
 
+            <!-- The readiness board can only say connected or not. When both
+                 variables exist and it still fails, that is useless — so this
+                 runs a real call to Google and reports what it actually said. -->
+            <div class="gsc-diag" id="gsc-diag">
+              <div class="gsc-diag-head">
+                <b>Search Console connection</b>
+                <button type="button" class="btn btn-secondary btn-xs" id="btn-gsc-diag">Test connection</button>
+              </div>
+              <div id="gsc-diag-body" class="gsc-diag-body">
+                <span class="text-muted">Press <b>Test connection</b> to see exactly where it stops.</span>
+              </div>
+            </div>
+
             <button type="submit" class="btn btn-primary w-100 mt-4">Save Configuration</button>
           </form>
         </div>

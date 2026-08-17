@@ -1683,6 +1683,44 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  // --- Search Console diagnostic ---------------------------------------
+  // Turns "not connected" into the actual reason. The server does the work;
+  // this only renders it and puts the fix next to the thing that is wrong.
+  const btnGscDiag = document.getElementById('btn-gsc-diag');
+  if (btnGscDiag) btnGscDiag.addEventListener('click', async () => {
+    const body = document.getElementById('gsc-diag-body');
+    btnGscDiag.disabled = true;
+    const label = btnGscDiag.textContent;
+    btnGscDiag.textContent = 'Testing\u2026';
+    body.innerHTML = '<span class="text-muted">Asking Google\u2026</span>';
+    try {
+      const res = await authFetch('/api/gsc-diagnostics');
+      if (res.status === 401) {
+        body.innerHTML = '<span class="text-muted">Enter your admin password above first \u2014 this reads your deployment settings.</span>';
+        return;
+      }
+      const d = await res.json();
+      let html = (d.checks || []).map(c =>
+        '<div class="gsc-row ' + (c.ok ? 'ok' : 'bad') + '">'
+        + '<span class="mk">' + (c.ok ? '\u2713' : '!') + '</span>'
+        + '<span><b>' + uiEsc(c.label) + '</b><span>' + uiEsc(c.detail || '') + '</span></span></div>').join('');
+
+      if (d.serviceAccountEmail) {
+        html += '<div class="gsc-row ok"><span class="mk">\u2139</span><span><b>Service account</b>'
+          + '<span>This is the address you grant access to in Search Console:<br>'
+          + '<span class="gsc-email">' + uiEsc(d.serviceAccountEmail) + '</span></span></span></div>';
+      }
+      if (d.fix) html += '<div class="gsc-fix"><b>Do this:</b> ' + uiEsc(d.fix) + '</div>';
+      else if (d.verdict === 'connected') html += '<div class="gsc-fix"><b>Connected.</b> Real rankings and clicks will replace the sample data on the next refresh.</div>';
+      body.innerHTML = html;
+    } catch (err) {
+      body.innerHTML = '<span class="text-muted">Could not run the test: ' + uiEsc(err.message) + '</span>';
+    } finally {
+      btnGscDiag.disabled = false;
+      btnGscDiag.textContent = label;
+    }
+  });
+
   settingsForm.addEventListener('submit', async (e) => {
     e.preventDefault();
 
