@@ -2385,6 +2385,124 @@ app.get('/api/usage', (req, res) => {
 app.get('/api/storage-status', (req, res) => {
   res.json({ persistent: !!process.env.DATA_DIR, dataDir: DATA_DIR });
 });
+
+// Why is Search Console not connected? The readiness board can only say yes or
+// no, because it is one boolean: GSC_SITE_URL && getGoogleAuth(). That is
+// useless when both variables exist and it still fails — which is exactly the
+// state this was written for.
+//
+// Everything here is deliberately non-secret. Booleans, lengths, a resolved
+// file path, and the service account's client_email. That email is an
+// identifier, not a credential, and it is the single thing a person needs to
+// know: it is what you grant access to inside Search Console. The private key
+// is never read, never returned, never logged.
+//
+// Behind requireAuth because it describes the deployment's configuration.
+app.get('/api/gsc-diagnostics', requireAuth, async (req, res) => {
+  const out = { checks: [], verdict: null, fix: null };
+  const add = (key, label, ok, detail) => out.checks.push({ key, label, ok, detail });
+
+  // ---- 1. the site URL ----
+  const siteUrl = String(process.env.GSC_SITE_URL || '').trim();
+  const isDomainProp = siteUrl.startsWith('sc-domain:');
+  let urlShape = 'missing';
+  if (siteUrl) urlShape = isDomainProp ? 'domain property' : 'URL prefix property';
+  add('siteUrl', 'Site address', !!siteUrl,
+    siteUrl
+      ? `Set as a ${urlShape}${!isDomainProp && !siteUrl.endsWith('/') ? ' with no trailing slash' : ''}.`
+      : 'GSC_SITE_URL is not set.');
+
+  // ---- 2. the credentials variable ----
+  const rawCreds = String(process.env.GOOGLE_APPLICATION_CREDENTIALS || '');
+  const looksJson = rawCreds.trim().startsWith('{');
+  let creds = null, credsProblem = null, resolvedPath = null;
+
+  if (!rawCreds) {
+    credsProblem = 'GOOGLE_APPLICATION_CREDENTIALS is not set.';
+  } else if (looksJson) {
+    try {
+      creds = JSON.parse(rawCreds);
+    } catch (e) {
+      credsProblem = 'The variable holds JSON, but it will not parse — usually a truncated paste or mangled line breaks in the private key.';
+    }
+  } else {
+    resolvedPath = path.isAbsolute(rawCreds) ? rawCreds : path.join(__dirname, rawCreds);
+    if (!fs.existsSync(resolvedPath)) {
+      credsProblem = `The variable points at ${resolvedPath}, and no file exists there. google-creations.json is gitignored, so it is never in the deployed image — a repo-relative path will always be empty here.`;
+    } else {
+      try {
+        creds = JSON.parse(fs.readFileSync(resolvedPath, 'utf8'));
+      } catch (e) {
+        credsProblem = `A file exists at ${resolvedPath} but it is not valid JSON.`;
+      }
+    }
+  }
+  add('credentialsPresent', 'Service account file', !!creds,
+    credsProblem || (looksJson ? 'Stored directly in the variable.' : `Loaded from ${resolvedPath}.`));
+
+  // ---- 3. shape of the key ----
+  const hasEmail = !!(creds && creds.client_email);
+  const hasKey = !!(creds && creds.private_key);
+  if (creds) {
+    add('credentialsShape', 'Key contents', hasEmail && hasKey,
+      hasEmail && hasKey ? 'Has client_email and private_key.'
+        : `Missing ${[!hasEmail && 'client_email', !hasKey && 'private_key'].filter(Boolean).join(' and ')}.`);
+  }
+  // The one value worth surfacing: you cannot grant access without it.
+  out.serviceAccountEmail = hasEmail ? creds.client_email : null;
+
+  // ---- 4. does an auth client actually build ----
+  const auth = getGoogleAuth();
+  add('authClient', 'Google sign-in', !!auth,
+    auth ? 'Signed in as the service account.' : 'Could not build a Google client from the above.');
+
+  // ---- 5. the live call. This is the check that matters: everything above can
+  //         pass and Google can still refuse, and the reason is the whole point.
+  if (auth && siteUrl) {
+    try {
+      const webmasters = google.webmasters({ version: 'v3', auth });
+      const r = await webmasters.searchanalytics.query({
+        siteUrl,
+        requestBody: { startDate: '2024-01-01', endDate: '2024-01-02', dimensions: ['query'], rowLimit: 1 }
+      });
+      add('liveCall', 'Live check with Google', true,
+        `Google answered for ${siteUrl}. Rows in this probe: ${(r.data.rows || []).length}.`);
+      out.verdict = 'connected';
+    } catch (e) {
+      const code = e && (e.code || (e.response && e.response.status));
+      let detail = `Google refused the request (${code || 'no status'}).`;
+      let fix = null;
+      if (code === 403) {
+        detail = 'Google accepted the sign-in but refused this property. The service account is not a user on it.';
+        fix = `In Search Console open Settings -> Users and permissions, add ${out.serviceAccountEmail || 'the service account email'} as a Full or Restricted user, then try again.`;
+      } else if (code === 404) {
+        detail = `Google has no property matching "${siteUrl}" for this account.`;
+        fix = isDomainProp
+          ? 'Check the domain property is spelled exactly as in Search Console.'
+          : `URL-prefix properties are usually stored with a trailing slash. Try "${siteUrl}/" — or if it is a Domain property, use "sc-domain:${siteUrl.replace(/^https?:\/\//, '').replace(/\/$/, '')}".`;
+      } else if (code === 400) {
+        detail = 'Google rejected the request as malformed — usually the site address is not in a form it recognises.';
+        fix = 'Use either https://yourdomain.com/ (with the trailing slash) or sc-domain:yourdomain.com.';
+      } else if (code === 401) {
+        detail = 'Google rejected the credentials themselves.';
+        fix = 'The service account key may have been revoked or deleted. Generate a new key and paste it into Settings.';
+      }
+      add('liveCall', 'Live check with Google', false, detail);
+      out.verdict = 'refused';
+      out.fix = fix;
+    }
+  } else {
+    add('liveCall', 'Live check with Google', false, 'Skipped — sign-in or site address is missing.');
+    out.verdict = 'not configured';
+    if (!creds) {
+      out.fix = 'Paste your service-account JSON into the box below and save. It is written to your persistent volume, so it survives redeploys.';
+    } else if (!siteUrl) {
+      out.fix = 'Add your Search Console site address above and save.';
+    }
+  }
+
+  res.json(out);
+});
 app.post('/api/usage/budget', requireAuth, (req, res) => {
   const v = req.body && req.body.budgetUSD;
   usageDb.budgetUSD = (v === null || v === '' || v === undefined) ? null : Math.max(0, Number(v) || 0);
