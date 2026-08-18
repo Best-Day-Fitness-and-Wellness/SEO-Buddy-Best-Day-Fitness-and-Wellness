@@ -28,6 +28,10 @@ The score is a **weighted average of only the pillars it can actually measure** 
 
 The sidebar is deliberately short — **Today**, **Progress**, **Explore** — with Settings, setup, the Quick Guide and the theme toggle in a footer utility zone. Everything else lives inside Explore, grouped by what you're trying to do rather than by which subsystem it belongs to.
 
+For the runtime map, end-to-end data flows, known scaling limits, and the
+behavior-preserving refactoring sequence, see
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+
 ### The three main screens
 
 1. **Today** *(default landing)* — what needs you, and what SEO Buddy handled on its own. The **Optimization Score**, the five traffic‑light pillars, a ranked list of the highest‑impact fixes (many one‑tap), and an activity feed of what ran unattended.

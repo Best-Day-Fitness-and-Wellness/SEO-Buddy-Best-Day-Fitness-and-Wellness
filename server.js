@@ -9,6 +9,8 @@ const net = require('node:net');
 const crypto = require('node:crypto');
 const { google } = require('googleapis');
 const { GoogleGenAI } = require('@google/genai');
+const { saveJsonFileSync, writeJsonFileSync } = require('./lib/json-file-store');
+const { singleFlight } = require('./lib/single-flight');
 
 // Load UI-saved settings from the same durable directory used by the JSON
 // stores. Host-provided environment variables still win unless a user
@@ -159,8 +161,7 @@ try {
 } catch (e) { /* first run — defaults stand */ }
 
 function saveBrand() {
-  try { fs.writeFileSync(BRAND_FILE, JSON.stringify(brandDb, null, 2)); }
-  catch (e) { console.error('[Brand] save failed:', e.message); }
+  saveJsonFileSync(BRAND_FILE, brandDb, 'Brand');
 }
 
 const bList = (a) => (Array.isArray(a) ? a.filter(Boolean) : []);
@@ -256,7 +257,7 @@ function saveBusinessProfileFromBody(b) {
   if (Array.isArray(b.socials)) BUSINESS.sameAs = b.socials.filter(s => typeof s === 'string' && s.trim());
   if (typeof b.locationId === 'string' && b.locationId.trim()) businessLocationId = b.locationId.trim();
   businessProfileSaved = true;
-  fs.writeFileSync(BUSINESS_PROFILE_FILE, JSON.stringify(businessProfile(), null, 2));
+  writeJsonFileSync(BUSINESS_PROFILE_FILE, businessProfile());
 }
 
 // CORS: default to same-origin only (the dashboard is served from this same
@@ -434,7 +435,7 @@ if (fs.existsSync(HISTORY_FILE)) {
       url: 'https://bestdayfitness.com/post/mobility-training-st-pete'
     }
   ];
-  fs.writeFileSync(HISTORY_FILE, JSON.stringify(historyDb, null, 2));
+  writeJsonFileSync(HISTORY_FILE, historyDb);
 }
 
 // Initialize autopilot logs database
@@ -451,7 +452,7 @@ if (fs.existsSync(LOGS_FILE)) {
       message: 'Autopilot Agent initialized. Standing by.'
     }
   ];
-  fs.writeFileSync(LOGS_FILE, JSON.stringify(autopilotLogs, null, 2));
+  writeJsonFileSync(LOGS_FILE, autopilotLogs);
 }
 
 // Initialize AIO audits database
@@ -467,7 +468,7 @@ if (fs.existsSync(AIO_AUDITS_FILE)) {
 } else {
   // Start with an empty, honest history — real audits populate this on demand.
   aioAuditsDb = [];
-  fs.writeFileSync(AIO_AUDITS_FILE, JSON.stringify(aioAuditsDb, null, 2));
+  writeJsonFileSync(AIO_AUDITS_FILE, aioAuditsDb);
 }
 
 // ============================================================
@@ -501,12 +502,11 @@ if (fs.existsSync(AI_VIS_FILE)) {
     }
   } catch (e) { /* keep defaults */ }
 } else {
-  try { fs.writeFileSync(AI_VIS_FILE, JSON.stringify(aiVisDb, null, 2)); } catch (e) {}
+  try { writeJsonFileSync(AI_VIS_FILE, aiVisDb); } catch (e) {}
 }
 let aiVisRunning = false;   // guards against overlapping manual + scheduled runs
 function saveAiVis() {
-  try { fs.writeFileSync(AI_VIS_FILE, JSON.stringify(aiVisDb, null, 2)); }
-  catch (e) { console.error('[AI Visibility] save failed:', e.message); }
+  saveJsonFileSync(AI_VIS_FILE, aiVisDb, 'AI Visibility');
 }
 
 // Helper to log Autopilot activity
@@ -514,21 +514,13 @@ function logAutopilotActivity(message) {
   const timestamp = new Date().toISOString();
   autopilotLogs.unshift({ timestamp, message });
   if (autopilotLogs.length > 100) autopilotLogs.pop(); // Cap at 100 logs
-  try {
-    fs.writeFileSync(LOGS_FILE, JSON.stringify(autopilotLogs, null, 2));
-  } catch (err) {
-    console.error('[Logs File] Failed to write logs:', err.message);
-  }
+  saveJsonFileSync(LOGS_FILE, autopilotLogs, 'Logs File');
   console.log(`[Autopilot Agent] ${message}`);
 }
 
 // Helper to save history
 function saveHistory() {
-  try {
-    fs.writeFileSync(HISTORY_FILE, JSON.stringify(historyDb, null, 2));
-  } catch (err) {
-    console.error('[History File] Failed to save history:', err.message);
-  }
+  saveJsonFileSync(HISTORY_FILE, historyDb, 'History File');
 }
 
 // One-time repair (idempotent, runs every boot): older builds stored blog URLs
@@ -1179,8 +1171,7 @@ let autopilotTargetIndex = 0; // rotation cursor
 // and queue survive redeploys. The scheduler itself is restored at startup.
 const AUTOPILOT_CONFIG_FILE = path.join(DATA_DIR, 'autopilot-config.json');
 function saveAutopilotConfig() {
-  try { fs.writeFileSync(AUTOPILOT_CONFIG_FILE, JSON.stringify({ enabled: autopilotEnabled, intervalHours: autopilotIntervalHours, queue: autopilotQueue, targets: autopilotTargets, targetIndex: autopilotTargetIndex, lastRun: lastAutopilotRun }, null, 2)); }
-  catch (e) { console.error('[Autopilot Config] save failed:', e.message); }
+  saveJsonFileSync(AUTOPILOT_CONFIG_FILE, { enabled: autopilotEnabled, intervalHours: autopilotIntervalHours, queue: autopilotQueue, targets: autopilotTargets, targetIndex: autopilotTargetIndex, lastRun: lastAutopilotRun }, 'Autopilot Config');
 }
 // Build sensible default target terms from the business location + niche so a
 // fresh franchise install pursues its own "[service] [city]" money terms.
@@ -1975,7 +1966,7 @@ Return ONLY raw JSON (no markdown fences) shaped exactly as:
       aioAuditsDb = aioAuditsDb.slice(0, 50);
     }
     try {
-      fs.writeFileSync(AIO_AUDITS_FILE, JSON.stringify(aioAuditsDb, null, 2));
+      writeJsonFileSync(AIO_AUDITS_FILE, aioAuditsDb);
     } catch (err) {
       console.error('[AIO Audits File] Save failed:', err.message);
     }
@@ -2294,9 +2285,9 @@ let factCheckDb = { latest: null, updatedAt: null };
 if (fs.existsSync(FACTCHECK_FILE)) {
   try { const l = JSON.parse(fs.readFileSync(FACTCHECK_FILE, 'utf8')); if (l && typeof l === 'object') factCheckDb = { latest: l.latest || null, updatedAt: l.updatedAt || null }; }
   catch (e) { /* keep default */ }
-} else { try { fs.writeFileSync(FACTCHECK_FILE, JSON.stringify(factCheckDb, null, 2)); } catch (e) {} }
+} else { try { writeJsonFileSync(FACTCHECK_FILE, factCheckDb); } catch (e) {} }
 let factCheckRunning = false;
-function saveFactCheck() { try { fs.writeFileSync(FACTCHECK_FILE, JSON.stringify(factCheckDb, null, 2)); } catch (e) { console.error('[FactCheck] save failed:', e.message); } }
+function saveFactCheck() { saveJsonFileSync(FACTCHECK_FILE, factCheckDb, 'FactCheck'); }
 
 function factTruth() {
   const kit = (typeof listingKit === 'function') ? listingKit() : {};
@@ -2397,9 +2388,9 @@ const AI_CRAWLERS_FILE = path.join(DATA_DIR, 'ai-crawlers.json');
 let crawlersDb = { latest: null, updatedAt: null };
 if (fs.existsSync(AI_CRAWLERS_FILE)) {
   try { const l = JSON.parse(fs.readFileSync(AI_CRAWLERS_FILE, 'utf8')); if (l && typeof l === 'object') crawlersDb = { latest: l.latest || null, updatedAt: l.updatedAt || null }; } catch (e) {}
-} else { try { fs.writeFileSync(AI_CRAWLERS_FILE, JSON.stringify(crawlersDb, null, 2)); } catch (e) {} }
+} else { try { writeJsonFileSync(AI_CRAWLERS_FILE, crawlersDb); } catch (e) {} }
 let crawlersRunning = false;
-function saveCrawlers() { try { fs.writeFileSync(AI_CRAWLERS_FILE, JSON.stringify(crawlersDb, null, 2)); } catch (e) { console.error('[AI Crawlers] save failed:', e.message); } }
+function saveCrawlers() { saveJsonFileSync(AI_CRAWLERS_FILE, crawlersDb, 'AI Crawlers'); }
 
 function parseRobots(txt) {
   const groups = []; let cur = null;
@@ -2466,9 +2457,9 @@ const REDDIT_FILE = path.join(DATA_DIR, 'reddit-threads.json');
 let redditDb = { latest: null, updatedAt: null };
 if (fs.existsSync(REDDIT_FILE)) {
   try { const l = JSON.parse(fs.readFileSync(REDDIT_FILE, 'utf8')); if (l && typeof l === 'object') redditDb = { latest: l.latest || null, updatedAt: l.updatedAt || null }; } catch (e) {}
-} else { try { fs.writeFileSync(REDDIT_FILE, JSON.stringify(redditDb, null, 2)); } catch (e) {} }
+} else { try { writeJsonFileSync(REDDIT_FILE, redditDb); } catch (e) {} }
 let redditRunning = false;
-function saveReddit() { try { fs.writeFileSync(REDDIT_FILE, JSON.stringify(redditDb, null, 2)); } catch (e) { console.error('[Reddit] save failed:', e.message); } }
+function saveReddit() { saveJsonFileSync(REDDIT_FILE, redditDb, 'Reddit'); }
 
 async function runRedditScan() {
   const key = process.env.GEMINI_API_KEY;
@@ -2585,8 +2576,8 @@ ${JSON.stringify(ctx)}`;
 const USAGE_FILE = path.join(DATA_DIR, 'usage.json');
 let usageDb = { months: {}, budgetUSD: null };
 if (fs.existsSync(USAGE_FILE)) { try { const l = JSON.parse(fs.readFileSync(USAGE_FILE, 'utf8')); if (l && typeof l === 'object') usageDb = { months: l.months || {}, budgetUSD: (typeof l.budgetUSD === 'number' ? l.budgetUSD : null) }; } catch (e) {} }
-else { try { fs.writeFileSync(USAGE_FILE, JSON.stringify(usageDb, null, 2)); } catch (e) {} }
-function saveUsage() { try { fs.writeFileSync(USAGE_FILE, JSON.stringify(usageDb, null, 2)); } catch (e) { console.error('[Usage] save failed:', e.message); } }
+else { try { writeJsonFileSync(USAGE_FILE, usageDb); } catch (e) {} }
+function saveUsage() { saveJsonFileSync(USAGE_FILE, usageDb, 'Usage'); }
 function accountKey() { return businessLocationId || 'default'; }
 function usageMonthKey() { return new Date().toISOString().slice(0, 7); }
 function currentUsage() {
@@ -2880,80 +2871,17 @@ app.post('/api/citation-targets', requireAuth, async (req, res) => {
     });
   }
 
-  const brandName = BUSINESS.name;
-  const brandRoot = 'bestdayfitness';
   const client = new GoogleGenAI({ apiKey: geminiKey });
   const cleanQueries = queries.map(q => String(q || '').trim()).filter(Boolean).slice(0, 8);
 
   try {
-    // 1. For each query, run a grounded search and collect the REAL domains
-    //    Google's AI cited (groundingChunks[].web.title is the source domain).
-    const domainInfo = {}; // domain -> { count, queries: [] }
-    let brandCited = false;
-
-    await Promise.all(cleanQueries.map(async (q) => {
-      try {
-        const prompt = `A person searching online asks: "${q}". Acting as a helpful AI answer engine, recommend the best specific local businesses that fit this search in and around St. Petersburg, Florida, based on current web information.`;
-        const resp = await client.models.generateContent({
-          model: GEMINI_MODEL,
-          contents: prompt,
-          config: { tools: [{ googleSearch: {} }] }
-        });
-        const gm = (resp.candidates && resp.candidates[0] && resp.candidates[0].groundingMetadata) || {};
-        const chunks = gm.groundingChunks || [];
-        const seen = new Set();
-        for (const c of chunks) {
-          const dom = ((c.web && c.web.title) || '').trim().toLowerCase();
-          if (!dom || seen.has(dom)) continue;
-          seen.add(dom);
-          if (dom.includes(brandRoot) || dom.includes(brandName.toLowerCase())) { brandCited = true; continue; }
-          if (!domainInfo[dom]) domainInfo[dom] = { count: 0, queries: [] };
-          domainInfo[dom].count++;
-          if (!domainInfo[dom].queries.includes(q)) domainInfo[dom].queries.push(q);
-        }
-      } catch (e) {
-        console.error(`[Citation Targets] query failed "${q}":`, e.message);
-      }
-    }));
-
-    // Rank by how often AI cited each domain; classify the top ones.
-    const rankedDomains = Object.keys(domainInfo)
-      .sort((a, b) => domainInfo[b].count - domainInfo[a].count)
-      .slice(0, 12);
-
-    // 2. For each domain, a grounded check: what kind of site is it, and is
-    //    Best Day Fitness already listed/mentioned there?
-    const targets = await Promise.all(rankedDomains.map(async (dom) => {
-      const base = { domain: dom, citedFor: domainInfo[dom].count, queries: domainInfo[dom].queries };
-      try {
-        const p = `On the website "${dom}", is the St. Petersburg, Florida fitness studio "Best Day Fitness" listed or mentioned? Also classify what kind of site "${dom}" is. Reply with ONLY raw JSON, no markdown fences: {"listed": true or false, "type": "directory" | "review" | "listicle" | "forum" | "competitor" | "news" | "other", "note": "one short line describing the site"}`;
-        const r = await client.models.generateContent({
-          model: GEMINI_MODEL,
-          contents: p,
-          config: { tools: [{ googleSearch: {} }] }
-        });
-        let raw = (r.text || '').trim().replace(/^```json/i, '').replace(/^```/, '').replace(/```$/, '').trim();
-        const m = raw.match(/\{[\s\S]*\}/);
-        if (m) raw = m[0];
-        const parsed = JSON.parse(raw);
-        return {
-          ...base,
-          type: parsed.type || 'other',
-          listed: (typeof parsed.listed === 'boolean' ? parsed.listed : null),
-          note: parsed.note || ''
-        };
-      } catch (e) {
-        return { ...base, type: 'other', listed: null, note: '' };
-      }
-    }));
-
-    targets.sort((a, b) => b.citedFor - a.citedFor);
+    const { brandCited, sourcesFound, targets } = await discoverCitationTargets(client, cleanQueries);
 
     return res.json({
       success: true,
       brandCited,
       totalQueries: cleanQueries.length,
-      sourcesFound: Object.keys(domainInfo).length,
+      sourcesFound,
       targets
     });
   } catch (err) {
@@ -3045,7 +2973,7 @@ if (fs.existsSync(PERF_FILE)) {
   try { perfSnapshots = JSON.parse(fs.readFileSync(PERF_FILE, 'utf8')); } catch (e) { perfSnapshots = []; }
 }
 function savePerf() {
-  try { fs.writeFileSync(PERF_FILE, JSON.stringify(perfSnapshots, null, 2)); } catch (e) { console.error('[Performance] save failed:', e.message); }
+  saveJsonFileSync(PERF_FILE, perfSnapshots, 'Performance');
 }
 
 async function queryGscRange(auth, siteUrl, startDate, endDate) {
@@ -3067,7 +2995,7 @@ async function queryGscRange(auth, siteUrl, startDate, endDate) {
   return { impressions, clicks, avgPosition: impressions ? posWeighted / impressions : 0, ctr: impressions ? clicks / impressions : 0, byQuery };
 }
 
-async function computePerformance() {
+async function computePerformanceSnapshot() {
   const day = 24 * 3600 * 1000;
   const fmt = ms => new Date(ms).toISOString().split('T')[0];
   const out = { source: 'mock', current: null, previous: null, movers: { gainers: [], losers: [] }, snapshots: perfSnapshots, aioTrend: [], leads: null,
@@ -3180,6 +3108,13 @@ async function computePerformance() {
 
   return out;
 }
+
+// Results and Health are loaded together in the browser, and Health also needs
+// the performance snapshot. Share only overlapping work so one page load does
+// not double the Search Console and GoHighLevel traffic. Settled results are
+// never cached: the next request always starts a fresh snapshot.
+const computePerformance = singleFlight(computePerformanceSnapshot);
+
 app.get('/api/performance', async (req, res) => {
   try { res.json(await computePerformance()); }
   catch (e) { res.status(500).json({ success: false, error: e.message }); }
@@ -3511,8 +3446,7 @@ try {
   }
 } catch (e) { console.error('[Citations] load failed:', e.message); }
 function saveCitations() {
-  try { fs.writeFileSync(CITATIONS_FILE, JSON.stringify(citationsDb, null, 2)); }
-  catch (e) { console.error('[Citations] save failed:', e.message); }
+  saveJsonFileSync(CITATIONS_FILE, citationsDb, 'Citations');
 }
 
 const CITATION_STATUSES = ['todo', 'submitted', 'pitched', 'live'];
@@ -3857,8 +3791,7 @@ try {
   if (fs.existsSync(LOCAL_FILE)) localDb = Object.assign(localDb, JSON.parse(fs.readFileSync(LOCAL_FILE, 'utf8')));
 } catch (e) { console.error('[Local Autopilot] load failed:', e.message); }
 function saveLocal() {
-  try { fs.writeFileSync(LOCAL_FILE, JSON.stringify(localDb, null, 2)); }
-  catch (e) { console.error('[Local Autopilot] save failed:', e.message); }
+  saveJsonFileSync(LOCAL_FILE, localDb, 'Local Autopilot');
 }
 
 async function localNapScan() {
@@ -4045,8 +3978,7 @@ try {
   if (fs.existsSync(ONSITE_FILE)) onsiteDb = Object.assign(onsiteDb, JSON.parse(fs.readFileSync(ONSITE_FILE, 'utf8')));
 } catch (e) { console.error('[On-Site Autopilot] load failed:', e.message); }
 function saveOnsite() {
-  try { fs.writeFileSync(ONSITE_FILE, JSON.stringify(onsiteDb, null, 2)); }
-  catch (e) { console.error('[On-Site Autopilot] save failed:', e.message); }
+  saveJsonFileSync(ONSITE_FILE, onsiteDb, 'On-Site Autopilot');
 }
 
 // A function, not a const: evaluated at load it would freeze the brand voice at
@@ -4282,8 +4214,7 @@ try {
   if (fs.existsSync(PERF_DIGEST_FILE)) perfDigestDb = Object.assign(perfDigestDb, JSON.parse(fs.readFileSync(PERF_DIGEST_FILE, 'utf8')));
 } catch (e) { console.error('[Perf Digest] load failed:', e.message); }
 function savePerfDigest() {
-  try { fs.writeFileSync(PERF_DIGEST_FILE, JSON.stringify(perfDigestDb, null, 2)); }
-  catch (e) { console.error('[Perf Digest] save failed:', e.message); }
+  saveJsonFileSync(PERF_DIGEST_FILE, perfDigestDb, 'Perf Digest');
 }
 function perfPct(cur, prev) { if (prev == null || prev === 0) return null; return Math.round((cur - prev) / prev * 100); }
 function perfDigestText(d) {
@@ -4398,7 +4329,7 @@ setInterval(() => { maybeRunPerfDigest(false).catch(() => {}); }, 12 * 60 * 60 *
 const HEALTH_FILE = path.join(DATA_DIR, 'health-score.json');
 let healthSnapshots = [];
 try { if (fs.existsSync(HEALTH_FILE)) healthSnapshots = JSON.parse(fs.readFileSync(HEALTH_FILE, 'utf8')); } catch (e) { healthSnapshots = []; }
-function saveHealth() { try { fs.writeFileSync(HEALTH_FILE, JSON.stringify(healthSnapshots, null, 2)); } catch (e) { console.error('[Health] save failed:', e.message); } }
+function saveHealth() { saveJsonFileSync(HEALTH_FILE, healthSnapshots, 'Health'); }
 function hClamp(n, lo, hi) { return Math.max(lo, Math.min(hi, n)); }
 
 async function computeHealthScore() {
@@ -4773,8 +4704,7 @@ try {
   if (!Array.isArray(reviewsSnapshots)) reviewsSnapshots = [];
 } catch (e) { reviewsSnapshots = []; }
 function saveReviewsSnapshots() {
-  try { fs.writeFileSync(REVIEWS_SNAPSHOTS_FILE, JSON.stringify(reviewsSnapshots, null, 2)); }
-  catch (e) { console.error('[Reviews] snapshot save failed:', e.message); }
+  saveJsonFileSync(REVIEWS_SNAPSHOTS_FILE, reviewsSnapshots, 'Reviews snapshot');
 }
 
 function revUrl() {
