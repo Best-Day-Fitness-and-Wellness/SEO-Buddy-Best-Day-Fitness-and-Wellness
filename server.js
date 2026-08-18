@@ -1599,6 +1599,73 @@ app.get('/api/gsc-data', async (req, res) => {
   return res.json({ source: 'mock_data', data: MOCK_GSC_DATA });
 });
 
+// Which page ranks for a search?
+//
+// Every other Search Console call in this app asks for dimensions:['query'],
+// which tells you a search is leaking clicks but not which page is leaking
+// them - so there is nothing to go and fix. This adds the page dimension.
+//
+//   /api/gsc-pages            top pages by impressions
+//   /api/gsc-pages?q=<search> the pages ranking for one specific search
+//
+// Read-only, same credentials, same 30-day window as /api/gsc-data.
+app.get('/api/gsc-pages', async (req, res) => {
+  const auth = getGoogleAuth();
+  const siteUrl = process.env.GSC_SITE_URL;
+  const q = String(req.query.q || '').trim();
+
+  if (!auth || !siteUrl) {
+    return res.json({
+      source: 'unavailable',
+      error: 'Search Console is not connected, so page-level data cannot be read. Settings -> Check connection will say why.',
+      data: []
+    });
+  }
+
+  try {
+    const webmasters = google.webmasters({ version: 'v3', auth });
+    const today = new Date().toISOString().split('T')[0];
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+    const requestBody = {
+      startDate: thirtyDaysAgo,
+      endDate: today,
+      dimensions: ['page'],
+      rowLimit: 100
+    };
+
+    // Filtering by the exact search is what turns "this query leaks" into
+    // "this URL leaks", which is the only form you can act on.
+    if (q) {
+      requestBody.dimensionFilterGroups = [{
+        filters: [{ dimension: 'query', operator: 'equals', expression: q }]
+      }];
+    }
+
+    const response = await webmasters.searchanalytics.query({ siteUrl, requestBody });
+    const rows = (response.data.rows || []).map(row => {
+      const impressions = row.impressions || 0;
+      const clicks = row.clicks || 0;
+      return {
+        page: row.keys ? row.keys[0] : '',
+        impressions,
+        clicks,
+        ctr: row.ctr ? parseFloat((row.ctr * 100).toFixed(2)) : 0,
+        position: parseFloat((row.position || 0).toFixed(1)),
+        leak: clicks === 0 && impressions > 10
+      };
+    });
+    rows.sort((a, b) => b.impressions - a.impressions);
+
+    return res.json({ source: 'live_gsc', query: q || null, data: rows });
+  } catch (error) {
+    console.error('[GSC API] Page query failed:', error.message);
+    // Deliberately not falling back to mock data. A made-up URL is worse than
+    // no URL: you would go and edit a page that is not the one ranking.
+    return res.json({ source: 'error', query: q || null, error: error.message, data: [] });
+  }
+});
+
 // 2. Generate Article Endpoint
 app.post('/api/generate-article', requireAuth, async (req, res) => {
   const body = req.body || {};
