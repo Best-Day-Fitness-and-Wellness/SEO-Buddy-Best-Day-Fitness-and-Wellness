@@ -7,7 +7,9 @@ architecture. It is based on the executable code, not only the README.
 ## System at a glance
 
 SEO Buddy is a single-process Node.js application serving a vanilla-JavaScript
-single-page dashboard and 78 JSON endpoints.
+single-page dashboard and its JSON endpoints. Clean-architecture extraction is
+underway through behavior-preserving vertical slices; the implemented module
+map lives in [`CLEAN_ARCHITECTURE.md`](CLEAN_ARCHITECTURE.md).
 
 ```text
 Browser
@@ -15,8 +17,8 @@ Browser
       |
       | same-origin HTTP /api/*
       v
-Express process (server.js)
-  middleware -> auth -> route handlers -> domain workflows
+Express process (server.js compatibility shell + src/ modules)
+  middleware -> auth -> route adapters -> application -> domain
       |                                  |
       |                                  +-> Gemini / OpenAI / Perplexity
       |                                  +-> Google Search Console / Indexing
@@ -54,8 +56,9 @@ file under `DATA_DIR`; values saved there take effect in the running process.
 
 ## Browser data flow
 
-`public/app.js` is one `DOMContentLoaded` closure containing application state,
-DOM lookups, rendering, navigation, authentication, and all API orchestration.
+`public/app.js` remains one `DOMContentLoaded` controller for application state,
+DOM lookups, rendering, navigation, and most API orchestration. Authentication
+transport and content-safety policy now live in reusable `public/core/` modules.
 
 Read flow:
 
@@ -157,11 +160,14 @@ and replace each other's updates.
 
 ### 1. Backend and frontend monoliths
 
-`server.js` is roughly 4,700 lines and contains 78 routes, persistence,
-integration clients, scheduling, validation, prompts, and domain calculations.
-`public/app.js` is roughly 5,200 lines inside one closure. Changes have a large
-blast radius, feature ownership is unclear, and isolated tests require starting
-the complete application.
+`server.js` remains a roughly 4,700-line compatibility shell containing most
+routes, persistence, integration clients, scheduling, validation, prompts, and
+domain calculations. Reviews is now a complete `src/features/reviews` vertical
+slice, and cross-cutting configuration, middleware, authentication, and content
+safety have been extracted. `public/app.js` is still a large closure, although
+authenticated transport and content safety now live in `public/core`. The
+remaining monolith still has a large blast radius and should be migrated one
+contract-tested feature at a time.
 
 ### 2. Flat-file state is a single-instance architecture
 

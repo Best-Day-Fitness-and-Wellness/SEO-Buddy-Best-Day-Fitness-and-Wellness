@@ -1,5 +1,7 @@
 // SEO Buddy - Application Logic
 document.addEventListener('DOMContentLoaded', () => {
+  const { authFetch, escapeHtml: uiEsc, safeExternalUrl, sanitizeHtml } = window.SeoBuddyCore;
+
   // --- APPLICATION STATE ---
   const state = {
     activeTab: 'today-tab',
@@ -78,72 +80,6 @@ document.addEventListener('DOMContentLoaded', () => {
   const settingsConvRate = document.getElementById('settings-conv-rate');
   const settingsCaptureRate = document.getElementById('settings-capture-rate');
   const displaySiteUrlBadge = document.getElementById('display-site-url');
-
-  // --- AUTH HELPERS ---
-  // The server protects sensitive endpoints when ADMIN_PASSWORD is set.
-  // Send the stored admin password as a Bearer token on protected calls.
-  function getAdminToken() {
-    return sessionStorage.getItem('seo_admin_password') || '';
-  }
-
-  function authHeaders(base) {
-    const headers = Object.assign({}, base || {});
-    const token = getAdminToken();
-    if (token) headers['Authorization'] = `Bearer ${token}`;
-    return headers;
-  }
-
-  // Wraps fetch and surfaces a clear message if the server rejects auth.
-  async function authFetch(url, options) {
-    const opts = Object.assign({}, options || {});
-    opts.headers = authHeaders(opts.headers);
-    const res = await fetch(url, opts);
-    if (res.status === 401) {
-      throw new Error('This action is locked. Enter the admin password in the Settings tab, then try again.');
-    }
-    return res;
-  }
-
-  // Treat everything returned by integrations and AI as untrusted. These
-  // helpers are shared by table/card renderers and by the article preview.
-  function uiEsc(value) {
-    return String(value == null ? '' : value).replace(/[&<>"']/g, ch => ({
-      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-    }[ch]));
-  }
-
-  function safeExternalUrl(value) {
-    try {
-      const parsed = new URL(String(value || ''), window.location.origin);
-      return ['http:', 'https:'].includes(parsed.protocol) && !parsed.username && !parsed.password ? parsed.href : '#';
-    } catch (e) { return '#'; }
-  }
-
-  function sanitizeHtml(value) {
-    const template = document.createElement('template');
-    template.innerHTML = String(value || '');
-    const blocked = template.content.querySelectorAll('script,iframe,object,embed,form,input,button,textarea,select,option,meta,link,base,svg,math');
-    blocked.forEach(node => node.remove());
-    template.content.querySelectorAll('*').forEach(node => {
-      Array.from(node.attributes).forEach(attr => {
-        const name = attr.name.toLowerCase();
-        const raw = attr.value.trim();
-        if (name.startsWith('on') || name === 'srcdoc') node.removeAttribute(attr.name);
-        else if (['href', 'src', 'action', 'formaction'].includes(name)) {
-          if (!['http:', 'https:'].includes((() => { try { return new URL(raw, window.location.origin).protocol; } catch (e) { return ''; } })())) {
-            node.removeAttribute(attr.name);
-          }
-        } else if (name === 'style' && /(expression\s*\(|url\s*\(|@import|javascript:)/i.test(raw)) {
-          node.removeAttribute(attr.name);
-        }
-      });
-      if (node.tagName === 'A') {
-        node.setAttribute('rel', 'noopener noreferrer');
-        if (node.getAttribute('target') === '_blank') node.setAttribute('target', '_blank');
-      }
-    });
-    return template.innerHTML;
-  }
 
   function showToast(message, tone) {
     let host = document.getElementById('ui-toast-host');

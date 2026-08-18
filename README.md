@@ -30,7 +30,9 @@ The sidebar is deliberately short — **Today**, **Progress**, **Explore** — w
 
 For the runtime map, end-to-end data flows, known scaling limits, and the
 behavior-preserving refactoring sequence, see
-[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). The implemented dependency
+boundaries and current production folder structure are documented in
+[`docs/CLEAN_ARCHITECTURE.md`](docs/CLEAN_ARCHITECTURE.md).
 
 ### The three main screens
 

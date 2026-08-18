@@ -1,28 +1,27 @@
 const express = require('express');
-const bodyParser = require('body-parser');
-const compression = require('compression');
-const cors = require('cors');
 const dotenv = require('dotenv');
 const path = require('path');
 const fs = require('fs');
 const dns = require('node:dns').promises;
 const net = require('node:net');
-const crypto = require('node:crypto');
 const { google } = require('googleapis');
 const { GoogleGenAI } = require('@google/genai');
 const { saveJsonFileSync, writeFileAtomicSync, writeJsonFileSync } = require('./lib/json-file-store');
 const { serializeDotenv } = require('./lib/dotenv-store');
 const { ttlCache } = require('./lib/ttl-cache');
 const { upsertDailySnapshot } = require('./lib/daily-snapshot');
+const { loadRuntimeConfig } = require('./src/config/runtime-config');
+const { configureMiddleware } = require('./src/http/configure-middleware');
+const { createAdminAuth } = require('./src/http/middleware/admin-auth');
+const { registerReviewsFeature } = require('./src/features/reviews');
+const { escapeHtml, jsonForHtml, safeHttpUrl, sanitizeArticleHtml } = require('./src/shared/content-safety');
 
 // Load UI-saved settings from the same durable directory used by the JSON
 // stores. Host-provided environment variables still win unless a user
 // explicitly saves a replacement through Settings.
-const CONFIG_DIR = process.env.DATA_DIR || __dirname;
-dotenv.config({ path: path.join(CONFIG_DIR, '.env') });
-
+const runtimeConfig = loadRuntimeConfig({ projectRoot: __dirname });
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = runtimeConfig.port;
 
 // ----------------------------------------------------
 // Core Configuration
@@ -30,23 +29,18 @@ const PORT = process.env.PORT || 3000;
 // Gemini model is now env-configurable. Default to the current stable Flash
 // model. NOTE: the previous hardcoded 'gemini-3.5-flash' is not a valid model
 // ID, so every live generation silently failed and fell back to mock output.
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
+const GEMINI_MODEL = runtimeConfig.geminiModel;
 
 // Durable data directory. Railway (and most container hosts) wipe the app
 // folder on every redeploy, so the history/logs/audit JSON files must live on a
 // persistent disk. On Railway: attach a Volume and set DATA_DIR to its mount
 // path (e.g. /data). Defaults to the app folder for local development.
-const DATA_DIR = CONFIG_DIR;
-try {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-} catch (e) {
-  console.error('[Data Dir] Could not create DATA_DIR:', e.message);
-}
+const DATA_DIR = runtimeConfig.dataDir;
 
 // Optional admin password. When set, it locks down the sensitive endpoints
 // (settings, publishing, indexing, autopilot, and any Gemini-spend routes).
 // Leave unset only for trusted local development.
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
+const ADMIN_PASSWORD = runtimeConfig.adminPassword;
 
 // Real Best Day Fitness business info (NAP) for structured data / schema.
 // Single source of truth — used by both the publisher and the schema endpoint.
@@ -263,56 +257,12 @@ function saveBusinessProfileFromBody(b) {
   writeJsonFileSync(BUSINESS_PROFILE_FILE, businessProfile());
 }
 
-// CORS: default to same-origin only (the dashboard is served from this same
-// server, so no cross-origin headers are needed). Set ALLOWED_ORIGIN to a
-// comma-separated allowlist only if you must call the API from another origin.
-const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || '';
-if (ALLOWED_ORIGIN) {
-  app.use(cors({ origin: ALLOWED_ORIGIN.split(',').map(s => s.trim()) }));
-}
-
-// Baseline browser hardening without adding another runtime dependency. API
-// responses may contain business history and configuration state, so prevent
-// intermediary/browser caches from retaining them.
-app.disable('x-powered-by');
-app.set('trust proxy', 1);
-app.use((req, res, next) => {
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'DENY');
-  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  res.setHeader('Permissions-Policy', 'camera=(), geolocation=(), microphone=(self)');
-  res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
-  if (req.path.startsWith('/api/')) res.setHeader('Cache-Control', 'no-store');
-  if (req.secure || req.get('x-forwarded-proto') === 'https') {
-    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
-  }
-  next();
+configureMiddleware(app, {
+  allowedOrigin: runtimeConfig.allowedOrigin,
+  publicDir: runtimeConfig.publicDir,
 });
 
-// Compress HTML, JavaScript, CSS, and JSON over the wire. The dashboard ships
-// sizeable hand-authored assets, so this removes most transfer bytes without a
-// build step or extra copies in memory.
-app.use(compression({ threshold: 1024 }));
-
-// Recording uploads need far more than the default 100kb. Mounted path-first so
-// every other endpoint keeps the small limit.
-// Mounted path-first so the global limit below still protects every other route.
-app.use('/api/transcribe', bodyParser.json({ limit: '34mb' }));
-app.use(bodyParser.json());
-app.use(express.static(path.join(__dirname, 'public'), {
-  etag: true,
-  lastModified: true,
-  setHeaders(res, filePath) {
-    // HTML must revalidate so a deployment can point at the newest un-hashed
-    // assets. Other static files can be reused briefly and revalidated in the
-    // background, cutting repeat-visit bandwidth without long-lived staleness.
-    if (path.basename(filePath) === 'index.html') {
-      res.setHeader('Cache-Control', 'no-cache');
-    } else {
-      res.setHeader('Cache-Control', 'public, max-age=300, stale-while-revalidate=86400');
-    }
-  },
-}));
+const requireAuth = createAdminAuth({ password: ADMIN_PASSWORD });
 
 // Brand profile routes live below the body parser on purpose — registered above
 // it, req.body is undefined and every save fails with a confusing 400.
@@ -337,43 +287,6 @@ app.post('/api/business-profile', requireAuth, (req, res) => {
   try { saveBusinessProfileFromBody(req.body || {}); res.json({ success: true, profile: businessProfile() }); }
   catch (e) { console.error('[Business Profile] save failed:', e.message); res.status(500).json({ success: false, error: e.message }); }
 });
-
-// ----------------------------------------------------
-// Auth middleware — protects sensitive/credential/spend endpoints.
-// If ADMIN_PASSWORD is not set, endpoints stay open (local dev) but the server
-// logs a loud startup warning. Provide the password from the client as either
-// an "Authorization: Bearer <password>" header or an "x-admin-token" header.
-// ----------------------------------------------------
-const authFailures = new Map();
-function requireAuth(req, res, next) {
-  if (!ADMIN_PASSWORD) return next(); // open mode (no password configured)
-  const now = Date.now();
-  const key = req.ip || req.socket.remoteAddress || 'unknown';
-  const prior = authFailures.get(key);
-  const authHeader = req.headers['authorization'] || '';
-  const bearer = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
-  const token = bearer || (req.headers['x-admin-token'] || '').trim();
-  const supplied = Buffer.from(token);
-  const expected = Buffer.from(ADMIN_PASSWORD);
-  if (supplied.length === expected.length && crypto.timingSafeEqual(supplied, expected)) {
-    authFailures.delete(key);
-    return next();
-  }
-  if (prior && prior.resetAt > now && prior.count >= 8) {
-    res.setHeader('Retry-After', String(Math.ceil((prior.resetAt - now) / 1000)));
-    return res.status(429).json({ success: false, error: 'Too many incorrect password attempts. Wait a few minutes, then try again.' });
-  }
-  if (prior && prior.resetAt <= now) authFailures.delete(key);
-  const nextFailure = prior && prior.resetAt > now
-    ? { count: prior.count + 1, resetAt: prior.resetAt }
-    : { count: 1, resetAt: now + 15 * 60 * 1000 };
-  if (authFailures.size > 5000) {
-    for (const [address, entry] of authFailures) if (entry.resetAt <= now) authFailures.delete(address);
-    if (authFailures.size > 10000) authFailures.clear();
-  }
-  authFailures.set(key, nextFailure);
-  return res.status(401).json({ success: false, error: 'Unauthorized. Enter the admin password in Settings to perform this action.' });
-}
 
 // Shared LocalBusiness schema builder (real NAP, single source of truth).
 function buildLocalBusinessSchema(domain) {
@@ -757,45 +670,6 @@ function getGoogleAuth() {
 // Reusable Core Service Helpers
 // ----------------------------------------------------
 
-function escapeHtml(value) {
-  return String(value == null ? '' : value).replace(/[&<>"']/g, ch => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-  }[ch]));
-}
-
-function safeHttpUrl(value, fallback = '') {
-  try {
-    const parsed = new URL(String(value || ''));
-    return ['http:', 'https:'].includes(parsed.protocol) && !parsed.username && !parsed.password ? parsed.toString() : fallback;
-  } catch (e) { return fallback; }
-}
-
-// The article editor intentionally accepts useful formatting, but scripts,
-// event handlers and active embedded content never belong in a blog post.
-function sanitizeArticleHtml(value) {
-  const safeActiveAttribute = (match, name, quote, quotedValue, bareValue) => {
-    const raw = String(quotedValue == null ? bareValue : quotedValue);
-    const decoded = raw
-      .replace(/&#x([0-9a-f]+);?/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
-      .replace(/&#(\d+);?/g, (_, dec) => String.fromCharCode(parseInt(dec, 10)))
-      .replace(/&colon;/gi, ':')
-      .replace(/[\u0000-\u0020]+/g, '')
-      .toLowerCase();
-    if (/^(?:javascript|vbscript|data):/.test(decoded)) return '';
-    return quotedValue == null ? ` ${name}=${bareValue}` : ` ${name}=${quote}${quotedValue}${quote}`;
-  };
-  return String(value || '')
-    .replace(/<(script|iframe|object|embed|form|style|svg|math)\b[\s\S]*?<\/\1\s*>/gi, '')
-    .replace(/<(script|iframe|object|embed|form|style|svg|math)\b[^>]*\/?\s*>/gi, '')
-    .replace(/\s(?:on[a-z]+|srcdoc)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
-    .replace(/\s(href|src|action|formaction)\s*=\s*(["'])([\s\S]*?)\2/gi, safeActiveAttribute)
-    .replace(/\s(href|src|action|formaction)\s*=\s*([^\s>]+)/gi, (match, name, bareValue) => safeActiveAttribute(match, name, '', null, bareValue))
-    .replace(/\sstyle\s*=\s*(["'])[^"']*(?:expression\s*\(|url\s*\(|@import|javascript:)[^"']*\1/gi, '');
-}
-
-function jsonForHtml(value) {
-  return JSON.stringify(value, null, 2).replace(/</g, '\\u003c');
-}
 
 // 1. Generation Helper
 // `transcript` is optional. When present it is the owner speaking in their own
@@ -4722,267 +4596,11 @@ async function reindexRepairedPosts() {
 //      preview image that 404s (all three were real, found 2026-08-05).
 // ===========================================================================
 
-const REVIEWS_SNAPSHOTS_FILE = path.join(DATA_DIR, 'reviews-snapshots.json');
-let reviewsSnapshots = [];
-try {
-  reviewsSnapshots = JSON.parse(fs.readFileSync(REVIEWS_SNAPSHOTS_FILE, 'utf8'));
-  if (!Array.isArray(reviewsSnapshots)) reviewsSnapshots = [];
-} catch (e) { reviewsSnapshots = []; }
-function saveReviewsSnapshots() {
-  saveJsonFileSync(REVIEWS_SNAPSHOTS_FILE, reviewsSnapshots, 'Reviews snapshot');
-}
-
-function revUrl() {
-  return (process.env.REVIEWS_URL || 'https://bestdayfitnessreviews.com').replace(/\/+$/, '');
-}
-
-async function revFetch(url, opts = {}, ms = 12000) {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), ms);
-  try {
-    return await fetch(url, {
-      redirect: 'follow',
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; SEOBuddyBot/1.0)' },
-      signal: ctrl.signal,
-      ...opts,
-    });
-  } finally { clearTimeout(timer); }
-}
-
-// The page is our own known markup, so targeted regex beats adding a DOM
-// dependency to the Railway build. Every extractor below fails soft: a parse
-// miss becomes a reported check failure, never a thrown request.
-function parseReviewCards(html) {
-  const out = [];
-  const cardRe = /<div class="rev" data-plat="([a-z]+)">([\s\S]*?)<\/p><\/div>/g;
-  let m;
-  while ((m = cardRe.exec(html))) {
-    const [, plat, body] = m;
-    const name = (body.match(/<b>([^<]*)<\/b>/) || [])[1] || '';
-    const date = (body.match(/<div class="d">([^<]*)<\/div>/) || [])[1] || '';
-    // Star rows carry an explicit aria-label once the site renders real ratings;
-    // fall back to counting glyphs on older builds that hardcoded five.
-    let rating = Number((body.match(/aria-label="(\d) out of 5 stars"/) || [])[1]);
-    if (!rating) {
-      const rs = (body.match(/<div class="rs"[^>]*>([\s\S]*?)<\/div>/) || [])[1] || '';
-      const off = ((rs.match(/<span class="off">([★]*)<\/span>/) || [])[1] || '').length;
-      rating = ((rs.match(/★/g) || []).length) - off || null;
-    }
-    out.push({ platform: plat, author: name, date, rating: rating || null });
-  }
-  return out;
-}
-
-function parseJsonLd(html) {
-  const m = html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/);
-  if (!m) return null;
-  try { return JSON.parse(m[1]); } catch (e) { return { __parseError: e.message }; }
-}
-
-function metaContent(html, attr, val) {
-  const re = new RegExp(`<meta[^>]*${attr}=["']${val}["'][^>]*content=["']([^"']*)["']`, 'i');
-  const alt = new RegExp(`<meta[^>]*content=["']([^"']*)["'][^>]*${attr}=["']${val}["']`, 'i');
-  return (html.match(re) || html.match(alt) || [])[1] || null;
-}
-
-function monthlyGrowth(cards) {
-  const byMonth = {};
-  for (const c of cards) if (/^\d{4}-\d{2}$/.test(c.date)) byMonth[c.date] = (byMonth[c.date] || 0) + 1;
-  const months = Object.keys(byMonth).sort();
-  if (!months.length) return [];
-  // Fill gaps so the curve reads as time, not as a list of months that happened
-  // to have reviews.
-  const series = [];
-  let cursor = months[0], last = months[months.length - 1], total = 0;
-  let guard = 0;
-  while (cursor <= last && guard++ < 400) {
-    total += byMonth[cursor] || 0;
-    series.push({ month: cursor, added: byMonth[cursor] || 0, total });
-    let [y, mo] = cursor.split('-').map(Number);
-    mo++; if (mo > 12) { mo = 1; y++; }
-    cursor = `${y}-${String(mo).padStart(2, '0')}`;
-  }
-  return series;
-}
-
-async function computeReviewsStats() {
-  const base = revUrl();
-  const checks = [];
-  const add = (id, label, ok, detail, severity = 'error') =>
-    checks.push({ id, label, status: ok === null ? 'unknown' : ok ? 'pass' : 'fail', detail, severity });
-
-  // ---- fetch the page -----------------------------------------------------
-  const t0 = Date.now();
-  let html = '', status = 0, ok = false;
-  try {
-    const r = await revFetch(base + '/');
-    status = r.status; ok = r.ok;
-    html = await r.text();
-  } catch (e) {
-    return {
-      url: base, reachable: false, error: e.message,
-      checks: [{ id: 'reachable', label: 'Site responds', status: 'fail', detail: e.message, severity: 'error' }],
-    };
-  }
-  const loadMs = Date.now() - t0;
-
-  add('reachable', 'Site responds', ok, `HTTP ${status} in ${loadMs}ms`);
-  add('https', 'Served over HTTPS', base.startsWith('https://'), base);
-  add('speed', 'Responds under 1.5s', loadMs < 1500, `${loadMs}ms`, 'warn');
-
-  // ---- inventory ----------------------------------------------------------
-  const cards = parseReviewCards(html);
-  const byPlatform = cards.reduce((a, c) => ({ ...a, [c.platform]: (a[c.platform] || 0) + 1 }), {});
-  const rated = cards.filter(c => c.rating);
-  const avg = rated.length ? Math.round((rated.reduce((s, c) => s + c.rating, 0) / rated.length) * 10) / 10 : null;
-  const dates = cards.map(c => c.date).filter(d => /^\d{4}-\d{2}$/.test(d)).sort();
-
-  // ---- structured data ----------------------------------------------------
-  const ld = parseJsonLd(html);
-  if (!ld) {
-    add('jsonld', 'JSON-LD block present', false, 'No application/ld+json script found — the page is invisible to review rich-results.');
-  } else if (ld.__parseError) {
-    add('jsonld', 'JSON-LD parses', false, ld.__parseError);
-  } else {
-    add('jsonld', 'JSON-LD present and parses', true, `${(ld.review || []).length} review objects`);
-
-    // THE invariant. Visible cards and structured data must describe the same
-    // set — this is the drift that made the hand-maintained page dangerous.
-    const ldCount = (ld.review || []).length;
-    add('ld-match', 'JSON-LD matches visible cards', ldCount === cards.length,
-      ldCount === cards.length ? `${cards.length} both sides` : `${cards.length} cards vs ${ldCount} in JSON-LD`);
-
-    const ldRatings = (ld.review || []).map(r => r?.reviewRating?.ratingValue).filter(n => typeof n === 'number');
-    const mean = ldRatings.length ? Math.round((ldRatings.reduce((a, b) => a + b, 0) / ldRatings.length) * 10) / 10 : null;
-    const agg = ld.aggregateRating || {};
-    add('agg-honest', 'aggregateRating equals the real mean', mean != null && agg.ratingValue === mean,
-      `declared ${agg.ratingValue ?? '—'}, actual ${mean ?? '—'}`);
-    add('agg-count', 'aggregateRating count is at least what is shown',
-      typeof agg.reviewCount === 'number' && agg.reviewCount >= cards.length,
-      `declared ${agg.reviewCount ?? '—'} vs ${cards.length} published`, 'warn');
-
-    const below = ldRatings.filter(n => n < 5).length;
-    add('five-star', 'Every published review is 5★', below === 0,
-      below ? `${below} review(s) below 5★ are published` : `all ${ldRatings.length} are 5★`, 'warn');
-  }
-
-  // ---- on-page SEO --------------------------------------------------------
-  const title = (html.match(/<title>([^<]*)<\/title>/) || [])[1] || '';
-  const desc = metaContent(html, 'name', 'description') || '';
-  const canonical = (html.match(/<link[^>]*rel=["']canonical["'][^>]*href=["']([^"']*)["']/i) || [])[1] || '';
-  add('title', 'Title tag is a sensible length', title.length >= 30 && title.length <= 65, `${title.length} chars`, 'warn');
-  add('desc', 'Meta description is a sensible length', desc.length >= 70 && desc.length <= 165, `${desc.length} chars`, 'warn');
-  add('canonical', 'Canonical URL present', !!canonical, canonical || 'missing');
-
-  // ---- og:image actually resolves ----------------------------------------
-  // This one is not theoretical: og-image.png 404'd for months while the meta
-  // tag advertised it, so every share rendered a blank card. Pages served the
-  // HTML fallback, which is why nothing looked broken.
-  const ogImage = metaContent(html, 'property', 'og:image');
-  if (!ogImage) {
-    add('og-image', 'Social preview image declared', false, 'no og:image meta tag');
-  } else {
-    try {
-      const r = await revFetch(ogImage, { method: 'GET' }, 10000);
-      const ct = r.headers.get('content-type') || '';
-      add('og-image', 'Social preview image resolves', r.ok && ct.startsWith('image/'),
-        r.ok ? `HTTP ${r.status}, content-type ${ct || 'unknown'}` : `HTTP ${r.status}`);
-    } catch (e) {
-      add('og-image', 'Social preview image resolves', false, e.message);
-    }
-  }
-
-  // ---- crawlability -------------------------------------------------------
-  let sitemapLastmod = null;
-  try {
-    const r = await revFetch(base + '/sitemap.xml', {}, 8000);
-    const body = r.ok ? await r.text() : '';
-    const isXml = body.trim().startsWith('<?xml') || body.includes('<urlset');
-    sitemapLastmod = (body.match(/<lastmod>([^<]+)<\/lastmod>/) || [])[1] || null;
-    add('sitemap', 'sitemap.xml served', r.ok && isXml, r.ok ? (isXml ? `lastmod ${sitemapLastmod || 'absent'}` : 'served, but not XML') : `HTTP ${r.status}`, 'warn');
-    if (sitemapLastmod) {
-      const ageDays = Math.floor((Date.now() - new Date(sitemapLastmod).getTime()) / 86400000);
-      add('sitemap-fresh', 'sitemap lastmod is recent', ageDays <= 60, `${ageDays} days old`, 'warn');
-    }
-  } catch (e) { add('sitemap', 'sitemap.xml served', false, e.message, 'warn'); }
-
-  try {
-    const r = await revFetch(base + '/robots.txt', {}, 8000);
-    const body = r.ok ? await r.text() : '';
-    const blocksAll = /Disallow:\s*\/\s*$/m.test(body) && !/Allow:\s*\//m.test(body);
-    add('robots', 'robots.txt allows crawling', r.ok && !blocksAll, r.ok ? (blocksAll ? 'Disallow: / is blocking crawlers' : 'crawlable') : `HTTP ${r.status}`);
-  } catch (e) { add('robots', 'robots.txt allows crawling', null, e.message, 'warn'); }
-
-  // ---- platform totals shown in the page header ---------------------------
-  const headerTotal = Number(((html.match(/<b id="rev-count">([\d,]+)\+?<\/b>/) || [])[1] || '').replace(/,/g, '')) || null;
-  const platformTotals = {};
-  const gm = html.match(/<b>Google<\/b><div class="s">[^<]*?([\d.]+)\s*·\s*(\d+)/);
-  if (gm) platformTotals.google = { avgRating: Number(gm[1]), reviewCount: Number(gm[2]) };
-  const fm = html.match(/<b>Facebook<\/b><div class="s">[^<]*?(\d+)%\s*·\s*(\d+)/);
-  if (fm) platformTotals.facebook = { recommendPercent: Number(fm[1]), reviewCount: Number(fm[2]) };
-  const ym = html.match(/<b>Yelp<\/b><div class="s">[^<]*?(\d+)\s*reviews/);
-  if (ym) platformTotals.yelp = { reviewCount: Number(ym[1]) };
-
-  // ---- snapshot for growth going forward ----------------------------------
-  const today = new Date().toISOString().split('T')[0];
-  const row = { date: today, published: cards.length, byPlatform, headerTotal };
-  const update = upsertDailySnapshot(reviewsSnapshots, row, 365);
-  reviewsSnapshots = update.snapshots;
-  if (update.changed) saveReviewsSnapshots();
-
-  let delta30 = null;
-  const cutoff = Date.now() - 30 * 86400000;
-  const older = reviewsSnapshots.filter(s => new Date(s.date + 'T00:00:00Z').getTime() <= cutoff);
-  if (older.length) delta30 = cards.length - older[older.length - 1].published;
-
-  const failed = checks.filter(c => c.status === 'fail');
-  const score = checks.length
-    ? Math.round((checks.filter(c => c.status === 'pass').length / checks.filter(c => c.status !== 'unknown').length) * 100)
-    : null;
-
-  return {
-    url: base,
-    reachable: true,
-    checkedAt: new Date().toISOString(),
-    loadMs,
-    score,
-    inventory: {
-      published: cards.length,
-      byPlatform,
-      avgRating: avg,
-      newest: dates.length ? dates[dates.length - 1] : null,
-      oldest: dates.length ? dates[0] : null,
-      delta30,
-    },
-    growth: monthlyGrowth(cards),
-    platformTotals,
-    headerTotal,
-    checks,
-    problems: failed.length,
-    snapshots: reviewsSnapshots.slice(-90),
-    reviews: cards,
-  };
-}
-
-let reviewsStatsCache = null;
-let reviewsStatsPromise = null;
-app.get('/api/reviews-stats', async (req, res) => {
-  try {
-    const fresh = reviewsStatsCache && Date.now() - reviewsStatsCache.cachedAt < 5 * 60 * 1000;
-    if (!fresh) {
-      if (!reviewsStatsPromise) {
-        reviewsStatsPromise = computeReviewsStats()
-          .then(data => (reviewsStatsCache = { cachedAt: Date.now(), data }, data))
-          .finally(() => { reviewsStatsPromise = null; });
-      }
-      await reviewsStatsPromise;
-    }
-    res.json({ success: true, ...reviewsStatsCache.data });
-  } catch (e) {
-    console.error('[Reviews] stats failed:', e.message);
-    res.status(500).json({ success: false, error: e.message });
-  }
+registerReviewsFeature(app, {
+  dataDir: runtimeConfig.dataDir,
+  reviewsUrl: runtimeConfig.reviewsUrl,
 });
+
 
 // ===========================================================================
 // RECORDED ANSWERS  —  turning the owner's own words into content
