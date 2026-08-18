@@ -1,10 +1,14 @@
 import test, { after, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import net from 'node:net';
+
+const require = createRequire(import.meta.url);
+const { parse: parseDotenv } = require('dotenv');
 
 const ADMIN_PASSWORD = 'integration-test-password';
 const dataDir = mkdtempSync(join(tmpdir(), 'seo-buddy-test-'));
@@ -142,6 +146,92 @@ test('settings persist safely without env-line injection', async () => {
 
   const invalidJson = await request('/api/save-settings', { method: 'POST', body: { gscJson: '{bad json' } });
   assert.equal(invalidJson.status, 400);
+});
+
+test('settings keep Google credentials out of dotenv and preserve the path exactly', async () => {
+  const serviceAccount = {
+    type: 'service_account',
+    client_email: 'incident-test@example.iam.gserviceaccount.com',
+    private_key: '-----BEGIN PRIVATE KEY-----\nnot-a-real-key\n-----END PRIVATE KEY-----\n',
+  };
+  const response = await request('/api/save-settings', {
+    method: 'POST',
+    body: {
+      siteUrl: 'sc-domain:bestdayfitness.com',
+      gscJson: JSON.stringify(serviceAccount),
+    },
+  });
+
+  assert.equal(response.status, 200);
+  const envFile = readFileSync(join(dataDir, '.env'), 'utf8');
+  const parsedEnv = parseDotenv(envFile);
+  const credentialsPath = join(dataDir, 'google-creations.json');
+
+  assert.equal(parsedEnv.GOOGLE_APPLICATION_CREDENTIALS, credentialsPath);
+  assert.doesNotMatch(envFile, /private_key|BEGIN PRIVATE KEY/);
+  assert.deepEqual(JSON.parse(readFileSync(credentialsPath, 'utf8')), serviceAccount);
+  assert.equal(readdirSync(dataDir).some(name => name.endsWith('.tmp')), false);
+});
+
+test('an unrelated settings save migrates inherited raw Google JSON without corrupting it', { timeout: 15000 }, async () => {
+  const isolatedDir = mkdtempSync(join(tmpdir(), 'seo-buddy-credential-migration-'));
+  const isolatedPort = await availablePort();
+  const isolatedBase = `http://127.0.0.1:${isolatedPort}`;
+  const serviceAccount = {
+    type: 'service_account',
+    client_email: 'inherited-test@example.iam.gserviceaccount.com',
+    private_key: '-----BEGIN PRIVATE KEY-----\nliteral-backslash-n-must-survive\n-----END PRIVATE KEY-----\n',
+  };
+  let isolatedLogs = '';
+  const isolated = spawn(process.execPath, ['server.js'], {
+    cwd: new URL('..', import.meta.url),
+    env: {
+      ...process.env,
+      PORT: String(isolatedPort),
+      DATA_DIR: isolatedDir,
+      ADMIN_PASSWORD,
+      GEMINI_API_KEY: '',
+      GOOGLE_APPLICATION_CREDENTIALS: JSON.stringify(serviceAccount),
+      GSC_SITE_URL: 'sc-domain:bestdayfitness.com',
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  isolated.stdout.on('data', chunk => { isolatedLogs += chunk.toString(); });
+  isolated.stderr.on('data', chunk => { isolatedLogs += chunk.toString(); });
+
+  try {
+    let ready = false;
+    for (let attempt = 0; attempt < 100 && !ready; attempt++) {
+      if (isolated.exitCode != null) throw new Error(`Isolated server exited (${isolated.exitCode}).\n${isolatedLogs}`);
+      try { ready = (await fetch(isolatedBase + '/api/storage-status')).ok; } catch (_) { /* booting */ }
+      if (!ready) await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    assert.equal(ready, true, `isolated server did not start\n${isolatedLogs}`);
+
+    const response = await fetch(isolatedBase + '/api/save-settings', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${ADMIN_PASSWORD}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ ghlLocation: 'location-only-change' }),
+    });
+    assert.equal(response.status, 200);
+
+    const envFile = readFileSync(join(isolatedDir, '.env'), 'utf8');
+    const parsedEnv = parseDotenv(envFile);
+    const credentialsPath = join(isolatedDir, 'google-creations.json');
+    assert.equal(parsedEnv.GOOGLE_APPLICATION_CREDENTIALS, credentialsPath);
+    assert.doesNotMatch(envFile, /private_key|BEGIN PRIVATE KEY/);
+    assert.deepEqual(JSON.parse(readFileSync(credentialsPath, 'utf8')), serviceAccount);
+  } finally {
+    if (isolated.exitCode == null) {
+      const stopped = new Promise(resolve => isolated.once('exit', resolve));
+      isolated.kill();
+      await Promise.race([stopped, new Promise(resolve => setTimeout(resolve, 1000))]);
+    }
+    rmSync(isolatedDir, { recursive: true, force: true });
+  }
 });
 
 test('generated and published content is sanitized', async () => {

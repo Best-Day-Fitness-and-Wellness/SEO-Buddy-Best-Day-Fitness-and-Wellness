@@ -9,7 +9,8 @@ const net = require('node:net');
 const crypto = require('node:crypto');
 const { google } = require('googleapis');
 const { GoogleGenAI } = require('@google/genai');
-const { saveJsonFileSync, writeJsonFileSync } = require('./lib/json-file-store');
+const { saveJsonFileSync, writeFileAtomicSync, writeJsonFileSync } = require('./lib/json-file-store');
+const { serializeDotenv } = require('./lib/dotenv-store');
 const { singleFlight } = require('./lib/single-flight');
 
 // Load UI-saved settings from the same durable directory used by the JSON
@@ -1456,8 +1457,7 @@ app.post('/api/save-settings', requireAuth, (req, res) => {
           return res.status(400).json({ success: false, error: 'The Google credentials JSON is missing client_email or private_key.' });
         }
         const credentialsPath = path.join(DATA_DIR, 'google-creations.json');
-        fs.writeFileSync(credentialsPath, JSON.stringify(credentials), { encoding: 'utf8', mode: 0o600 });
-        try { fs.chmodSync(credentialsPath, 0o600); } catch (e) { /* Windows ignores POSIX modes */ }
+        writeFileAtomicSync(credentialsPath, JSON.stringify(credentials), { mode: 0o600 });
         saved.GOOGLE_APPLICATION_CREDENTIALS = credentialsPath;
       } catch (jsonErr) {
         console.error('[Settings] Invalid GSC JSON key:', jsonErr.message);
@@ -1483,8 +1483,7 @@ app.post('/api/save-settings', requireAuth, (req, res) => {
       const inherited = parseServiceAccountJson(inheritedRaw);
       if (inherited.creds) {
         const inheritedPath = path.join(DATA_DIR, 'google-creations.json');
-        fs.writeFileSync(inheritedPath, JSON.stringify(inherited.creds), { encoding: 'utf8', mode: 0o600 });
-        try { fs.chmodSync(inheritedPath, 0o600); } catch (e) { /* Windows ignores POSIX modes */ }
+        writeFileAtomicSync(inheritedPath, JSON.stringify(inherited.creds), { mode: 0o600 });
         saved.GOOGLE_APPLICATION_CREDENTIALS = inheritedPath;
         process.env.GOOGLE_APPLICATION_CREDENTIALS = inheritedPath;
         console.log('[Settings] Moved the service-account key out of the environment variable and onto the volume; .env now stores the path.');
@@ -1496,24 +1495,12 @@ app.post('/api/save-settings', requireAuth, (req, res) => {
       }
     }
 
-    // Belt and braces for every other value: refuse to write anything dotenv
-    // cannot read back byte-for-byte, rather than corrupting it quietly.
-    const unroundtrippable = Object.keys(saved).filter(k => /["\\\r\n]/.test(String(saved[k])));
-    for (const k of unroundtrippable) delete saved[k];
-    if (unroundtrippable.length) {
-      console.warn('[Settings] Left out of .env because dotenv cannot round-trip them: ' + unroundtrippable.join(', '));
-    }
-
-    // JSON quoting prevents line breaks in a pasted key/name from injecting a
-    // second environment variable. Keep this file on DATA_DIR so Railway
-    // volume-backed settings survive a deploy.
-    const envContent = Object.entries(saved)
-      .filter(([, value]) => value != null && String(value) !== '')
-      .map(([key, value]) => `${key}=${JSON.stringify(String(value))}`)
-      .join('\n') + '\n';
+    // Pick a representation only after dotenv proves it can read the value
+    // back byte-for-byte. This prevents both line injection and silent loss of
+    // legitimate backslashes (including Windows credential paths).
+    const envContent = serializeDotenv(saved);
     const settingsPath = path.join(DATA_DIR, '.env');
-    fs.writeFileSync(settingsPath, envContent, { encoding: 'utf8', mode: 0o600 });
-    try { fs.chmodSync(settingsPath, 0o600); } catch (e) { /* Windows ignores POSIX modes */ }
+    writeFileAtomicSync(settingsPath, envContent, { mode: 0o600 });
     
     // Reload dotenv
     dotenv.config({ path: settingsPath, override: true });

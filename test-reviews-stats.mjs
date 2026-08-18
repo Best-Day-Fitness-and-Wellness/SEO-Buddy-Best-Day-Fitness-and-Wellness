@@ -8,6 +8,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
+const { saveJsonFileSync } = require('./lib/json-file-store.js');
 
 const src = fs.readFileSync('server.js', 'utf8');
 const start = src.indexOf('// REVIEWS SITE STATS');
@@ -23,11 +27,11 @@ const DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'revstats-'));
 const routes = {};
 const app = { get: (p, h) => { routes[p] = h; } };
 
-const factory = new Function('fs', 'path', 'DATA_DIR', 'app', 'fetch', `
+const factory = new Function('fs', 'path', 'DATA_DIR', 'app', 'fetch', 'saveJsonFileSync', `
   ${block}
   return { computeReviewsStats, parseReviewCards, parseJsonLd, monthlyGrowth, routes: null };
 `);
-const mod = factory(fs, path, DATA_DIR, app, globalThis.fetch);
+const mod = factory(fs, path, DATA_DIR, app, globalThis.fetch, saveJsonFileSync);
 
 let pass = 0, fail = 0;
 const ok = (c, label, extra = '') => {
@@ -76,7 +80,7 @@ if (process.argv.includes('--broken')) {
       if (u.replace(/\/+$/, '') === 'https://bestdayfitnessreviews.com') return new Response(html, { status: 200, headers: { 'content-type': 'text/html' } });
       return origFetch(url, opts);
     };
-    const m = factory(fs, path, DATA_DIR, app, stub);
+    const m = factory(fs, path, DATA_DIR, app, stub, saveJsonFileSync);
     return fn(await m.computeReviewsStats());
   }
 
