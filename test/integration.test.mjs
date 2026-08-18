@@ -141,6 +141,22 @@ test('every mutating or credit-spending route is password protected', async () =
   assert.equal(validAfterFailures.status, 200, 'a valid password must not be locked out by bad attempts');
 });
 
+test('saving an unchanged brand voice marks it reviewed', async () => {
+  const reset = await request('/api/brand-profile/reset', { method: 'POST', body: {} });
+  assert.equal(reset.status, 200);
+
+  const before = await request('/api/deploy-readiness', { auth: false }).then(response => response.json());
+  assert.equal(before.checks.find(check => check.key === 'brand').ok, false);
+
+  const profile = await request('/api/brand-profile', { auth: false }).then(response => response.json());
+  const save = await request('/api/brand-profile', { method: 'POST', body: { brand: profile.brand } });
+  assert.equal(save.status, 200);
+
+  const after = await request('/api/deploy-readiness', { auth: false }).then(response => response.json());
+  assert.equal(after.checks.find(check => check.key === 'brand').ok, true);
+  assert.ok(after.checks.find(check => check.key === 'brand').okText.includes('Your voice'));
+});
+
 test('settings persist safely without env-line injection', async () => {
   const response = await request('/api/save-settings', {
     method: 'POST',

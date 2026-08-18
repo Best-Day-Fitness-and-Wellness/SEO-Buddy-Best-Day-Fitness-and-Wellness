@@ -158,13 +158,23 @@ const BRAND_DEFAULT = {
 };
 
 let brandDb = JSON.parse(JSON.stringify(BRAND_DEFAULT));
+let brandReviewedAt = null;
 try {
   const loaded = JSON.parse(fs.readFileSync(BRAND_FILE, 'utf8'));
-  if (loaded && typeof loaded === 'object') brandDb = { ...BRAND_DEFAULT, ...loaded };
+  if (loaded && typeof loaded === 'object') {
+    const { _reviewedAt, ...loadedBrand } = loaded;
+    brandDb = { ...BRAND_DEFAULT, ...loadedBrand };
+    // Older profile files predate the explicit review marker. Such a file could
+    // only be created by Save or Reset, so preserve that completed owner action
+    // when upgrading instead of showing "Not reviewed yet" again.
+    brandReviewedAt = Object.prototype.hasOwnProperty.call(loaded, '_reviewedAt')
+      ? (typeof _reviewedAt === 'string' && _reviewedAt ? _reviewedAt : null)
+      : fs.statSync(BRAND_FILE).mtime.toISOString();
+  }
 } catch (e) { /* first run — defaults stand */ }
 
 function saveBrand() {
-  saveJsonFileSync(BRAND_FILE, brandDb, 'Brand');
+  saveJsonFileSync(BRAND_FILE, { ...brandDb, _reviewedAt: brandReviewedAt }, 'Brand');
 }
 
 const bList = (a) => (Array.isArray(a) ? a.filter(Boolean) : []);
@@ -316,19 +326,21 @@ app.use(express.static(path.join(__dirname, 'public'), {
 
 // Brand profile routes live below the body parser on purpose — registered above
 // it, req.body is undefined and every save fails with a confusing 400.
-app.get('/api/brand-profile', (req, res) => res.json({ success: true, brand: brandDb, defaults: BRAND_DEFAULT }));
+app.get('/api/brand-profile', (req, res) => res.json({ success: true, brand: brandDb, defaults: BRAND_DEFAULT, reviewedAt: brandReviewedAt }));
 app.post('/api/brand-profile', requireAuth, (req, res) => {
   const incoming = req.body && req.body.brand;
   if (!incoming || typeof incoming !== 'object') return res.status(400).json({ success: false, error: 'No brand profile supplied.' });
   // Merge onto defaults so a partial save can never blank out the whole voice.
   brandDb = { ...BRAND_DEFAULT, ...brandDb, ...incoming };
+  brandReviewedAt = new Date().toISOString();
   saveBrand();
-  res.json({ success: true, brand: brandDb });
+  res.json({ success: true, brand: brandDb, reviewedAt: brandReviewedAt });
 });
 app.post('/api/brand-profile/reset', requireAuth, (req, res) => {
   brandDb = JSON.parse(JSON.stringify(BRAND_DEFAULT));
+  brandReviewedAt = null;
   saveBrand();
-  res.json({ success: true, brand: brandDb });
+  res.json({ success: true, brand: brandDb, reviewedAt: brandReviewedAt });
 });
 
 // Business profile endpoints (registered after body parsing so req.body is available).
@@ -4630,11 +4642,9 @@ app.get('/api/deploy-readiness', (req, res) => {
   const ghl = !!(process.env.GHL_ACCESS_TOKEN && process.env.GHL_LOCATION_ID);
   const admin = !!ADMIN_PASSWORD;
   const business = !!businessProfileSaved; // stamped for THIS location (not the seed defaults)
-  // "Customised" means the owner has actually reviewed the voice, not that the
-  // seed happens to be good. Checked against the seed rather than against empty,
-  // because the seed is already a real profile — an emptiness test would always pass.
-  const brandTouched = fs.existsSync(BRAND_FILE)
-    && JSON.stringify(brandDb) !== JSON.stringify(BRAND_DEFAULT);
+  // Saving is the owner's explicit confirmation that the voice was reviewed.
+  // The wording may remain identical to the starter profile and still be valid.
+  const brandReviewed = !!brandReviewedAt;
   const checks = [
     { key: 'gemini', label: 'Gemini API key', icon: '🧠', ok: gemini, severity: 'block',
       okText: 'Powers every autopilot — content, AI visibility, local posts, and directory scans.',
@@ -4654,7 +4664,7 @@ app.get('/api/deploy-readiness', (req, res) => {
     { key: 'business', label: 'Business profile', icon: '🏢', ok: business, severity: 'warn',
       okText: 'This location’s name, address and phone are set — used across NAP, posts, and schema.',
       badText: 'Confirm this location’s name, address and phone (still using the seed profile).', fixLabel: 'Complete business profile' },
-    { key: 'brand', label: 'Brand voice', icon: '🗣️', ok: brandTouched, severity: 'warn', tab: 'brand-tab',
+    { key: 'brand', label: 'Brand voice', icon: '🗣️', ok: brandReviewed, severity: 'warn', tab: 'brand-tab',
       okText: 'Your voice, phrases and never-use list drive every article, post and reply.',
       badText: 'Running on the starter voice built from your brand docs — worth a read-through so it sounds like you.', fixLabel: 'Review brand voice' }
   ];
