@@ -99,6 +99,21 @@ test('all read-only dashboard routes respond', { timeout: 30000 }, async () => {
   }
 });
 
+test('static assets compress, cache briefly, and keep PDF code off the critical path', async () => {
+  const index = await request('/', { auth: false });
+  const html = await index.text();
+  assert.match(index.headers.get('cache-control') || '', /no-cache/);
+  assert.doesNotMatch(html, /<script[^>]+jspdf/i);
+
+  const appJs = await request('/app.js', {
+    auth: false,
+    headers: { 'Accept-Encoding': 'gzip' },
+  });
+  assert.equal(appJs.status, 200);
+  assert.match(appJs.headers.get('cache-control') || '', /public, max-age=300/);
+  assert.match(appJs.headers.get('content-encoding') || '', /gzip/);
+});
+
 test('every mutating or credit-spending route is password protected', async () => {
   const paths = [
     '/api/brand-profile', '/api/brand-profile/reset', '/api/business-profile',

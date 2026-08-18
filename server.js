@@ -1,5 +1,6 @@
 const express = require('express');
 const bodyParser = require('body-parser');
+const compression = require('compression');
 const cors = require('cors');
 const dotenv = require('dotenv');
 const path = require('path');
@@ -11,7 +12,8 @@ const { google } = require('googleapis');
 const { GoogleGenAI } = require('@google/genai');
 const { saveJsonFileSync, writeFileAtomicSync, writeJsonFileSync } = require('./lib/json-file-store');
 const { serializeDotenv } = require('./lib/dotenv-store');
-const { singleFlight } = require('./lib/single-flight');
+const { ttlCache } = require('./lib/ttl-cache');
+const { upsertDailySnapshot } = require('./lib/daily-snapshot');
 
 // Load UI-saved settings from the same durable directory used by the JSON
 // stores. Host-provided environment variables still win unless a user
@@ -287,12 +289,30 @@ app.use((req, res, next) => {
   next();
 });
 
+// Compress HTML, JavaScript, CSS, and JSON over the wire. The dashboard ships
+// sizeable hand-authored assets, so this removes most transfer bytes without a
+// build step or extra copies in memory.
+app.use(compression({ threshold: 1024 }));
+
 // Recording uploads need far more than the default 100kb. Mounted path-first so
 // every other endpoint keeps the small limit.
 // Mounted path-first so the global limit below still protects every other route.
 app.use('/api/transcribe', bodyParser.json({ limit: '34mb' }));
 app.use(bodyParser.json());
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'public'), {
+  etag: true,
+  lastModified: true,
+  setHeaders(res, filePath) {
+    // HTML must revalidate so a deployment can point at the newest un-hashed
+    // assets. Other static files can be reused briefly and revalidated in the
+    // background, cutting repeat-visit bandwidth without long-lived staleness.
+    if (path.basename(filePath) === 'index.html') {
+      res.setHeader('Cache-Control', 'no-cache');
+    } else {
+      res.setHeader('Cache-Control', 'public, max-age=300, stale-while-revalidate=86400');
+    }
+  },
+}));
 
 // Brand profile routes live below the body parser on purpose — registered above
 // it, req.body is undefined and every save fails with a confusing 400.
@@ -1515,6 +1535,11 @@ app.post('/api/save-settings', requireAuth, (req, res) => {
       }
     }
 
+    // Configuration changes should be visible immediately even though normal
+    // dashboard navigation is protected by short-lived upstream caches.
+    getGscDashboardData.clear();
+    computePerformance.clear();
+
     return res.json({
       success: true,
       persistent: !!process.env.DATA_DIR,
@@ -1528,8 +1553,10 @@ app.post('/api/save-settings', requireAuth, (req, res) => {
   }
 });
 
-// 1. Fetch Google Search Console Data
-app.get('/api/gsc-data', async (req, res) => {
+// 1. Fetch Google Search Console Data. Dashboard navigation can request this
+// result from several panels in quick succession, so keep one short-lived copy
+// rather than spending a Google API call for every tab render.
+async function computeGscDashboardData() {
   const auth = getGoogleAuth();
   const siteUrl = process.env.GSC_SITE_URL;
 
@@ -1567,14 +1594,24 @@ app.get('/api/gsc-data', async (req, res) => {
           return b.impressions - a.impressions;
         });
 
-        return res.json({ source: 'live_gsc', data: rows });
+        return { source: 'live_gsc', data: rows };
       }
     } catch (error) {
       console.error('[GSC API] Failed, falling back to mock. Error:', error.message);
     }
   }
 
-  return res.json({ source: 'mock_data', data: MOCK_GSC_DATA });
+  return { source: 'mock_data', data: MOCK_GSC_DATA };
+}
+
+const getGscDashboardData = ttlCache(computeGscDashboardData, {
+  ttlMs: 60 * 1000,
+  staleIfErrorMs: 5 * 60 * 1000,
+});
+
+app.get('/api/gsc-data', async (req, res) => {
+  try { res.json(await getGscDashboardData()); }
+  catch (error) { res.status(502).json({ source: 'error', error: error.message, data: [] }); }
 });
 
 // Which page ranks for a search?
@@ -3042,10 +3079,9 @@ async function computePerformanceSnapshot() {
         brandedImpressions: brCur.impressions,
         recommendedRate: recRate
       };
-      const idx = perfSnapshots.findIndex(s => s.date === today);
-      if (idx >= 0) perfSnapshots[idx] = snap; else perfSnapshots.push(snap);
-      if (perfSnapshots.length > 180) perfSnapshots = perfSnapshots.slice(-180);
-      savePerf();
+      const update = upsertDailySnapshot(perfSnapshots, snap, 180);
+      perfSnapshots = update.snapshots;
+      if (update.changed) savePerf();
       out.snapshots = perfSnapshots;
     } catch (e) {
       console.error('[Performance] GSC failed:', e.message);
@@ -3097,10 +3133,13 @@ async function computePerformanceSnapshot() {
 }
 
 // Results and Health are loaded together in the browser, and Health also needs
-// the performance snapshot. Share only overlapping work so one page load does
-// not double the Search Console and GoHighLevel traffic. Settled results are
-// never cached: the next request always starts a fresh snapshot.
-const computePerformance = singleFlight(computePerformanceSnapshot);
+// the performance snapshot. A short TTL absorbs navigation/polling bursts and
+// protects Search Console and GoHighLevel quotas; stale data remains available
+// briefly if an upstream dependency has a transient failure.
+const computePerformance = ttlCache(computePerformanceSnapshot, {
+  ttlMs: 60 * 1000,
+  staleIfErrorMs: 5 * 60 * 1000,
+});
 
 app.get('/api/performance', async (req, res) => {
   try { res.json(await computePerformance()); }
@@ -4393,11 +4432,10 @@ app.get('/api/health-score', async (req, res) => {
     const h = await computeHealthScore();
     const today = new Date().toISOString().split('T')[0];
     if (h.overall != null) {
-      const idx = healthSnapshots.findIndex(s => s.date === today);
       const row = { date: today, overall: h.overall };
-      if (idx >= 0) healthSnapshots[idx] = row; else healthSnapshots.push(row);
-      if (healthSnapshots.length > 180) healthSnapshots = healthSnapshots.slice(-180);
-      saveHealth();
+      const update = upsertDailySnapshot(healthSnapshots, row, 180);
+      healthSnapshots = update.snapshots;
+      if (update.changed) saveHealth();
     }
     let delta = null;
     if (h.overall != null && healthSnapshots.length > 1) {
@@ -4888,10 +4926,9 @@ async function computeReviewsStats() {
   // ---- snapshot for growth going forward ----------------------------------
   const today = new Date().toISOString().split('T')[0];
   const row = { date: today, published: cards.length, byPlatform, headerTotal };
-  const idx = reviewsSnapshots.findIndex(s => s.date === today);
-  if (idx >= 0) reviewsSnapshots[idx] = row; else reviewsSnapshots.push(row);
-  if (reviewsSnapshots.length > 365) reviewsSnapshots = reviewsSnapshots.slice(-365);
-  saveReviewsSnapshots();
+  const update = upsertDailySnapshot(reviewsSnapshots, row, 365);
+  reviewsSnapshots = update.snapshots;
+  if (update.changed) saveReviewsSnapshots();
 
   let delta30 = null;
   const cutoff = Date.now() - 30 * 86400000;

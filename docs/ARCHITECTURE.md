@@ -209,12 +209,13 @@ state, transport state, and DOM state are interleaved. Repeated requests for the
 same dashboard resources and string-based rendering make performance tuning and
 safe UI evolution difficult.
 
-### 8. Repository assets are duplicated
+### 8. Large unbundled client payload
 
-The jsPDF and AutoTable distributions exist both at repository root and under
-`public/`; only the `public/` copies are served. The pairs are byte-identical.
-Removing the unused root copies is safe after deployment/build tooling confirms
-it does not consume them.
+Static responses are compressed, report-only PDF libraries load on demand, and
+hidden dashboard panels no longer initialize on first paint. The remaining
+`public/index.html` and `public/app.js` monoliths are still downloaded and parsed
+as one unit. Feature-level dynamic imports and content-hashed assets are the next
+safe client-scale step.
 
 ## Target clean architecture
 
@@ -274,8 +275,9 @@ does not import Express, the filesystem, or vendor SDKs.
    retry classification, concurrency limits, structured errors, and metering.
 7. **Split browser features.** Preserve the existing DOM and visual behavior
    while extracting the API client and one feature controller at a time.
-8. **Remove dead duplication last.** Once deployment tooling is verified, drop
-   unused root vendor assets and consolidate repeated CSS overrides.
+8. **Introduce an asset pipeline.** Split feature code, emit content-hashed
+   filenames, and give immutable assets long-lived CDN caching while HTML keeps
+   revalidating on every deployment.
 
 ## Non-negotiable compatibility invariants
 

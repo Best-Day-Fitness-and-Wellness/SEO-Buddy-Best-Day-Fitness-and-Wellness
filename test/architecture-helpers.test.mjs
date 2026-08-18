@@ -7,6 +7,8 @@ import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
 const { singleFlight } = require('../lib/single-flight.js');
+const { ttlCache } = require('../lib/ttl-cache.js');
+const { upsertDailySnapshot } = require('../lib/daily-snapshot.js');
 const { parse: parseDotenv } = require('dotenv');
 const { serializeDotenv } = require('../lib/dotenv-store.js');
 const { writeFileAtomicSync, writeJsonFileSync } = require('../lib/json-file-store.js');
@@ -45,6 +47,53 @@ test('singleFlight clears a rejected operation for the next caller', async () =>
   await assert.rejects(operation(), /temporary failure/);
   assert.equal(await operation(), 'recovered');
   assert.equal(calls, 2);
+});
+
+test('ttlCache coalesces overlap and reuses a settled value until expiry', async () => {
+  let time = 1000;
+  let calls = 0;
+  const cached = ttlCache(async () => ({ call: ++calls }), { ttlMs: 100, now: () => time });
+
+  const [first, second] = await Promise.all([cached(), cached()]);
+  assert.deepEqual(first, { call: 1 });
+  assert.strictEqual(first, second);
+  assert.deepEqual(await cached(), { call: 1 });
+  assert.equal(calls, 1);
+
+  time += 101;
+  assert.deepEqual(await cached(), { call: 2 });
+  assert.equal(calls, 2);
+});
+
+test('ttlCache serves a recent successful value during a transient failure', async () => {
+  let time = 0;
+  let fail = false;
+  const cached = ttlCache(async () => {
+    if (fail) throw new Error('upstream unavailable');
+    return 'stable';
+  }, { ttlMs: 10, staleIfErrorMs: 50, now: () => time });
+
+  assert.equal(await cached(), 'stable');
+  fail = true;
+  time = 11;
+  assert.equal(await cached(), 'stable');
+  time = 61;
+  await assert.rejects(cached(), /upstream unavailable/);
+});
+
+test('upsertDailySnapshot skips identical writes and enforces retention', () => {
+  const original = [{ date: '2026-08-17', value: 1 }, { date: '2026-08-18', value: 2 }];
+  const unchanged = upsertDailySnapshot(original, { date: '2026-08-18', value: 2 }, 2);
+  assert.equal(unchanged.changed, false);
+  assert.strictEqual(unchanged.snapshots, original);
+
+  const changed = upsertDailySnapshot(original, { date: '2026-08-19', value: 3 }, 2);
+  assert.equal(changed.changed, true);
+  assert.deepEqual(changed.snapshots, [
+    { date: '2026-08-18', value: 2 },
+    { date: '2026-08-19', value: 3 },
+  ]);
+  assert.deepEqual(original, [{ date: '2026-08-17', value: 1 }, { date: '2026-08-18', value: 2 }]);
 });
 
 test('writeJsonFileSync replaces complete JSON and leaves no temporary files', () => {

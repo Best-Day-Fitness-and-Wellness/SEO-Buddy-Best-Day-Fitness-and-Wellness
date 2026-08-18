@@ -219,7 +219,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // --- INITIALIZATION ---
   loadSettingsFromStorage();
-  syncGSCData();
   renderHistory();
 
   // --- TAB SWAP SYSTEM ---
@@ -342,12 +341,15 @@ document.addEventListener('DOMContentLoaded', () => {
     } else if (tabId === 'gsc-tab') {
       pageTitle.innerText = 'Searches You’re Missing';
       pageSubtitle.innerText = 'Search queries where you show up but get no clicks — your biggest quick wins';
+      if (!state.gscData.length) syncGSCData();
     } else if (tabId === 'ai-tab') {
       pageTitle.innerText = 'Create a Post';
       pageSubtitle.innerText = 'Have AI write an authoritative, SEO-optimized article for you';
     } else if (tabId === 'publish-tab') {
       pageTitle.innerText = 'Publish';
       pageSubtitle.innerText = 'Publish to your site, request Google indexing, and run the content autopilot';
+      fetchHistory();
+      fetchAutopilotStatus();
     } else if (tabId === 'aio-tab') {
       pageTitle.innerText = 'AI Visibility Check';
       pageSubtitle.innerText = 'See whether AI assistants recommend and cite you, and build schema';
@@ -2267,15 +2269,16 @@ document.addEventListener('DOMContentLoaded', () => {
     const a = document.getElementById('td-see'); if (a) a.addEventListener('click', function(){ switchTab('performance-tab'); });
   }
   async function loadToday(){
-    loadTodayTop();
     try {
       const r = await Promise.all([
         fetch('/api/health-score').then(function(x){return x.json();}).catch(function(){return {};}),
         fetch('/api/next-moves').then(function(x){return x.json();}).catch(function(){return { moves: [] };}),
         fetch('/api/autopilot-digest').then(function(x){return x.json();}).catch(function(){return {};}),
-        fetch('/api/business-profile').then(function(x){return x.json();}).catch(function(){return {};})
+        fetch('/api/business-profile').then(function(x){return x.json();}).catch(function(){return {};}),
+        fetch('/api/deploy-readiness').then(function(x){return x.json();}).catch(function(){return {};})
       ]);
-      const hs = r[0], nm = r[1], dg = r[2], bp = r[3];
+      const hs = r[0], nm = r[1], dg = r[2], bp = r[3], rd = r[4];
+      loadTodayTop({ health: hs, readiness: rd });
       if (bp && bp.profile) {
         const nmEl = document.getElementById('td-biz'); if (nmEl && bp.profile.name) nmEl.innerText = bp.profile.name;
         const locEl = document.getElementById('td-loc'); if (locEl) { const loc = [bp.profile.addressLocality, bp.profile.addressRegion].filter(Boolean).join(', '); if (loc) locEl.innerText = loc; }
@@ -2808,9 +2811,11 @@ document.addEventListener('DOMContentLoaded', () => {
   // no position, no way back, no way to look ahead. This is the same set as the
   // Explore gallery, presented as a guided walk: one card fills the column,
   // swipe or arrow to move, dots for position. It collapses once nothing is open.
-  async function loadTodayTop() {
+  async function loadTodayTop(prefetched) {
     const host = document.getElementById('td-getstarted'); if (!host) return;
-    const steps = await sbFetchSteps();
+    const steps = prefetched
+      ? sbBuildSteps(prefetched.readiness, prefetched.health)
+      : await sbFetchSteps();
     const done  = steps.filter(s => s.done);
     // Locked steps stay in the walk so you can see what the key unlocks; the
     // protective ones do not — they score nothing and would pad the count.
@@ -3146,11 +3151,10 @@ document.addEventListener('DOMContentLoaded', () => {
     $('sum-cur-value-sub').innerText = `Your ~${allClicks.toLocaleString()} current search clicks/mo, valued at ${money(valuePerVisit)}/visit.`;
   }
 
-  // Background sync loops
-  fetchHistory();
-  fetchAutopilotStatus();
-  loadSummary();
-  loadToday();
+  // Load only the visible landing screen. Search Console, publish status, and
+  // the full dashboard now initialize when their tabs are opened instead of
+  // competing with first paint and duplicating hidden API work.
+  if (state.activeTab === 'today-tab') loadToday();
   const sumRefreshBtn = document.getElementById('sum-refresh');
   if (sumRefreshBtn) sumRefreshBtn.addEventListener('click', loadSummary);
   const sumEditAssump = document.getElementById('sum-edit-assump');
@@ -5052,7 +5056,30 @@ document.addEventListener('DOMContentLoaded', () => {
   // Rule for every section: never go silently blank. If a number is missing,
   // print the API's own reason for it, because "Not measured" plus the cause is
   // information and an empty space is not.
+  let pdfLibrariesPromise = null;
+  function loadScriptOnce(src) {
+    const existing = document.querySelector(`script[src="${src}"]`);
+    if (existing) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = src;
+      script.onload = resolve;
+      script.onerror = () => reject(new Error(`Could not load ${src}`));
+      document.head.appendChild(script);
+    });
+  }
+  function ensurePdfLibraries() {
+    if (window.jspdf && window.jspdf.jsPDF && window.jspdf.jsPDF.API.autoTable) return Promise.resolve();
+    if (!pdfLibrariesPromise) {
+      pdfLibrariesPromise = loadScriptOnce('/jspdf.umd.min.js')
+        .then(() => loadScriptOnce('/jspdf.plugin.autotable.min.js'))
+        .catch(error => { pdfLibrariesPromise = null; throw error; });
+    }
+    return pdfLibrariesPromise;
+  }
+
   async function generateSeoReportPdf() {
+    await ensurePdfLibraries();
     if (!window.jspdf || !window.jspdf.jsPDF) { alert('The PDF library is still loading — try again in a moment.'); return; }
     const { jsPDF } = window.jspdf;
     const g = (u) => fetch(u).then(r => r.json()).catch(() => null);
