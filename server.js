@@ -588,26 +588,101 @@ const MOCK_GSC_DATA = [
 // strict parse has already failed, and its result is only accepted if it
 // yields a usable key. Verified against a fully-curled key: it parses and the
 // private_key comes back byte-identical.
+// A redacted fingerprint of a credential's opening bytes.
+//
+// Every Google service-account key opens with the same boilerplate — `{`,
+// newline, two spaces, `"type"` — so the SHAPE of those bytes is not secret.
+// The value might not be a key at all, though, so every letter and digit is
+// masked to `x` before this is ever logged. Only structural punctuation and
+// unexpected code points survive, which is precisely what we need to see: a
+// paste that has been through a word processor shows up here as U+201C where
+// a straight quote belongs.
+function credentialShape(raw, len = 24) {
+  return Array.from(String(raw == null ? '' : raw).slice(0, len)).map(ch => {
+    const cp = ch.codePointAt(0);
+    if (/[A-Za-z0-9]/.test(ch)) return 'x';
+    if (ch === ' ') return '_';
+    if (ch === '\n') return '\\n';
+    if (ch === '\r') return '\\r';
+    if (ch === '\t') return '\\t';
+    if (cp < 0x20 || cp > 0x7E) return 'U+' + cp.toString(16).toUpperCase().padStart(4, '0');
+    return ch;
+  }).join(' ');
+}
+
+// Ordered, cumulative repairs. Each is named so the diagnostic can tell the
+// owner what was wrong with their paste rather than just that it failed, and
+// each is narrow enough to be safe on a key that did not need it.
+const SA_JSON_REPAIRS = [
+  ['a byte-order mark', s => s.replace(/^﻿/, '')],
+  ['invisible zero-width characters', s => s.replace(/[​-‍⁠﻿]/g, '')],
+  ['non-breaking spaces', s => s.replace(/[   -   　]/g, ' ')],
+  ['quotes curled by a word processor', s => s.replace(/[“”„‟″‶«»＂]/g, '"')],
+  // Only when there is not a single straight double quote left to lose: this is
+  // the "retyped it by hand in a smart editor" case, not a key with an
+  // apostrophe somewhere inside it.
+  ['single quotes where JSON needs double', s => /"/.test(s) ? s : s.replace(/['‘’ʼ`]/g, '"')],
+  // Unquoted property names, as a JavaScript object literal would have. Anchored
+  // to a brace or comma so it cannot reach inside an already-quoted value.
+  ['unquoted property names', s => s.replace(/([{,]\s*)([A-Za-z_][A-Za-z0-9_]*)\s*:/g, '$1"$2":')],
+  ['a trailing comma', s => s.replace(/,(\s*[}\]])/g, '$1')]
+];
+
+// A repair is only trusted if it yields something that is actually a usable
+// service-account key. The PEM check is the real safety net: no mangling
+// survives it, so a repair that "succeeds" into nonsense is still rejected.
+function looksLikeServiceAccount(creds) {
+  return !!(creds
+    && typeof creds === 'object'
+    && creds.client_email
+    && typeof creds.private_key === 'string'
+    && /-----BEGIN [A-Z ]*PRIVATE KEY-----/.test(creds.private_key)
+    && /-----END [A-Z ]*PRIVATE KEY-----/.test(creds.private_key));
+}
+
 function parseServiceAccountJson(raw) {
   const text = String(raw == null ? '' : raw);
   try {
-    return { creds: JSON.parse(text), repaired: false };
-  } catch (strictErr) {
-    const mended = text
-      .replace(/^\uFEFF/, '')            // byte-order mark from a text editor
-      .replace(/[\u201C\u201D\u201E\u201F\u2033]/g, '"')  // curled double quotes
-      .replace(/\u00A0/g, ' ');          // non-breaking space from a web paste
-    if (mended === text) return { creds: null, repaired: false, error: strictErr.message };
-    try {
-      const creds = JSON.parse(mended);
-      // Only trust the repair if it produced something actually usable.
-      if (creds && creds.client_email && creds.private_key) {
-        return { creds, repaired: true };
-      }
-      return { creds: null, repaired: false, error: strictErr.message };
-    } catch (e2) {
-      return { creds: null, repaired: false, error: strictErr.message };
+    const creds = JSON.parse(text);
+    // Readable JSON is not the same as a usable key. Without this, a wrong-file
+    // paste sails through here and fails much later inside Google's client with
+    // an error that names none of this.
+    if (!creds || typeof creds !== 'object' || !creds.client_email || !creds.private_key) {
+      return {
+        creds: null, repaired: false, repairs: [],
+        error: 'This is valid JSON but not a service-account key — it has no '
+          + [!(creds && creds.client_email) && 'client_email', !(creds && creds.private_key) && 'private_key']
+              .filter(Boolean).join(' or ')
+          + '. Download the key again from Google Cloud -> IAM -> Service accounts -> Keys.',
+        shape: credentialShape(text)
+      };
     }
+    return { creds, repaired: false, repairs: [] };
+  } catch (strictErr) {
+    let working = text;
+    const applied = [];
+    for (const [name, fix] of SA_JSON_REPAIRS) {
+      const next = fix(working);
+      if (next === working) continue;
+      working = next;
+      applied.push(name);
+      let creds;
+      try { creds = JSON.parse(working); } catch (e) { continue; }
+      if (looksLikeServiceAccount(creds)) {
+        return { creds, repaired: true, repairs: applied.slice() };
+      }
+      // Parsed but is not a key — a later repair will not rescue that.
+      return {
+        creds: null, repaired: false, repairs: applied.slice(),
+        error: 'The JSON was readable but is not a service-account key (no client_email, or private_key is not a PEM block).',
+        shape: credentialShape(text)
+      };
+    }
+    return {
+      creds: null, repaired: false, repairs: applied,
+      error: strictErr.message,
+      shape: credentialShape(text)
+    };
   }
 }
 
@@ -620,11 +695,18 @@ function getGoogleAuth() {
     if (credentialsPath.trim().startsWith('{')) {
       const parsed = parseServiceAccountJson(credentialsPath);
       if (!parsed.creds) {
+        // The shape is a redacted fingerprint - letters and digits masked - so
+        // this line names the offending character without ever printing key
+        // material. Guessing at the corruption cost us a day; now it says.
         console.error('[Google Auth] Failed to load credentials:', parsed.error);
+        console.error('[Google Auth] Credential starts:', parsed.shape || credentialShape(credentialsPath));
+        if (parsed.repairs && parsed.repairs.length) {
+          console.error('[Google Auth] Repairs attempted, still unreadable:', parsed.repairs.join(', '));
+        }
         return null;
       }
       if (parsed.repaired) {
-        console.warn('[Google Auth] Credentials JSON had curled quotes or a stray byte-order mark; repaired automatically. Re-paste from a plain text editor to silence this.');
+        console.warn('[Google Auth] Credentials JSON needed repair (' + (parsed.repairs || []).join(', ') + '); loaded anyway. Re-paste from a plain text editor to silence this.');
       }
       const keys = parsed.creds;
       return new google.auth.JWT(
@@ -2464,16 +2546,21 @@ app.get('/api/gsc-diagnostics', requireAuth, async (req, res) => {
   const rawCreds = String(process.env.GOOGLE_APPLICATION_CREDENTIALS || '');
   const looksJson = rawCreds.trim().startsWith('{');
   let creds = null, credsProblem = null, resolvedPath = null, credsRepaired = false;
+  let credsRepairs = [], credsShape = null;
 
   if (!rawCreds) {
     credsProblem = 'GOOGLE_APPLICATION_CREDENTIALS is not set.';
   } else if (looksJson) {
     const parsed = parseServiceAccountJson(rawCreds);
+    credsRepairs = parsed.repairs || [];
     if (parsed.creds) {
       creds = parsed.creds;
       if (parsed.repaired) credsRepaired = true;
     } else {
-      credsProblem = 'The variable holds JSON, but it will not parse — usually curled "smart" quotes from pasting through a document, a truncated paste, or mangled line breaks in the private key. Parser said: ' + (parsed.error || 'unknown');
+      credsShape = parsed.shape || credentialShape(rawCreds);
+      credsProblem = 'The variable holds JSON, but it will not parse — usually curled "smart" quotes from pasting through a document, a truncated paste, or mangled line breaks in the private key. Parser said: ' + (parsed.error || 'unknown')
+        + '. The first characters look like: ' + credsShape + ' (letters and digits masked; a healthy key reads { \\n _ _ " x x x x " : ).'
+        + (credsRepairs.length ? ' Repairs tried and still unreadable: ' + credsRepairs.join(', ') + '.' : '');
     }
   } else {
     resolvedPath = path.isAbsolute(rawCreds) ? rawCreds : path.join(__dirname, rawCreds);
@@ -2487,7 +2574,9 @@ app.get('/api/gsc-diagnostics', requireAuth, async (req, res) => {
   }
   add('credentialsPresent', 'Service account file', !!creds,
     credsProblem || (looksJson ? 'Stored directly in the variable.' : `Loaded from ${resolvedPath}.`)
-      + (credsRepaired ? ' Note: the quotes had been curled by a document paste — repaired automatically, but re-paste from a plain text editor when convenient.' : ''));
+      + (credsRepaired ? ' Note: this needed repair (' + credsRepairs.join(', ') + ') — loaded anyway, but re-paste from a plain text editor when convenient.' : ''));
+  out.credentialShape = credsShape;
+  out.credentialRepairs = credsRepairs;
 
   // ---- 3. shape of the key ----
   const hasEmail = !!(creds && creds.client_email);
