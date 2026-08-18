@@ -1474,6 +1474,45 @@ app.post('/api/save-settings', requireAuth, (req, res) => {
       }
     }
 
+    // THE BUG THAT KEPT BREAKING SEARCH CONSOLE.
+    //
+    // Everything below is written as KEY=JSON.stringify(value), which escapes
+    // both " and \. dotenv 16 expands \n and \r inside a double-quoted value
+    // but does NOT unescape \" or \\ - so a service-account key written here
+    // comes back as {\n  \"type\": ... and fails to parse at position 4.
+    // Every save silently corrupted the credential, which is why the connection
+    // kept dying a few hours after each fix rather than staying dead.
+    //
+    // The credential does not belong in a .env line at all. If it arrived as
+    // raw JSON - whether pasted just now or inherited from the host's
+    // environment - it goes to its own file on the volume and .env carries the
+    // path, which is a plain string that survives the round trip.
+    const inheritedRaw = saved.GOOGLE_APPLICATION_CREDENTIALS || '';
+    if (inheritedRaw.trim().startsWith('{')) {
+      const inherited = parseServiceAccountJson(inheritedRaw);
+      if (inherited.creds) {
+        const inheritedPath = path.join(DATA_DIR, 'google-creations.json');
+        fs.writeFileSync(inheritedPath, JSON.stringify(inherited.creds), { encoding: 'utf8', mode: 0o600 });
+        try { fs.chmodSync(inheritedPath, 0o600); } catch (e) { /* Windows ignores POSIX modes */ }
+        saved.GOOGLE_APPLICATION_CREDENTIALS = inheritedPath;
+        process.env.GOOGLE_APPLICATION_CREDENTIALS = inheritedPath;
+        console.log('[Settings] Moved the service-account key out of the environment variable and onto the volume; .env now stores the path.');
+      } else {
+        // Unreadable. Dropping it from .env leaves the host's own variable in
+        // charge rather than persisting a broken copy over the top of it.
+        delete saved.GOOGLE_APPLICATION_CREDENTIALS;
+        console.warn('[Settings] Service-account JSON in the environment is unreadable; leaving it out of .env.', inherited.shape || '');
+      }
+    }
+
+    // Belt and braces for every other value: refuse to write anything dotenv
+    // cannot read back byte-for-byte, rather than corrupting it quietly.
+    const unroundtrippable = Object.keys(saved).filter(k => /["\\\r\n]/.test(String(saved[k])));
+    for (const k of unroundtrippable) delete saved[k];
+    if (unroundtrippable.length) {
+      console.warn('[Settings] Left out of .env because dotenv cannot round-trip them: ' + unroundtrippable.join(', '));
+    }
+
     // JSON quoting prevents line breaks in a pasted key/name from injecting a
     // second environment variable. Keep this file on DATA_DIR so Railway
     // volume-backed settings survive a deploy.
