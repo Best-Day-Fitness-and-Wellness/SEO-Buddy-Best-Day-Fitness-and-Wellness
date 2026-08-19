@@ -852,6 +852,16 @@ document.addEventListener('DOMContentLoaded', () => {
     'bp-cta-url': { key: 'ctaPrimaryUrl', list: false },
   };
 
+  // One announcement, many listeners. The review state is shown on the owner's
+  // Business card, the Today board, the Explore checklist and the setup wizard;
+  // wiring the save button to each of them by name is how one of them gets
+  // forgotten and starts contradicting the others.
+  function bpAnnounceChange(payload) {
+    document.dispatchEvent(new CustomEvent('seo:readiness-changed', {
+      detail: { source: 'brand', reviewedAt: (payload && payload.reviewedAt) || null },
+    }));
+  }
+
   function bpMsg(text, cls) {
     const el = document.getElementById('bp-msg');
     if (!el) return;
@@ -911,7 +921,16 @@ document.addEventListener('DOMContentLoaded', () => {
       const j = await res.json();
       if (!res.ok || !j.success) throw new Error(j.error || 'Save failed.');
       bpFill(j.brand);
-      bpMsg('Saved — every AI feature uses this from now on.', 'ok');
+      // Saving is what clears the "Not reviewed yet" badge, so the badge has to
+      // move now — not on the owner's next tab change. If it does not move, the
+      // owner reasonably concludes the save did not happen.
+      bpAnnounceChange(j);
+      bpMsg(j.persisted === false
+        ? 'Saved for now, but it could not be written to disk — it will reset when the server restarts.'
+        : (j.durable === false
+          ? 'Saved — every AI feature uses this from now on. Note: this location has no persistent storage, so it resets on the next deploy.'
+          : 'Saved — every AI feature uses this from now on.'),
+        j.persisted === false ? 'err' : 'ok');
     } catch (err) {
       bpMsg(err.message, 'err');
     } finally {
@@ -928,7 +947,8 @@ document.addEventListener('DOMContentLoaded', () => {
       const j = await res.json();
       if (!res.ok || !j.success) throw new Error(j.error || 'Reset failed.');
       bpFill(j.brand);
-      bpMsg('Reset to defaults.', 'ok');
+      bpAnnounceChange(j);
+      bpMsg('Reset to defaults — read it through and save to confirm it again.', 'ok');
     } catch (err) {
       bpMsg(err.message, 'err');
     } finally {
@@ -976,6 +996,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const owEsc = v => String(v == null ? '' : v)
     .replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+
+  // "Reviewed" with no date is a claim; "Reviewed 18 Aug 2026" is evidence the
+  // owner can check against their own memory of pressing the button.
+  function owShortDate(iso) {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+  }
 
   function owHeadline() {
     const blockers = document.querySelectorAll('#ow-blockers .ow-item:not(.finished)').length;
@@ -1247,6 +1275,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
   document.addEventListener('click', (e) => {
     if (e.target.closest && e.target.closest('[data-ow-retry]')) loadOwnerResults();
+    if (e.target.closest && e.target.closest('[data-ow-retry-business]')) loadOwnerBusiness();
+  });
+
+  // Anything that records an owner decision fires this; every board that draws
+  // that decision redraws itself. Each loader is guarded, so a board that is not
+  // on screen simply does nothing.
+  document.addEventListener('seo:readiness-changed', () => {
+    if (window.loadOwnerBusiness) window.loadOwnerBusiness();
+    if (window.loadOwnerToday) window.loadOwnerToday();
+    if (window.loadToday) window.loadToday();
+    if (window.loadGetStarted) window.loadGetStarted();
+    if (window.refreshReadinessBoard) window.refreshReadinessBoard();
   });
 
   // ── Business ──
@@ -1267,18 +1307,37 @@ document.addEventListener('DOMContentLoaded', () => {
         f('Address', [b.streetAddress, b.addressLocality, b.addressRegion, b.postalCode].filter(Boolean).join(', ') || '—') +
         f('Website', b.website || '—');
 
+      const voiceEl = document.getElementById('ow-voice');
       if (br && br.brand) {
         const nv = (br.brand.neverUse || []), up = (br.brand.usePhrases || []);
-        const reviewed = rd && (rd.checks || []).find(c => c.key === 'brand');
-        document.getElementById('ow-voice').innerHTML =
+        // The brand profile itself is the authority on whether the owner has
+        // signed off on the voice; the readiness board only relays it. Reading
+        // the relay first meant a readiness call that failed rendered a
+        // confident "Reviewed" over an unreviewed voice, and a readiness call
+        // that lagged rendered "Not reviewed yet" over a saved one.
+        const check = rd && (rd.checks || []).find(c => c.key === 'brand');
+        const at = br.reviewedAt || (check && check.reviewedAt) || null;
+        const reviewed = at ? true : (check ? !!check.ok : false);
+        const durable = check ? check.durable !== false : true;
+        voiceEl.innerHTML =
           `<div style="display:flex;align-items:center;gap:11px;flex-wrap:wrap;margin-bottom:10px">
              <b style="font-size:var(--font-lg)">${owEsc(br.brand.tagline || '')}</b>
-             ${reviewed && !reviewed.ok ? '<span class="ow-chip blocked">&#9650; Not reviewed yet</span>' : '<span class="ow-chip auto">&#10003; Reviewed</span>'}
+             ${reviewed
+               ? `<span class="ow-chip auto">&#10003; Reviewed${at ? ' ' + owEsc(owShortDate(at)) : ''}</span>`
+               : '<span class="ow-chip blocked">&#9650; Not reviewed yet</span>'}
            </div>
            <p style="margin:0 0 14px;color:var(--text-muted);font-size:var(--font-sm)">
              We never say <i>${nv.slice(0, 7).map(owEsc).join(', ')}</i>${nv.length > 7 ? ` — and ${nv.length - 7} more` : ''}.<br>
              We do say <i>${up.slice(0, 3).map(owEsc).join(', ')}</i>.</p>
+           ${reviewed ? '' : `<div class="ow-note" style="margin:0 0 14px"><b>Nothing is wrong with your voice.</b>
+             <p>This badge clears when you open it and press <b>Save brand voice</b> — that press is what records that a human read it. Changing the wording is optional.</p></div>`}
+           ${reviewed && !durable ? `<div class="ow-note warn" style="margin:0 0 14px"><b>This confirmation won’t survive the next update.</b>
+             <p>Nothing is being stored permanently for this location, so the badge will ask again after the next deploy.</p></div>` : ''}
            <button class="btn btn-primary" style="width:auto" onclick="window.switchTab &amp;&amp; window.switchTab('brand-tab')">Read it through</button>`;
+      } else if (voiceEl) {
+        voiceEl.innerHTML = `<div class="ow-note warn"><b>Couldn’t load your brand voice just now.</b>
+          <p>Nothing has changed — this is the page failing to read it, not the voice going missing.</p>
+          <button class="btn btn-secondary" style="width:auto;margin-top:10px" data-ow-retry-business="1">Try again</button></div>`;
       }
       if (rd) {
         const row = (n, ok, txt) => `<div style="display:flex;align-items:center;gap:12px;padding:13px 16px;border-bottom:1px solid var(--border-color)">
@@ -5424,6 +5483,9 @@ document.addEventListener('DOMContentLoaded', () => {
         host.innerHTML = `<div class="rd-loading">Couldn’t check readiness right now — you can still continue setup.</div>`;
       }
     }
+    // No-ops unless the board is actually on screen (it returns early without
+    // its host element), so the global refresh can call it unconditionally.
+    window.refreshReadinessBoard = loadReadinessBoard;
     function render() {
       bodyEl.innerHTML = stepHTML(step);
       dotsEl.innerHTML = Array.from({ length: TOTAL }, (_, i) => `<span class="setup-dot ${i === step ? 'on' : ''}"></span>`).join('');

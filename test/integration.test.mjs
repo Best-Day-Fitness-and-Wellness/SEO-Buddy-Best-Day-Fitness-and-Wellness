@@ -157,6 +157,29 @@ test('saving an unchanged brand voice marks it reviewed', async () => {
   assert.ok(after.checks.find(check => check.key === 'brand').okText.includes('Your voice'));
 });
 
+test('a brand save reports when it was reviewed and whether that will survive a deploy', async () => {
+  await request('/api/brand-profile/reset', { method: 'POST', body: {} });
+  const profile = await request('/api/brand-profile', { auth: false }).then(response => response.json());
+  assert.equal(profile.reviewedAt, null, 'a reset profile carries no review timestamp');
+
+  const saved = await request('/api/brand-profile', { method: 'POST', body: { brand: profile.brand } })
+    .then(response => response.json());
+  assert.ok(!Number.isNaN(Date.parse(saved.reviewedAt)), 'the save returns when it was reviewed');
+  assert.equal(saved.persisted, true, 'the save reports that it reached disk');
+  assert.equal(saved.durable, true, 'DATA_DIR is set for these tests, so the save is durable');
+
+  // The badge reads the brand profile directly, so the profile must carry the
+  // same timestamp the readiness board does — otherwise the two surfaces
+  // disagree on screen and the owner cannot tell which one is lying.
+  const reread = await request('/api/brand-profile', { auth: false }).then(response => response.json());
+  assert.equal(reread.reviewedAt, saved.reviewedAt);
+  const check = await request('/api/deploy-readiness', { auth: false })
+    .then(response => response.json())
+    .then(body => body.checks.find(item => item.key === 'brand'));
+  assert.equal(check.reviewedAt, saved.reviewedAt);
+  assert.equal(check.durable, true);
+});
+
 test('settings persist safely without env-line injection', async () => {
   const response = await request('/api/save-settings', {
     method: 'POST',

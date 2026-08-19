@@ -37,6 +37,11 @@ const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
 // persistent disk. On Railway: attach a Volume and set DATA_DIR to its mount
 // path (e.g. /data). Defaults to the app folder for local development.
 const DATA_DIR = CONFIG_DIR;
+// Without DATA_DIR the files sit on the container filesystem, which the host
+// replaces on every deploy. Anything the owner confirms through the UI is then
+// true until the next deploy and false afterwards, so endpoints that record an
+// owner decision say which of the two they just did.
+const STORAGE_IS_PERSISTENT = !!process.env.DATA_DIR;
 try {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 } catch (e) {
@@ -173,8 +178,12 @@ try {
   }
 } catch (e) { /* first run — defaults stand */ }
 
+// Returns whether the write actually reached disk. The caller reports that to
+// the owner: a confirmation that cannot be stored is a warning that comes back
+// after the next redeploy, and silently pretending otherwise is how a fixed
+// badge looks broken.
 function saveBrand() {
-  saveJsonFileSync(BRAND_FILE, { ...brandDb, _reviewedAt: brandReviewedAt }, 'Brand');
+  return saveJsonFileSync(BRAND_FILE, { ...brandDb, _reviewedAt: brandReviewedAt }, 'Brand');
 }
 
 const bList = (a) => (Array.isArray(a) ? a.filter(Boolean) : []);
@@ -333,14 +342,14 @@ app.post('/api/brand-profile', requireAuth, (req, res) => {
   // Merge onto defaults so a partial save can never blank out the whole voice.
   brandDb = { ...BRAND_DEFAULT, ...brandDb, ...incoming };
   brandReviewedAt = new Date().toISOString();
-  saveBrand();
-  res.json({ success: true, brand: brandDb, reviewedAt: brandReviewedAt });
+  const persisted = saveBrand();
+  res.json({ success: true, brand: brandDb, reviewedAt: brandReviewedAt, persisted, durable: persisted && STORAGE_IS_PERSISTENT });
 });
 app.post('/api/brand-profile/reset', requireAuth, (req, res) => {
   brandDb = JSON.parse(JSON.stringify(BRAND_DEFAULT));
   brandReviewedAt = null;
-  saveBrand();
-  res.json({ success: true, brand: brandDb, reviewedAt: brandReviewedAt });
+  const persisted = saveBrand();
+  res.json({ success: true, brand: brandDb, reviewedAt: brandReviewedAt, persisted, durable: persisted && STORAGE_IS_PERSISTENT });
 });
 
 // Business profile endpoints (registered after body parsing so req.body is available).
@@ -4665,6 +4674,7 @@ app.get('/api/deploy-readiness', (req, res) => {
       okText: 'This location’s name, address and phone are set — used across NAP, posts, and schema.',
       badText: 'Confirm this location’s name, address and phone (still using the seed profile).', fixLabel: 'Complete business profile' },
     { key: 'brand', label: 'Brand voice', icon: '🗣️', ok: brandReviewed, severity: 'warn', tab: 'brand-tab',
+      reviewedAt: brandReviewedAt, durable: STORAGE_IS_PERSISTENT,
       okText: 'Your voice, phrases and never-use list drive every article, post and reply.',
       badText: 'Running on the starter voice built from your brand docs — worth a read-through so it sounds like you.', fixLabel: 'Review brand voice' }
   ];
