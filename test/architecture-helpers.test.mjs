@@ -12,6 +12,11 @@ const { upsertDailySnapshot } = require('../lib/daily-snapshot.js');
 const { parse: parseDotenv } = require('dotenv');
 const { serializeDotenv } = require('../lib/dotenv-store.js');
 const { writeFileAtomicSync, writeJsonFileSync } = require('../lib/json-file-store.js');
+const {
+  findBusinessUnitUrl: tpFindBusinessUnitUrl,
+  normalizeBusinessUnit: tpNormalizeBusinessUnit,
+  comparePageClaim: tpComparePageClaim,
+} = require('../lib/trustpilot.js');
 
 test('singleFlight coalesces overlap without caching settled results', async () => {
   let calls = 0;
@@ -156,4 +161,60 @@ test('writeFileAtomicSync replaces private files completely and cleans temporary
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+// --- Trustpilot business-unit parsing ---------------------------------------
+// The network call needs a paid plan and a key; everything that can actually be
+// got wrong is the parsing, so that is what is pinned here.
+
+test('trustpilot: the API key never travels in the lookup URL', () => {
+  const url = tpFindBusinessUnitUrl('https://www.BestDayFitness.com/some/path');
+  assert.equal(url, 'https://api.trustpilot.com/v1/business-units/find?name=bestdayfitness.com');
+  assert.doesNotMatch(url, /apikey/i, 'the key belongs in a header, not a query string');
+  assert.equal(
+    tpFindBusinessUnitUrl('example.com', 'http://127.0.0.1:9/v1/'),
+    'http://127.0.0.1:9/v1/business-units/find?name=example.com',
+    'the base URL is overridable so this is testable without calling Trustpilot');
+});
+
+test('trustpilot: a live profile is reduced to the fields the tile needs', () => {
+  const parsed = tpNormalizeBusinessUnit({
+    id: 'abc123',
+    displayName: 'Best Day Fitness',
+    name: { identifying: 'bestdayfitness.com' },
+    status: 'active',
+    score: { trustScore: 4.7, stars: 4.5 },
+    numberOfReviews: { total: 41, usedForTrustScoreCalculation: 39, fiveStars: 35, fourStars: 4, threeStars: 1, twoStars: 1, oneStar: 0 },
+  });
+  assert.equal(parsed.businessUnitId, 'abc123');
+  assert.equal(parsed.trustScore, 4.7);
+  assert.equal(parsed.stars, 4.5);
+  assert.equal(parsed.reviewCount, 41, 'the public total, not the filtered one — that is what a visitor sees');
+  assert.equal(parsed.distribution[5], 35);
+  assert.equal(parsed.profileUrl, 'https://www.trustpilot.com/review/bestdayfitness.com');
+});
+
+test('trustpilot: a claimed but never-reviewed profile is data, not an error', () => {
+  const parsed = tpNormalizeBusinessUnit({
+    id: 'abc123', displayName: 'Best Day Fitness', name: { identifying: 'bestdayfitness.com' },
+    score: { trustScore: 0, stars: 0 }, numberOfReviews: { total: 0 },
+  });
+  assert.equal(parsed.reviewCount, 0);
+  assert.equal(parsed.trustScore, 0);
+  assert.equal(parsed.distribution, null, 'no star breakdown to report');
+});
+
+test('trustpilot: an unrecognisable payload becomes null rather than a half-object', () => {
+  for (const junk of [null, undefined, 'nope', {}, { message: 'Not Found' }, []]) {
+    assert.equal(tpNormalizeBusinessUnit(junk), null, `expected null for ${JSON.stringify(junk)}`);
+  }
+});
+
+test('trustpilot: the page claim is compared against Trustpilot, and silence means silence', () => {
+  const live = { reviewCount: 41 };
+  assert.deepEqual(tpComparePageClaim({ reviewCount: 41 }, live), { claimed: 41, actual: 41, drift: 0, matches: true });
+  assert.deepEqual(tpComparePageClaim({ reviewCount: 38 }, live), { claimed: 38, actual: 41, drift: -3, matches: false });
+  assert.equal(tpComparePageClaim(null, live), null, 'no claim on the page is nothing to fail');
+  assert.equal(tpComparePageClaim({ reviewCount: 41 }, null), null, 'no live data is nothing to compare against');
+  assert.equal(tpComparePageClaim({ avgRating: 4.7 }, live), null, 'a rating without a count is not a count claim');
 });
