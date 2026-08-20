@@ -183,6 +183,18 @@ The multi‑engine AI Visibility dashboard and FactCheck run on **Google alone**
 | `GBP_REFRESH_TOKEN` | OAuth refresh token for the Business Profile scope. |
 | `GBP_ACCOUNT_ID` / `GBP_LOCATION_ID` | The account + location the posts publish to. |
 
+### Trustpilot (optional — adds a fourth platform to the Reviews tab)
+Dormant unless **both** variables are set. Unconfigured, the Reviews tab looks exactly as it does today: no Trustpilot row, and no failing check for a service you don't use.
+
+| Variable | Description |
+|---|---|
+| `TRUSTPILOT_API_KEY` | API key from Trustpilot Business → Integrations → **Developers → APIs**. Requires a paid Trustpilot plan; the free tier has no API module. |
+| `TRUSTPILOT_DOMAIN` | The domain the Trustpilot profile is registered under, e.g. `bestdayfitness.com`. Protocol and `www.` are stripped for you. |
+
+Once configured it reads TrustScore, stars and review count from the public Business Units API, shows them beside Google/Facebook/Yelp on the Reviews tab, and — the useful part — **compares the Trustpilot number printed on your reviews page against the live one**, so a hand-typed total that has drifted gets flagged instead of quietly ageing.
+
+It deliberately does not fetch review *text*. That needs the Service Reviews API and OAuth: a larger integration on a higher plan tier.
+
 ---
 
 ## Connecting each integration
