@@ -11,6 +11,12 @@ const crypto = require('node:crypto');
 const { google } = require('googleapis');
 const { GoogleGenAI } = require('@google/genai');
 const { saveJsonFileSync, writeFileAtomicSync, writeJsonFileSync } = require('./lib/json-file-store');
+const {
+  normalizeDomain: tpNormalizeDomain,
+  findBusinessUnitUrl: tpFindUrl,
+  normalizeBusinessUnit: tpNormalize,
+  comparePageClaim: tpComparePageClaim,
+} = require('./lib/trustpilot');
 const { serializeDotenv } = require('./lib/dotenv-store');
 const { ttlCache } = require('./lib/ttl-cache');
 const { upsertDailySnapshot } = require('./lib/daily-snapshot');
@@ -1441,7 +1447,11 @@ app.post('/api/save-settings', requireAuth, (req, res) => {
       'GEMINI_API_KEY', 'OPENAI_API_KEY', 'PERPLEXITY_API_KEY',
       'GHL_ACCESS_TOKEN', 'GHL_LOCATION_ID', 'GHL_BLOG_ID',
       'GSC_SITE_URL', 'GHL_BLOG_PATH_PREFIX', 'GHL_AUTHOR_NAME',
-      'GHL_AUTHOR_URL', 'GOOGLE_APPLICATION_CREDENTIALS'
+      'GHL_AUTHOR_URL', 'GOOGLE_APPLICATION_CREDENTIALS',
+      // Set on the host, not in this form. Without these two lines a Settings
+      // save rewrites the .env without them and silently unconfigures
+      // Trustpilot — the same way it once ate the Google credentials.
+      'TRUSTPILOT_API_KEY', 'TRUSTPILOT_DOMAIN', 'REVIEWS_URL'
     ];
     for (const key of preserve) if (process.env[key]) saved[key] = process.env[key];
 
@@ -4769,6 +4779,56 @@ async function revFetch(url, opts = {}, ms = 12000) {
   } finally { clearTimeout(timer); }
 }
 
+// ---------------------------------------------------------------------------
+// Trustpilot — optional, and silent until it is configured.
+//
+// Dormant unless TRUSTPILOT_API_KEY and TRUSTPILOT_DOMAIN are both set. An
+// install that has never signed up to Trustpilot shows no Trustpilot checks at
+// all, rather than a permanent red cross for a service the owner does not use.
+//
+// Scope is the public Business Units endpoint: TrustScore, stars and review
+// count for a domain. That drives the tile and audits the number printed on our
+// own reviews page. Review *text* needs the Service Reviews API, OAuth and a
+// paid plan, and is deliberately not attempted here.
+// ---------------------------------------------------------------------------
+let trustpilotCache = null;
+
+function trustpilotConfig() {
+  const apiKey = String(process.env.TRUSTPILOT_API_KEY || '').trim();
+  const domain = tpNormalizeDomain(process.env.TRUSTPILOT_DOMAIN || '');
+  return { apiKey, domain, configured: !!(apiKey && domain) };
+}
+
+async function fetchTrustpilot() {
+  const { apiKey, domain, configured } = trustpilotConfig();
+  if (!configured) return { configured: false };
+  // Trustpilot rate-limits by key and this rides on a 5-minute page audit, so
+  // hold results longer than the audit itself. Failures are cached too, briefly,
+  // so a dead key cannot turn every dashboard load into another timeout.
+  if (trustpilotCache && Date.now() - trustpilotCache.at < 15 * 60 * 1000) return trustpilotCache.data;
+
+  const remember = (data) => { trustpilotCache = { at: Date.now(), data }; return data; };
+  const fail = (error) => remember({ configured: true, ok: false, domain, error });
+
+  try {
+    const r = await revFetch(tpFindUrl(domain, process.env.TRUSTPILOT_API_BASE), {
+      headers: { apikey: apiKey, Accept: 'application/json', 'User-Agent': 'SEOBuddyBot/1.0' },
+    }, 8000);
+    if (r.status === 401 || r.status === 403) {
+      return fail('Trustpilot rejected the API key. Check TRUSTPILOT_API_KEY, and that your Trustpilot plan includes API access.');
+    }
+    if (r.status === 404) return fail(`Trustpilot has no business profile for ${domain}.`);
+    if (r.status === 429) return fail('Trustpilot rate-limited this key. It will retry on the next audit.');
+    if (!r.ok) return fail(`Trustpilot returned HTTP ${r.status}.`);
+
+    const parsed = tpNormalize(await r.json());
+    if (!parsed) return fail('Trustpilot replied with a profile this version does not recognise.');
+    return remember({ configured: true, ok: true, fetchedAt: new Date().toISOString(), ...parsed });
+  } catch (e) {
+    return fail(e.name === 'AbortError' ? 'Trustpilot did not respond within 8 seconds.' : e.message);
+  }
+}
+
 // The page is our own known markup, so targeted regex beats adding a DOM
 // dependency to the Railway build. Every extractor below fails soft: a parse
 // miss becomes a reported check failure, never a thrown request.
@@ -4942,6 +5002,37 @@ async function computeReviewsStats() {
   if (fm) platformTotals.facebook = { recommendPercent: Number(fm[1]), reviewCount: Number(fm[2]) };
   const ym = html.match(/<b>Yelp<\/b><div class="s">[^<]*?(\d+)\s*reviews/);
   if (ym) platformTotals.yelp = { reviewCount: Number(ym[1]) };
+  const tm = html.match(/<b>Trustpilot<\/b><div class="s">[^<]*?([\d.]+)\s*·\s*(\d+)/);
+  if (tm) platformTotals.trustpilot = { avgRating: Number(tm[1]), reviewCount: Number(tm[2]), source: 'page' };
+
+  // ---- Trustpilot, from Trustpilot ----------------------------------------
+  // Every other platform total on this page is a number someone typed. This one
+  // can be checked against the source, so it is — and where the page and
+  // Trustpilot disagree, the page is the one that is wrong.
+  const trustpilot = await fetchTrustpilot();
+  if (trustpilot.configured && trustpilot.ok) {
+    const claim = tpComparePageClaim(platformTotals.trustpilot, trustpilot);
+    platformTotals.trustpilot = {
+      avgRating: trustpilot.trustScore,
+      stars: trustpilot.stars,
+      reviewCount: trustpilot.reviewCount,
+      source: 'api',
+      profileUrl: trustpilot.profileUrl,
+    };
+    add('trustpilot', 'Trustpilot profile reachable', true,
+      trustpilot.reviewCount
+        ? `TrustScore ${trustpilot.trustScore ?? '—'} from ${trustpilot.reviewCount} review${trustpilot.reviewCount === 1 ? '' : 's'}`
+        : 'Profile is live but has no reviews yet.');
+    if (claim) {
+      add('trustpilot-drift', 'Trustpilot count on the page is current', claim.matches,
+        claim.matches
+          ? `${claim.actual} both sides`
+          : `page says ${claim.claimed}, Trustpilot says ${claim.actual}`,
+        'warn');
+    }
+  } else if (trustpilot.configured) {
+    add('trustpilot', 'Trustpilot profile reachable', false, trustpilot.error, 'warn');
+  }
 
   // ---- snapshot for growth going forward ----------------------------------
   const today = new Date().toISOString().split('T')[0];
@@ -4976,6 +5067,7 @@ async function computeReviewsStats() {
     },
     growth: monthlyGrowth(cards),
     platformTotals,
+    trustpilot,
     headerTotal,
     checks,
     problems: failed.length,

@@ -5586,7 +5586,17 @@ document.addEventListener('DOMContentLoaded', () => {
   function renderReviews(d) {
     const inv = d.inventory || {};
     const totals = d.platformTotals || {};
-    const reach = ['google', 'facebook', 'yelp'].reduce((s, k) => s + (totals[k]?.reviewCount || 0), 0);
+    // Sum whatever platforms the page actually carries. The old hardcoded trio
+    // meant a fourth platform could be added to the site and silently not count
+    // here, which is exactly the drift this tab exists to catch.
+    const platNames = Object.keys(totals);
+    const reach = platNames.reduce((s, k) => s + (totals[k]?.reviewCount || 0), 0);
+    const platLabel = (k) => k.charAt(0).toUpperCase() + k.slice(1);
+    const reachSub = platNames.length
+      ? (platNames.length > 1
+          ? platNames.slice(0, -1).map(platLabel).join(', ') + ' and ' + platLabel(platNames[platNames.length - 1]) + ' combined.'
+          : platLabel(platNames[0]) + ' only.')
+      : 'No platform totals available yet.';
 
     const deltaTxt = inv.delta30 == null
       ? 'tracking starts from today'
@@ -5601,7 +5611,7 @@ document.addEventListener('DOMContentLoaded', () => {
         sub: inv.newest ? `Newest review ${inv.newest}.` : 'No dated reviews yet.', tone: 'flat',
         empty: 'Not measured yet', why: 'No ratings found on your reviews page.' },
       { pillar: 'p4', label: 'Get listed', value: reach ? String(reach) : null, unit: 'reviews across platforms',
-        sub: 'Google, Facebook and Yelp combined.', tone: 'flat',
+        sub: reachSub, tone: 'flat',
         empty: 'Not measured yet', why: 'No platform totals available yet.' },
       { pillar: 'p1', label: 'Found on Google', value: d.score != null ? d.score : null, unit: '/ 100 page health',
         sub: d.problems ? `${d.problems} thing${d.problems === 1 ? '' : 's'} to fix.` : 'Everything is passing.',
