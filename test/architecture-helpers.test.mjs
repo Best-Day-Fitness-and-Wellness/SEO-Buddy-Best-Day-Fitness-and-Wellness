@@ -16,6 +16,8 @@ const {
   findBusinessUnitUrl: tpFindBusinessUnitUrl,
   normalizeBusinessUnit: tpNormalizeBusinessUnit,
   comparePageClaim: tpComparePageClaim,
+  negativeCount: tpNegativeCount,
+  trustpilotTrend: tpTrend,
 } = require('../lib/trustpilot.js');
 
 test('singleFlight coalesces overlap without caching settled results', async () => {
@@ -217,4 +219,47 @@ test('trustpilot: the page claim is compared against Trustpilot, and silence mea
   assert.equal(tpComparePageClaim(null, live), null, 'no claim on the page is nothing to fail');
   assert.equal(tpComparePageClaim({ reviewCount: 41 }, null), null, 'no live data is nothing to compare against');
   assert.equal(tpComparePageClaim({ avgRating: 4.7 }, live), null, 'a rating without a count is not a count claim');
+});
+
+test('trustpilot: low ratings are counted, and "cannot see" is not "zero"', () => {
+  assert.equal(tpNegativeCount({ 5: 30, 4: 5, 3: 2, 2: 1, 1: 3 }), 4);
+  assert.equal(tpNegativeCount({ 5: 30, 4: 5, 3: 2 }), null, 'no 1/2-star keys at all means no breakdown');
+  assert.equal(tpNegativeCount({ 5: 30, 2: 0, 1: 0 }), 0, 'an explicit zero is a real zero');
+  assert.equal(tpNegativeCount(null), null);
+});
+
+test('trustpilot: the trend measures movement, not level', () => {
+  const snaps = [
+    { date: '2026-07-01', trustpilot: { trustScore: 4.8, reviewCount: 30, negative: 1 } },
+    { date: '2026-07-20', trustpilot: { trustScore: 4.7, reviewCount: 36, negative: 2 } },
+    { date: '2026-08-20', trustpilot: { trustScore: 4.6, reviewCount: 41, negative: 4 } },
+  ];
+  const now = { trustScore: 4.6, reviewCount: 41, distribution: { 1: 3, 2: 1, 5: 37 } };
+  const t = tpTrend(snaps, now, '2026-08-20', 30);
+  assert.equal(t.comparable, true);
+  assert.equal(t.partial, undefined === t.partial ? undefined : false);
+  assert.equal(t.since, '2026-07-20', 'compares against the reading at the window start');
+  assert.equal(t.scoreDelta, -0.1);
+  assert.equal(t.reviewDelta, 5);
+  assert.equal(t.negativeDelta, 2);
+  assert.equal(t.now.negative, 4, 'today comes from the live distribution, not the snapshot');
+});
+
+test('trustpilot: a young install reports its real history instead of nothing', () => {
+  const snaps = [{ date: '2026-08-14', trustpilot: { trustScore: 4.5, reviewCount: 10, negative: 0 } }];
+  const t = tpTrend(snaps, { trustScore: 4.6, reviewCount: 12, distribution: { 1: 0, 2: 0, 5: 12 } }, '2026-08-20', 30);
+  assert.equal(t.comparable, true);
+  assert.equal(t.partial, true, 'flagged so the UI can say "since we started watching"');
+  assert.equal(t.since, '2026-08-14');
+  assert.equal(t.reviewDelta, 2);
+});
+
+test('trustpilot: no history, or history without Trustpilot in it, is not comparable', () => {
+  const live = { trustScore: 4.6, reviewCount: 12, distribution: { 1: 1, 2: 0 } };
+  assert.equal(tpTrend([], live, '2026-08-20').comparable, false);
+  assert.equal(tpTrend([{ date: '2026-07-01', published: 26 }], live, '2026-08-20').comparable, false,
+    'older snapshots predate the Trustpilot module and carry no reading');
+  const none = tpTrend(null, live, '2026-08-20');
+  assert.equal(none.comparable, false);
+  assert.equal(none.now.negative, 1, 'today is still reported even with no history to compare it to');
 });
