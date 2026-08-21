@@ -16,6 +16,8 @@ const {
   findBusinessUnitUrl: tpFindUrl,
   normalizeBusinessUnit: tpNormalize,
   comparePageClaim: tpComparePageClaim,
+  negativeCount: tpNegativeCount,
+  trustpilotTrend: tpTrend,
 } = require('./lib/trustpilot');
 const { serializeDotenv } = require('./lib/dotenv-store');
 const { ttlCache } = require('./lib/ttl-cache');
@@ -5037,6 +5039,17 @@ async function computeReviewsStats() {
   // ---- snapshot for growth going forward ----------------------------------
   const today = new Date().toISOString().split('T')[0];
   const row = { date: today, published: cards.length, byPlatform, headerTotal };
+  // One reading a day is enough to see a reputation move, and it is what makes
+  // the difference between "your score is 4.6" and "your score is 4.6, down
+  // from 4.8 — here is when it started". Recorded only when the API answered,
+  // so a dead key leaves a gap rather than writing a false zero into history.
+  if (trustpilot.configured && trustpilot.ok) {
+    row.trustpilot = {
+      trustScore: trustpilot.trustScore ?? null,
+      reviewCount: trustpilot.reviewCount ?? null,
+      negative: tpNegativeCount(trustpilot.distribution),
+    };
+  }
   const update = upsertDailySnapshot(reviewsSnapshots, row, 365);
   reviewsSnapshots = update.snapshots;
   if (update.changed) saveReviewsSnapshots();
@@ -5045,6 +5058,50 @@ async function computeReviewsStats() {
   const cutoff = Date.now() - 30 * 86400000;
   const older = reviewsSnapshots.filter(s => new Date(s.date + 'T00:00:00Z').getTime() <= cutoff);
   if (older.length) delta30 = cards.length - older[older.length - 1].published;
+
+  // ---- Trustpilot performance over time -----------------------------------
+  // Reading today's score tells you where you are; only the history tells you
+  // which way you are going. These checks are the difference between a display
+  // and a monitor, so they are deliberately about movement, never about level:
+  // a 4.6 that is climbing needs nothing from the owner, and a 4.9 that just
+  // lost two tenths does.
+  let trustpilotOut = trustpilot;
+  if (trustpilot.configured && trustpilot.ok) {
+    const trend = tpTrend(reviewsSnapshots, trustpilot, today, 30);
+    trustpilotOut = { ...trustpilot, trend };
+    const window = trend.partial ? `since ${trend.since}` : 'in 30 days';
+
+    if (!trend.comparable) {
+      add('trustpilot-trend', 'Trustpilot trend', null,
+        'Recording starts today — movement shows up here from tomorrow.', 'warn');
+    } else {
+      add('trustpilot-score', 'TrustScore is holding or rising',
+        trend.scoreDelta == null || trend.scoreDelta >= 0,
+        trend.scoreDelta == null ? 'no earlier score to compare'
+          : (trend.scoreDelta === 0 ? `unchanged at ${trend.now.trustScore} ${window}`
+            : `${trend.scoreDelta > 0 ? '+' : ''}${trend.scoreDelta} ${window}, now ${trend.now.trustScore}`),
+        'warn');
+
+      add('trustpilot-negative', 'No new one- or two-star reviews',
+        trend.negativeDelta == null || trend.negativeDelta <= 0,
+        trend.negativeDelta == null ? 'no star breakdown available'
+          : (trend.negativeDelta > 0
+            ? `${trend.negativeDelta} new low rating${trend.negativeDelta === 1 ? '' : 's'} ${window} — worth replying to`
+            : `none ${window}`),
+        'warn');
+
+      // Silence is the failure mode nobody notices. A profile that stops
+      // collecting reviews decays on its own, because Trustpilot weights recent
+      // ones more heavily than old ones.
+      add('trustpilot-flow', 'Still collecting new reviews',
+        trend.reviewDelta == null || trend.reviewDelta > 0,
+        trend.reviewDelta == null ? 'no earlier count to compare'
+          : (trend.reviewDelta > 0
+            ? `+${trend.reviewDelta} ${window}`
+            : `nothing new ${window} — recent reviews carry the most weight`),
+        'warn');
+    }
+  }
 
   const failed = checks.filter(c => c.status === 'fail');
   const score = checks.length
@@ -5067,7 +5124,7 @@ async function computeReviewsStats() {
     },
     growth: monthlyGrowth(cards),
     platformTotals,
-    trustpilot,
+    trustpilot: trustpilotOut,
     headerTotal,
     checks,
     problems: failed.length,
