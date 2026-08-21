@@ -5546,6 +5546,71 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function rvNum(n) { return (n == null) ? '—' : String(n); }
 
+  // Trustpilot performance. Deliberately about movement rather than level: a
+  // number on its own tells the owner nothing they can act on, and the whole
+  // reason to watch a review profile is to catch it turning.
+  function renderTrustpilot(tp) {
+    const host = document.getElementById('rv-trustpilot');
+    if (!host) return;
+    if (!tp || !tp.configured) { host.innerHTML = ''; return; }
+
+    if (!tp.ok) {
+      host.innerHTML = `<div class="content-card">
+        <h3 class="rv-panel-title">Trustpilot</h3>
+        <p class="rv-panel-hint">Configured, but the last check didn't get through — so these numbers are not being recorded right now.</p>
+        <ul class="rv-checks"><li><div class="rv-ck warn">!</div><div>
+          <div class="rv-ck-b">Couldn't reach Trustpilot</div>
+          <div class="rv-ck-d">${uiEsc(tp.error || 'Unknown error.')}</div></div></li></ul>
+      </div>`;
+      return;
+    }
+
+    const t = tp.trend || {};
+    const window = t.partial && t.since ? `since ${uiEsc(t.since)}` : 'in 30 days';
+    // An arrow is only meaningful once there is something to compare against.
+    const move = (delta, { goodWhenUp = true, plus = true } = {}) => {
+      if (!t.comparable || delta == null) return `<i class="sb-dot" style="background:var(--ink-3)"></i>building history`;
+      if (delta === 0) return `<i class="sb-dot" style="background:var(--ink-3)"></i>unchanged ${window}`;
+      const good = goodWhenUp ? delta > 0 : delta < 0;
+      const sign = delta > 0 && plus ? '+' : '';
+      return `<i class="sb-dot" style="background:${good ? 'var(--p4-g)' : 'var(--p2-g)'}"></i>${sign}${delta} ${window}`;
+    };
+
+    const tiles = [
+      { label: 'TrustScore', value: tp.trustScore != null ? tp.trustScore.toFixed(1) : null, unit: 'out of 5',
+        verdict: move(t.scoreDelta) },
+      { label: 'Reviews', value: tp.reviewCount != null ? String(tp.reviewCount) : null, unit: 'on Trustpilot',
+        verdict: move(t.reviewDelta) },
+      { label: 'Low ratings', value: t.now && t.now.negative != null ? String(t.now.negative) : null, unit: '1 & 2 star',
+        verdict: move(t.negativeDelta, { goodWhenUp: false }) },
+    ];
+
+    const dist = tp.distribution;
+    const distTotal = dist ? [5, 4, 3, 2, 1].reduce((s, k) => s + (dist[k] || 0), 0) : 0;
+    const bars = dist && distTotal ? [5, 4, 3, 2, 1].map(star => {
+      const n = dist[star] || 0;
+      const pct = Math.round((n / distTotal) * 100);
+      return `<li>
+        <div class="rv-split-top"><span>${star} star</span><span class="rv-split-val">${n} · ${pct}%</span></div>
+        <div class="rv-split-track"><div class="rv-split-fill" style="width:${pct}%"></div></div>
+      </li>`;
+    }).join('') : '';
+
+    host.innerHTML = `<div class="content-card">
+      <h3 class="rv-panel-title">Trustpilot performance</h3>
+      <p class="rv-panel-hint">Read straight from Trustpilot, recorded once a day. Trustpilot weights recent reviews more heavily than old ones, so a profile that stops collecting slowly slides on its own.</p>
+      <div class="rv-kpis">${tiles.map(k => k.value == null
+        ? `<div class="sb-metric empty p2"><div class="sb-top"><span class="sb-pill p2">${k.label}</span></div>
+             <div class="sb-val">Not measured yet</div>
+             <div class="sb-verdict"><i class="sb-dot" style="background:var(--ink-3)"></i>Trustpilot did not return this.</div></div>`
+        : `<div class="sb-metric p2"><div class="sb-top"><span class="sb-pill p2">${k.label}</span></div>
+             <div class="sb-val">${uiEsc(k.value)}<u>${k.unit}</u></div>
+             <div class="sb-verdict">${k.verdict}</div></div>`).join('')}</div>
+      ${bars ? `<ul class="rv-split" style="margin-top:18px">${bars}</ul>` : ''}
+      ${tp.profileUrl ? `<p class="rv-panel-hint" style="margin-top:14px"><a href="${safeExternalUrl(tp.profileUrl)}" target="_blank" rel="noopener noreferrer">Open the profile on Trustpilot →</a></p>` : ''}
+    </div>`;
+  }
+
   function rvGrowthChart(series) {
     if (!series || series.length < 2) return '<div class="rv-empty">Not enough dated reviews to draw a trend yet.</div>';
     const W = 640, H = 210, PL = 34, PR = 10, PT = 12, PB = 26;
@@ -5632,8 +5697,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.getElementById('rv-growth').innerHTML = rvGrowthChart(d.growth);
 
-    const NICE = { google: 'Google', facebook: 'Facebook', yelp: 'Yelp' };
-    const split = ['google', 'facebook', 'yelp'].map(k => {
+    renderTrustpilot(d.trustpilot);
+
+    const NICE = { google: 'Google', facebook: 'Facebook', yelp: 'Yelp', trustpilot: 'Trustpilot' };
+    const splitKeys = Array.from(new Set([...Object.keys(inv.byPlatform || {}), ...platNames]));
+    const split = splitKeys.map(k => {
       const shown = (inv.byPlatform || {})[k] || 0;
       const total = totals[k]?.reviewCount || 0;
       if (!shown && !total) return '';
@@ -5642,7 +5710,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ? 'counts only — Yelp\'s API returns truncated excerpts, never full reviews'
         : `${shown} of ${total || '—'} published`;
       return `<li>
-        <div class="rv-split-top"><span>${NICE[k]}</span><span class="rv-split-val">${note}</span></div>
+        <div class="rv-split-top"><span>${uiEsc(NICE[k] || (k.charAt(0).toUpperCase() + k.slice(1)))}</span><span class="rv-split-val">${note}</span></div>
         <div class="rv-split-track"><div class="rv-split-fill" style="width:${pct}%"></div></div>
       </li>`;
     }).join('');
