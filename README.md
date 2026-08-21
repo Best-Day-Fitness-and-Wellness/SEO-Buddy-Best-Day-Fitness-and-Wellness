@@ -191,7 +191,17 @@ Dormant unless **both** variables are set. Unconfigured, the Reviews tab looks e
 | `TRUSTPILOT_API_KEY` | API key from Trustpilot Business → Integrations → **Developers → APIs**. Requires a paid Trustpilot plan; the free tier has no API module. |
 | `TRUSTPILOT_DOMAIN` | The domain the Trustpilot profile is registered under, e.g. `bestdayfitness.com`. Protocol and `www.` are stripped for you. |
 
-Once configured it reads TrustScore, stars and review count from the public Business Units API, shows them beside Google/Facebook/Yelp on the Reviews tab, and — the useful part — **compares the Trustpilot number printed on your reviews page against the live one**, so a hand-typed total that has drifted gets flagged instead of quietly ageing.
+Once configured it reads TrustScore, stars and review count from the public Business Units API, shows them beside Google/Facebook/Yelp on the Reviews tab, and **compares the Trustpilot number printed on your reviews page against the live one**, so a hand-typed total that has drifted gets flagged instead of quietly ageing.
+
+It also **monitors the profile over time**. One reading is recorded per day alongside the existing reviews snapshots, and the Reviews tab reports movement rather than level — because a score on its own tells you nothing you can act on. Three checks watch for the ways a review profile goes wrong:
+
+| Check | Fires when |
+|---|---|
+| TrustScore is holding or rising | the score is lower than it was 30 days ago |
+| No new one- or two-star reviews | the 1★+2★ count has grown |
+| Still collecting new reviews | no new reviews in 30 days — Trustpilot weights recent reviews most, so a stalled profile slides on its own |
+
+Before 30 days of history exists it compares against the oldest reading it holds and says so ("since 2026-08-14") rather than reporting nothing. A failed API call leaves a gap in the history instead of writing a false zero.
 
 It deliberately does not fetch review *text*. That needs the Service Reviews API and OAuth: a larger integration on a higher plan tier.
 
