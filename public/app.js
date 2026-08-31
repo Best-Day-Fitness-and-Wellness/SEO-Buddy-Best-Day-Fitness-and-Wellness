@@ -27,6 +27,18 @@ document.addEventListener('DOMContentLoaded', () => {
   const modeStatus = document.getElementById('mode-status');
   const modeStatusText = document.getElementById('mode-status-text');
 
+  function setDataMode(isLive) {
+    if (!modeStatus || !modeStatusText) return;
+    modeStatus.className = 'status-indicator ' + (isLive ? 'live' : 'mock');
+    modeStatusText.innerText = isLive ? 'Live Operations' : 'Demo Search Data';
+  }
+
+  function setDataModeFromHealthScore(healthScore) {
+    const pillars = healthScore && Array.isArray(healthScore.pillars) ? healthScore.pillars : [];
+    const searchPillar = pillars.find(pillar => pillar && pillar.key === 'found');
+    if (searchPillar) setDataMode(searchPillar.measured === true);
+  }
+
   // GSC Selectors
   const gscTableBody = document.getElementById('gsc-table-body');
   const filterLeaksBtn = document.getElementById('filter-leaks');
@@ -424,13 +436,7 @@ document.addEventListener('DOMContentLoaded', () => {
       state.gscData = payload.data || [];
       
       // Update GSC Badge
-      if (payload.source === 'live_gsc') {
-        modeStatus.className = 'status-indicator live';
-        modeStatusText.innerText = 'Live Operations';
-      } else {
-        modeStatus.className = 'status-indicator mock';
-        modeStatusText.innerText = 'Mock Mode (Local)';
-      }
+      setDataMode(payload.source === 'live_gsc');
 
       calculateStats();
       renderGSCTable();
@@ -2337,6 +2343,7 @@ document.addEventListener('DOMContentLoaded', () => {
         fetch('/api/deploy-readiness').then(function(x){return x.json();}).catch(function(){return {};})
       ]);
       const hs = r[0], nm = r[1], dg = r[2], bp = r[3], rd = r[4];
+      setDataModeFromHealthScore(hs);
       loadTodayTop({ health: hs, readiness: rd });
       if (bp && bp.profile) {
         const nmEl = document.getElementById('td-biz'); if (nmEl && bp.profile.name) nmEl.innerText = bp.profile.name;
@@ -3213,7 +3220,14 @@ document.addEventListener('DOMContentLoaded', () => {
   // Load only the visible landing screen. Search Console, publish status, and
   // the full dashboard now initialize when their tabs are opened instead of
   // competing with first paint and duplicating hidden API work.
-  if (state.activeTab === 'today-tab') loadToday();
+  if (state.activeTab === 'today-tab') {
+    loadToday();
+  } else {
+    fetch('/api/health-score')
+      .then(r => r.json())
+      .then(setDataModeFromHealthScore)
+      .catch(() => setDataMode(false));
+  }
   const sumRefreshBtn = document.getElementById('sum-refresh');
   if (sumRefreshBtn) sumRefreshBtn.addEventListener('click', loadSummary);
   const sumEditAssump = document.getElementById('sum-edit-assump');

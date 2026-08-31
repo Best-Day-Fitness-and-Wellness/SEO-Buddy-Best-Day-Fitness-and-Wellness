@@ -104,6 +104,9 @@ test('static assets compress, cache briefly, and keep PDF code off the critical 
   const html = await index.text();
   assert.match(index.headers.get('cache-control') || '', /no-cache/);
   assert.doesNotMatch(html, /<script[^>]+jspdf/i);
+  assert.match(html, /status-indicator checking/);
+  assert.match(html, /Checking live data/);
+  assert.doesNotMatch(html, />Mock Mode</);
 
   const appJs = await request('/app.js', {
     auth: false,
@@ -112,6 +115,10 @@ test('static assets compress, cache briefly, and keep PDF code off the critical 
   assert.equal(appJs.status, 200);
   assert.match(appJs.headers.get('cache-control') || '', /public, max-age=300/);
   assert.match(appJs.headers.get('content-encoding') || '', /gzip/);
+
+  const source = await (await request('/app.js', { auth: false })).text();
+  assert.match(source, /setDataModeFromHealthScore\(hs\)/);
+  assert.match(source, /setDataMode\(payload\.source === 'live_gsc'\)/);
 });
 
 test('every mutating or credit-spending route is password protected', async () => {
