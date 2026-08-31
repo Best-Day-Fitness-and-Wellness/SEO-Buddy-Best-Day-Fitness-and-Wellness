@@ -45,6 +45,7 @@ const { createDurableJobQueue } = require('./lib/durable-job-queue');
 const { ProviderRuntimeError, createProviderRuntime } = require('./lib/provider-runtime');
 const { summarizeContactAttribution } = require('./lib/attribution');
 const { assessArticleQuality } = require('./lib/content-quality');
+const { registerOperationsRoutes } = require('./lib/operations-routes');
 
 // Load UI-saved secrets from the durable storage root. Tenant state is isolated
 // below this root after configuration is loaded; host-provided variables still
@@ -770,59 +771,32 @@ providerRuntime.setConfigured('reviews-site', true);
 providerRuntime.setConfigured('web-audit', true);
 providerRuntime.setConfigured('trustpilot', () => Boolean(process.env.TRUSTPILOT_API_KEY && process.env.TRUSTPILOT_DOMAIN));
 
-app.get('/api/diagnostics', requireAuth, (req, res) => {
-  res.json({
-    success: true,
-    runtime: {
-      mode: APP_MODE,
-      mockIntegrationsAllowed: ALLOW_MOCK_INTEGRATIONS,
-      nodeVersion: process.version,
-      bootedAt: BOOTED_AT,
-      uptimeSeconds: Math.floor(process.uptime()),
-      shuttingDown: isShuttingDown,
-    },
-    storage: storageReadiness(),
-    requests: requestMetrics.snapshot(),
-    access: accessControl.configuredRoles(),
-    audit: auditLog.verify(),
-    repository: { backend: stateRepository.backend, tenantId: stateRepository.tenantId, files: stateRepository.listStateFiles().length },
-    postgresMirror: { ...postgresStatus },
-    integrations: providerRuntime.snapshot(),
-  });
-});
-
-app.get('/api/integration-health', requireAuth, (req, res) => {
-  res.json({ success: true, budget: { limitUSD: usageDb.budgetUSD, usedUSD: currentUsage().estCostUSD, reached: usageOverBudget() }, ...providerRuntime.snapshot() });
-});
-
-app.get('/api/auth/status', (req, res) => {
-  res.json({ success: true, roles: accessControl.configuredRoles(), openMode: !ADMIN_PASSWORD && !OPERATOR_PASSWORD });
-});
-
-app.get('/api/audit-status', requireOwner, (req, res) => {
-  res.json({ success: true, audit: auditLog.verify() });
-});
-
-app.get('/api/storage-backups', requireOwner, (req, res) => {
-  res.json({ success: true, tenantId: stateRepository.tenantId, backups: backupService.list() });
-});
-
-app.post('/api/storage-backups', requireOwner, (req, res) => {
-  try {
-    const action = String(req.body?.action || 'create');
-    if (action === 'create') return res.json({ success: true, backup: backupService.create() });
-    if (action === 'verify') {
-      const backup = backupService.verify(String(req.body?.id || ''));
-      return res.status(backup.valid ? 200 : 422).json({ success: backup.valid, backup });
-    }
-    return res.status(400).json({ success: false, error: 'Backup action must be create or verify.' });
-  } catch (error) {
-    return res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-app.get('/api/job-queue', requireAuth, (req, res) => {
-  res.json({ success: true, tenantId: stateRepository.tenantId, worker: { running: jobWorkerStarted }, ...durableJobQueue.snapshot() });
+registerOperationsRoutes(app, {
+  requireAuth,
+  requireOwner,
+  getRuntime: () => ({
+    mode: APP_MODE,
+    mockIntegrationsAllowed: ALLOW_MOCK_INTEGRATIONS,
+    nodeVersion: process.version,
+    bootedAt: BOOTED_AT,
+    uptimeSeconds: Math.floor(process.uptime()),
+    shuttingDown: isShuttingDown,
+  }),
+  storageReadiness,
+  requestMetrics,
+  accessControl,
+  auditLog,
+  stateRepository,
+  getPostgresStatus: () => postgresStatus,
+  providerRuntime,
+  getBudget: () => ({
+    limitUSD: usageDb.budgetUSD,
+    usedUSD: currentUsage().estCostUSD,
+    reached: usageOverBudget(),
+  }),
+  backupService,
+  durableJobQueue,
+  isJobWorkerRunning: () => jobWorkerStarted,
 });
 
 // ----------------------------------------------------
