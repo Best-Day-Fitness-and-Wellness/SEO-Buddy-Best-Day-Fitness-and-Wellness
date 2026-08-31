@@ -139,7 +139,8 @@ Set these in your host's environment (e.g., Railway → Variables) or, for local
 | `OPERATOR_PASSWORD` | *(unset)* | Optional lower-privilege password for running publishing, indexing, audits, and autopilots without permission to change integration secrets, business identity, brand voice, or budgets. |
 | `AUDIT_SIGNING_KEY` | *(unset)* | Optional stable secret used to HMAC-sign the mutation audit chain. Keep it separate from passwords and do not rotate it unless you intentionally start a new verification chain. |
 | `TENANT_ID` | `best-day-fitness` | Stable location/tenant key used to isolate all runtime state under `DATA_DIR/tenants/<tenant>/`. |
-| `DATABASE_URL` | *(unset)* | Optional PostgreSQL connection. When present, versioned SQL migrations run automatically and tenant JSON state is mirrored every five minutes for a safe staged cutover. The filesystem remains the source of truth until an explicit future cutover. |
+| `STATE_BACKEND` | `filesystem` | `filesystem` keeps the attached volume authoritative. `postgres` runs migrations before boot, replays the durable write outbox, hydrates the local runtime cache from PostgreSQL, and requires `DATABASE_URL`. Do not switch until a verified database backup exists. |
+| `DATABASE_URL` | *(unset)* | Optional PostgreSQL connection. In filesystem mode it receives an immediate outbox-backed mirror plus periodic reconciliation. In postgres mode it becomes the startup recovery authority while the local tenant directory remains the runtime cache. |
 | `PGSSL` | enabled | Set to `disable` only for a trusted local PostgreSQL server that does not use TLS. |
 | `ALLOWED_ORIGIN` | *(same‑origin)* | Optional comma‑separated CORS allowlist. Leave blank for same‑origin only. |
 
@@ -289,7 +290,7 @@ Restore only while the application is stopped. The restore command verifies ever
 node scripts/restore-backup.mjs --backup <id> --confirm "RESTORE <id>"
 ```
 
-For PostgreSQL, set `DATABASE_URL` and run `npm run db:migrate` for an explicit migration/sync check. Applied migration checksums are immutable; a changed historical migration is rejected rather than silently reapplied.
+For PostgreSQL, set `DATABASE_URL` and run `npm run db:migrate` for an explicit migration/sync check. Applied migration checksums are immutable; a changed historical migration is rejected rather than silently reapplied. Keep `STATE_BACKEND=filesystem` during observation. After the mirror and backups verify, `STATE_BACKEND=postgres` makes the prestart step replay any pending durable writes and hydrate the runtime cache from PostgreSQL before accepting traffic.
 
 ### Durable background work
 

@@ -169,8 +169,12 @@ secrets and contain a manifest checksum for every file. Restore verifies the
 manifest and creates a safety backup; it is intentionally available only while
 the application is stopped.
 
-`DATABASE_URL` currently enables immutable SQL migrations and a PostgreSQL
-mirror. It is a staged migration path, not yet the primary transactional store.
+`DATABASE_URL` enables immutable SQL migrations and an immediate, durable
+outbox-backed PostgreSQL mirror with periodic reconciliation. With
+`STATE_BACKEND=postgres`, the prestart step replays any pending outbox writes and
+hydrates the local runtime cache from PostgreSQL before traffic is accepted.
+The current in-process feature model still uses that local cache during a run,
+so one production replica remains the supported topology.
 
 ## Module boundaries
 
@@ -214,9 +218,11 @@ mirror. It is a staged migration path, not yet the primary transactional store.
 1. **`server.js` is still the main monolith.** Extract one route family at a
    time into routes, services, integrations, and repository interfaces. Keep
    contract tests around the existing HTTP boundary before every extraction.
-2. **The filesystem is still authoritative.** One production replica is the
-   supported topology. Make PostgreSQL the transactional source of truth before
-   adding replicas; use unique idempotency keys and indexed time-series tables.
+2. **Feature state is still process-local during a run.** PostgreSQL mode makes
+   the database the startup recovery authority, but one production replica is
+   still the supported topology. Move mutations to transactional repository
+   calls before adding replicas; use unique idempotency keys and indexed
+   time-series tables.
 3. **The worker shares the web process.** Durable state prevents lost work, but
    provider latency still consumes web-process memory and event-loop capacity.
    Move the same handlers to a separate worker only after the database queue is

@@ -19,8 +19,9 @@ Provider status and counters are available through protected
 One Railway replica and one attached persistent volume are the supported
 topology. Atomic JSON replacement and queue locks protect the current process
 from partial writes and overlapping local work. They do not provide
-transactional multi-replica writes. PostgreSQL is currently a migration-aware
-mirror, not the primary state or queue.
+transactional multi-replica writes. PostgreSQL can be the startup recovery
+authority with `STATE_BACKEND=postgres`, but feature objects still remain
+process-local during each run and the durable queue still uses the local cache.
 
 ## Remaining bottlenecks
 

@@ -10,7 +10,7 @@ const net = require('node:net');
 const crypto = require('node:crypto');
 const { google } = require('googleapis');
 const { GoogleGenAI } = require('@google/genai');
-const { saveJsonFileSync, writeFileAtomicSync, writeJsonFileSync } = require('./lib/json-file-store');
+const { saveJsonFileSync, setJsonWriteObserver, writeFileAtomicSync, writeJsonFileSync } = require('./lib/json-file-store');
 const {
   normalizeDomain: tpNormalizeDomain,
   findBusinessUnitUrl: tpFindUrl,
@@ -41,6 +41,7 @@ const { normalizeSecretInput } = require('./lib/secrets');
 const { createFileStateRepository } = require('./lib/state-repository');
 const { createBackupService } = require('./lib/backup-service');
 const { createPostgresStore } = require('./lib/postgres-store');
+const { createPostgresStateBridge } = require('./lib/postgres-state-bridge');
 const { createDurableJobQueue } = require('./lib/durable-job-queue');
 const { ProviderRuntimeError, createProviderRuntime } = require('./lib/provider-runtime');
 const { summarizeContactAttribution } = require('./lib/attribution');
@@ -56,6 +57,9 @@ dotenv.config({ path: path.join(CONFIG_DIR, '.env') });
 const app = express();
 const PORT = process.env.PORT || 3000;
 const APP_MODE = resolveAppMode(process.env);
+const STATE_BACKEND_MODE = String(process.env.STATE_BACKEND || 'filesystem').trim().toLowerCase();
+if (!['filesystem', 'postgres'].includes(STATE_BACKEND_MODE)) throw new Error('STATE_BACKEND must be filesystem or postgres.');
+if (STATE_BACKEND_MODE === 'postgres' && !process.env.DATABASE_URL) throw new Error('STATE_BACKEND=postgres requires DATABASE_URL.');
 const ALLOW_MOCK_INTEGRATIONS = mocksAllowed(APP_MODE, process.env);
 const BOOTED_AT = new Date().toISOString();
 const logger = createLogger({ service: 'seo-buddy', environment: APP_MODE });
@@ -231,11 +235,14 @@ function scheduleDurableCheck(type, initialDelayMs, intervalMs) {
   return { startup, recurring };
 }
 let postgresMirror = null;
+let postgresStateBridge = null;
 const postgresStatus = {
   configured: Boolean(process.env.DATABASE_URL),
+  mode: STATE_BACKEND_MODE,
   ready: false,
   lastSyncAt: null,
   syncedFiles: 0,
+  pendingWrites: 0,
   error: null,
 };
 
@@ -244,6 +251,7 @@ async function syncPostgresMirror() {
   try {
     postgresStatus.syncedFiles = await postgresMirror.syncFrom(stateRepository);
     postgresStatus.lastSyncAt = new Date().toISOString();
+    postgresStatus.pendingWrites = postgresStateBridge?.status().pendingWrites || 0;
     postgresStatus.ready = true;
     postgresStatus.error = null;
   } catch (error) {
@@ -257,7 +265,11 @@ async function initializePostgresMirror() {
   if (!process.env.DATABASE_URL) return;
   postgresMirror = createPostgresStore({ connectionString: process.env.DATABASE_URL, ssl: process.env.PGSSL !== 'disable' });
   const migrations = await postgresMirror.migrate(path.join(__dirname, 'migrations'));
+  postgresStateBridge = createPostgresStateBridge({ repository: stateRepository, store: postgresMirror, logger });
+  setJsonWriteObserver(postgresStateBridge.capture);
   await syncPostgresMirror();
+  await postgresStateBridge.flush();
+  postgresStatus.pendingWrites = postgresStateBridge.status().pendingWrites;
   logger.info('storage.postgres_ready', { tenantId: stateRepository.tenantId, migrations, syncedFiles: postgresStatus.syncedFiles });
   const timer = setInterval(syncPostgresMirror, 5 * 60 * 1000);
   timer.unref?.();
@@ -586,9 +598,16 @@ app.use(compression({ threshold: 1024 }));
 function storageReadiness() {
   try {
     fs.accessSync(DATA_DIR, fs.constants.R_OK | fs.constants.W_OK);
-    return { ok: true, persistent: STORAGE_IS_PERSISTENT };
+    const databaseRequired = STATE_BACKEND_MODE === 'postgres';
+    const databaseReady = !databaseRequired || postgresStatus.ready;
+    return {
+      ok: databaseReady,
+      persistent: databaseRequired ? postgresStatus.ready : STORAGE_IS_PERSISTENT,
+      backend: STATE_BACKEND_MODE,
+      ...(databaseReady ? {} : { error: postgresStatus.error || 'POSTGRES_NOT_READY' }),
+    };
   } catch (error) {
-    return { ok: false, persistent: STORAGE_IS_PERSISTENT, error: error.code || 'STORAGE_UNAVAILABLE' };
+    return { ok: false, persistent: false, backend: STATE_BACKEND_MODE, error: error.code || 'STORAGE_UNAVAILABLE' };
   }
 }
 
@@ -681,13 +700,13 @@ app.post('/api/brand-profile', requireOwner, (req, res) => {
   brandDb = { ...BRAND_DEFAULT, ...brandDb, ...incoming };
   brandReviewedAt = new Date().toISOString();
   const persisted = saveBrand();
-  res.json({ success: true, brand: brandDb, reviewedAt: brandReviewedAt, persisted, durable: persisted && STORAGE_IS_PERSISTENT });
+  res.json({ success: true, brand: brandDb, reviewedAt: brandReviewedAt, persisted, durable: persisted && storageReadiness().persistent });
 });
 app.post('/api/brand-profile/reset', requireOwner, (req, res) => {
   brandDb = JSON.parse(JSON.stringify(BRAND_DEFAULT));
   brandReviewedAt = null;
   const persisted = saveBrand();
-  res.json({ success: true, brand: brandDb, reviewedAt: brandReviewedAt, persisted, durable: persisted && STORAGE_IS_PERSISTENT });
+  res.json({ success: true, brand: brandDb, reviewedAt: brandReviewedAt, persisted, durable: persisted && storageReadiness().persistent });
 });
 
 // Business profile endpoints (registered after body parsing so req.body is available).
@@ -3050,7 +3069,8 @@ app.get('/api/usage', (req, res) => {
 });
 // Storage status — is DATA_DIR pointed at a persistent volume (survives redeploys) or ephemeral?
 app.get('/api/storage-status', (req, res) => {
-  res.json({ persistent: !!process.env.DATA_DIR, backend: stateRepository.backend, tenantId: stateRepository.tenantId, postgresMirror: { ...postgresStatus } });
+  const storage = storageReadiness();
+  res.json({ persistent: storage.persistent, backend: STATE_BACKEND_MODE, tenantId: stateRepository.tenantId, postgresMirror: { ...postgresStatus } });
 });
 
 // Why is Search Console not connected? The readiness board can only say yes or
@@ -5099,7 +5119,7 @@ app.get('/api/autopilot-digest', (req, res) => {
 // dotenv override, so in-app changes reflect immediately) + business profile.
 app.get('/api/deploy-readiness', (req, res) => {
   const gemini = !!process.env.GEMINI_API_KEY;
-  const storage = !!process.env.DATA_DIR;
+  const storage = storageReadiness().persistent;
   const gsc = !!(process.env.GSC_SITE_URL && getGoogleAuth());
   const ghl = !!(process.env.GHL_ACCESS_TOKEN && process.env.GHL_LOCATION_ID);
   const admin = !!ADMIN_PASSWORD;
@@ -5113,7 +5133,9 @@ app.get('/api/deploy-readiness', (req, res) => {
       badText: 'Add your Gemini API key so the autopilots can run.', fixLabel: 'Add Gemini key' },
     { key: 'storage', label: 'Persistent storage', icon: '💾', ok: storage, severity: 'block',
       okText: 'History and schedules survive redeploys — the autopilots never lose their place.',
-      badText: 'Attach a Railway volume and set DATA_DIR so history survives redeploys.', fixLabel: 'Set up storage' },
+      badText: STATE_BACKEND_MODE === 'postgres'
+        ? 'PostgreSQL is selected but not ready. Check DATABASE_URL and migration status.'
+        : 'Attach a Railway volume and set DATA_DIR so history survives redeploys.', fixLabel: 'Set up storage' },
     { key: 'gsc', label: 'Google Search Console', icon: '🔍', ok: gsc, severity: 'block',
       okText: 'Unlocks real rankings, clicks, and the search-gap finder.',
       badText: 'Connect Search Console to unlock real rankings and clicks.', fixLabel: 'Connect Search Console' },
@@ -5127,7 +5149,7 @@ app.get('/api/deploy-readiness', (req, res) => {
       okText: 'This location’s name, address and phone are set — used across NAP, posts, and schema.',
       badText: 'Confirm this location’s name, address and phone (still using the seed profile).', fixLabel: 'Complete business profile' },
     { key: 'brand', label: 'Brand voice', icon: '🗣️', ok: brandReviewed, severity: 'warn', tab: 'brand-tab',
-      reviewedAt: brandReviewedAt, durable: STORAGE_IS_PERSISTENT,
+      reviewedAt: brandReviewedAt, durable: storageReadiness().persistent,
       okText: 'Your voice, phrases and never-use list drive every article, post and reply.',
       badText: 'Running on the starter voice built from your brand docs — worth a read-through so it sounds like you.', fixLabel: 'Review brand voice' }
   ];
@@ -5770,12 +5792,13 @@ const server = app.listen(PORT, () => {
     mode: APP_MODE,
     mockIntegrationsAllowed: ALLOW_MOCK_INTEGRATIONS,
     geminiModel: GEMINI_MODEL,
-    persistentStorage: STORAGE_IS_PERSISTENT,
+    persistentStorage: STORAGE_IS_PERSISTENT || STATE_BACKEND_MODE === 'postgres',
     adminLockEnabled: Boolean(ADMIN_PASSWORD),
     operatorLockEnabled: Boolean(OPERATOR_PASSWORD),
     auditSigningEnabled: Boolean(process.env.AUDIT_SIGNING_KEY),
     tenantId: stateRepository.tenantId,
     repositoryBackend: stateRepository.backend,
+    stateBackendMode: STATE_BACKEND_MODE,
     migratedStateFiles: stateRepository.migrated.length,
     railwayEnvironment: process.env.RAILWAY_ENVIRONMENT_NAME || null,
     railwayReplica: process.env.RAILWAY_REPLICA_ID || null,
@@ -5815,7 +5838,14 @@ function gracefulShutdown(signal) {
       logger.error('server.shutdown_failed', { signal, error });
       process.exit(1);
     }
-    try { if (postgresMirror) await postgresMirror.close(); } catch (error) { logger.warn('storage.postgres_close_failed', { error }); }
+    try {
+      if (postgresStateBridge) {
+        await postgresStateBridge.flush();
+        postgresStateBridge.close();
+        setJsonWriteObserver(null);
+      }
+      if (postgresMirror) await postgresMirror.close();
+    } catch (error) { logger.warn('storage.postgres_close_failed', { error }); }
     logger.info('server.shutdown_completed', { signal });
     process.exit(0);
   });

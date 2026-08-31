@@ -29,11 +29,12 @@ const { createBackupService } = require('../lib/backup-service.js');
 const { loadMigrations } = require('../lib/postgres-store.js');
 const { createDurableJobQueue } = require('../lib/durable-job-queue.js');
 const { ProviderRuntimeError, createProviderRuntime } = require('../lib/provider-runtime.js');
+const { createPostgresStateBridge, replayPostgresOutbox } = require('../lib/postgres-state-bridge.js');
 const { classifyContactSource, summarizeContactAttribution } = require('../lib/attribution.js');
 const { assessArticleQuality } = require('../lib/content-quality.js');
 const { parse: parseDotenv } = require('dotenv');
 const { serializeDotenv } = require('../lib/dotenv-store.js');
-const { writeFileAtomicSync, writeJsonFileSync } = require('../lib/json-file-store.js');
+const { setJsonWriteObserver, writeFileAtomicSync, writeJsonFileSync } = require('../lib/json-file-store.js');
 const {
   findBusinessUnitUrl: tpFindBusinessUnitUrl,
   normalizeBusinessUnit: tpNormalizeBusinessUnit,
@@ -184,6 +185,49 @@ test('PostgreSQL migrations are immutable, ordered, and ignore unrelated files',
     const migrations = loadMigrations(root);
     assert.deepEqual(migrations.map(item => item.name), ['001_first.sql', '002_second.sql']);
     assert.ok(migrations.every(item => /^[a-f0-9]{64}$/.test(item.checksum)));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('PostgreSQL state bridge durably captures writes and drains its outbox', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'seo-buddy-postgres-bridge-'));
+  try {
+    const repository = createFileStateRepository({ storageRoot: root, tenantId: 'bridge-test' });
+    const writes = [];
+    const store = { putState: async (tenantId, key, value) => { writes.push({ tenantId, key, value }); } };
+    const bridge = createPostgresStateBridge({ repository, store });
+    bridge.capture(repository.pathFor('health-score.json'), { score: 69 });
+    assert.equal(existsSync(repository.pathFor('postgres-outbox.pending')), true);
+    assert.equal(await bridge.flush(), true);
+    assert.deepEqual(writes, [{ tenantId: 'bridge-test', key: 'health-score.json', value: { score: 69 } }]);
+    assert.equal(existsSync(repository.pathFor('postgres-outbox.pending')), false);
+    bridge.close();
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('PostgreSQL state bridge replays a pending write before hydration', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'seo-buddy-postgres-replay-'));
+  try {
+    const repository = createFileStateRepository({ storageRoot: root, tenantId: 'replay-test' });
+    const failing = createPostgresStateBridge({
+      repository,
+      store: { putState: async () => { throw new Error('database offline'); } },
+    });
+    failing.capture(repository.pathFor('usage.json'), { total: 4 });
+    assert.equal(await failing.flush(), false);
+    failing.close();
+
+    const writes = [];
+    const replayed = await replayPostgresOutbox({
+      repository,
+      store: { putState: async (tenantId, key, value) => { writes.push({ tenantId, key, value }); } },
+    });
+    assert.equal(replayed, 1);
+    assert.deepEqual(writes, [{ tenantId: 'replay-test', key: 'usage.json', value: { total: 4 } }]);
+    assert.equal(existsSync(repository.pathFor('postgres-outbox.pending')), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -535,6 +579,20 @@ test('writeJsonFileSync replaces complete JSON and leaves no temporary files', (
     assert.deepEqual(readdirSync(directory), ['state.json']);
   } finally {
     rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('JSON persistence notifies the state bridge only after an atomic write succeeds', () => {
+  const root = mkdtempSync(join(tmpdir(), 'seo-buddy-write-observer-'));
+  const target = join(root, 'state.json');
+  const observed = [];
+  try {
+    setJsonWriteObserver((filePath, value) => observed.push({ filePath, value, exists: existsSync(filePath) }));
+    writeJsonFileSync(target, { ready: true });
+    assert.deepEqual(observed, [{ filePath: target, value: { ready: true }, exists: true }]);
+  } finally {
+    setJsonWriteObserver(null);
+    rmSync(root, { recursive: true, force: true });
   }
 });
 

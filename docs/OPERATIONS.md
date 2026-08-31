@@ -89,9 +89,12 @@ Migration files under `migrations/` are immutable after release. Run
 `npm run db:migrate` with the production `DATABASE_URL` available. The migration
 runner uses an advisory lock and rejects changed historical checksums.
 
-PostgreSQL is presently a mirror. A mirror failure is an operational warning;
-the filesystem volume remains authoritative. Do not enable multiple replicas on
-the assumption that `DATABASE_URL` alone makes writes transactional.
+In `STATE_BACKEND=filesystem`, PostgreSQL is an outbox-backed mirror and a
+mirror failure is an operational warning. To cut over, verify the mirror and a
+filesystem backup first, then set `STATE_BACKEND=postgres`; prestart replays the
+outbox and hydrates the runtime cache before readiness succeeds. Do not enable
+multiple replicas: feature mutations and the queue are not yet transactional
+database operations during a running process.
 
 ## Rollback
 
