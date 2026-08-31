@@ -272,6 +272,8 @@ npm run smoke -- https://your-service.up.railway.app
 
 Set `REQUIRE_LIVE_GSC=1` when the smoke run must also prove Search Console is live. The script never generates, publishes, indexes, or spends AI credits.
 
+Engineering handoff: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) maps the complete runtime and data flow, [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md) defines the safe scale-out sequence, and [`docs/OPERATIONS.md`](docs/OPERATIONS.md) is the production deploy/incident/backup runbook.
+
 ### Backups and restore
 
 SEO Buddy creates one checksum-verified, tenant-scoped state backup per day under `DATA_DIR/backups/<tenant>/`. Secrets are intentionally excluded. Owners can create or verify a backup through `/api/storage-backups`, or from a stopped application process:
