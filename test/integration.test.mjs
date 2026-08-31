@@ -132,6 +132,15 @@ test('lifecycle probes and protected diagnostics expose truthful process state',
   assert.equal(queueBody.worker.running, true);
   assert.deepEqual(Object.keys(queueBody.counts).sort(), ['failed', 'pending', 'running', 'succeeded']);
   assert.ok(queueBody.recent.every(job => !Object.hasOwn(job, 'payload')));
+
+  const unauthorizedIntegrations = await request('/api/integration-health', { auth: false });
+  assert.equal(unauthorizedIntegrations.status, 401);
+  const integrations = await request('/api/integration-health');
+  const integrationBody = await integrations.json();
+  assert.equal(integrations.status, 200);
+  assert.equal(integrationBody.budget.reached, false);
+  assert.equal(integrationBody.providers.gemini.configured, false);
+  assert.equal(integrationBody.providers['reviews-site'].configured, true);
 });
 
 test('production mode never reports demo generation, publishing, indexing, or search data as live success', { timeout: 30000 }, async () => {

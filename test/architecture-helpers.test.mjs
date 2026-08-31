@@ -28,6 +28,7 @@ const { createFileStateRepository, normalizeTenantId } = require('../lib/state-r
 const { createBackupService } = require('../lib/backup-service.js');
 const { loadMigrations } = require('../lib/postgres-store.js');
 const { createDurableJobQueue } = require('../lib/durable-job-queue.js');
+const { ProviderRuntimeError, createProviderRuntime } = require('../lib/provider-runtime.js');
 const { parse: parseDotenv } = require('dotenv');
 const { serializeDotenv } = require('../lib/dotenv-store.js');
 const { writeFileAtomicSync, writeJsonFileSync } = require('../lib/json-file-store.js');
@@ -243,6 +244,73 @@ test('durable jobs reclaim expired leases and retry with bounded exponential bac
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('provider runtime retries transient failures and reports bounded integration health', async () => {
+  let calls = 0;
+  const runtime = createProviderRuntime({ sleep: async () => {} });
+  runtime.setConfigured('gemini', true);
+  const result = await runtime.run('gemini', async () => {
+    calls += 1;
+    if (calls === 1) throw new ProviderRuntimeError('temporary outage', { statusCode: 503, retryable: true });
+    return { ok: true };
+  }, { policy: { retries: 1, timeoutMs: 1000 } });
+  assert.deepEqual(result, { ok: true });
+  assert.equal(calls, 2);
+  assert.deepEqual(runtime.snapshot().providers.gemini, {
+    configured: true,
+    status: 'healthy',
+    inFlight: 0,
+    totalCalls: 2,
+    successes: 1,
+    failures: 0,
+    retries: 1,
+    cacheHits: 0,
+    consecutiveFailures: 0,
+    circuitOpen: false,
+    lastAttemptAt: runtime.snapshot().providers.gemini.lastAttemptAt,
+    lastSuccessAt: runtime.snapshot().providers.gemini.lastSuccessAt,
+    lastFailureAt: null,
+    lastLatencyMs: runtime.snapshot().providers.gemini.lastLatencyMs,
+    lastError: null,
+  });
+});
+
+test('provider runtime serves safe cached reads and opens a circuit after repeated failures', async () => {
+  let clock = Date.parse('2026-08-31T12:00:00.000Z');
+  let calls = 0;
+  const runtime = createProviderRuntime({ now: () => clock, sleep: async ms => { clock += ms; } });
+  runtime.setConfigured('search-console', true);
+  const cachedCall = () => runtime.run('search-console', async () => ({ call: ++calls }), {
+    cacheKey: 'queries:last-30-days', cacheTtlMs: 1000, staleIfErrorMs: 5000, policy: { timeoutMs: 1000 },
+  });
+  assert.deepEqual(await cachedCall(), { call: 1 });
+  assert.deepEqual(await cachedCall(), { call: 1 });
+  assert.equal(runtime.snapshot().providers['search-console'].cacheHits, 1);
+  clock += 1001;
+  const stale = await runtime.run('search-console', async () => { throw new ProviderRuntimeError('temporary read failure', { retryable: false }); }, {
+    cacheKey: 'queries:last-30-days', cacheTtlMs: 1000, staleIfErrorMs: 5000, policy: { timeoutMs: 1000 },
+  });
+  assert.deepEqual(stale, { call: 1 });
+  assert.equal(runtime.snapshot().providers['search-console'].status, 'degraded');
+
+  const failing = createProviderRuntime({ now: () => clock, sleep: async () => {} });
+  failing.setConfigured('openai', true);
+  const operation = async () => { throw new ProviderRuntimeError('upstream down', { statusCode: 503, retryable: true }); };
+  const policy = { retries: 0, timeoutMs: 1000, circuitFailures: 2, circuitCooldownMs: 2000 };
+  await assert.rejects(failing.run('openai', operation, { policy }), /upstream down/);
+  await assert.rejects(failing.run('openai', operation, { policy }), /upstream down/);
+  await assert.rejects(failing.run('openai', operation, { policy }), error => error.code === 'PROVIDER_CIRCUIT_OPEN');
+  assert.equal(failing.snapshot().providers.openai.status, 'unavailable');
+});
+
+test('provider runtime enforces the central spend guard before a provider call', async () => {
+  let called = false;
+  const runtime = createProviderRuntime({ guard: async provider => {
+    throw new ProviderRuntimeError(`${provider} budget reached`, { code: 'PROVIDER_BUDGET_EXCEEDED', provider });
+  } });
+  await assert.rejects(runtime.run('gemini', async () => { called = true; }), error => error.code === 'PROVIDER_BUDGET_EXCEEDED');
+  assert.equal(called, false);
 });
 
 test('singleFlight coalesces overlap without caching settled results', async () => {

@@ -42,6 +42,7 @@ const { createFileStateRepository } = require('./lib/state-repository');
 const { createBackupService } = require('./lib/backup-service');
 const { createPostgresStore } = require('./lib/postgres-store');
 const { createDurableJobQueue } = require('./lib/durable-job-queue');
+const { ProviderRuntimeError, createProviderRuntime } = require('./lib/provider-runtime');
 
 // Load UI-saved secrets from the durable storage root. Tenant state is isolated
 // below this root after configuration is loaded; host-provided variables still
@@ -56,6 +57,26 @@ const ALLOW_MOCK_INTEGRATIONS = mocksAllowed(APP_MODE, process.env);
 const BOOTED_AT = new Date().toISOString();
 const logger = createLogger({ service: 'seo-buddy', environment: APP_MODE });
 const requestMetrics = createRequestMetrics();
+const AI_PROVIDER_NAMES = new Set(['gemini', 'openai', 'perplexity']);
+const providerRuntime = createProviderRuntime({
+  logger,
+  guard: async provider => {
+    if (AI_PROVIDER_NAMES.has(provider) && usageOverBudget()) {
+      throw new ProviderRuntimeError(`Monthly AI budget of $${usageDb.budgetUSD} has been reached.`, {
+        code: 'PROVIDER_BUDGET_EXCEEDED', provider, retryable: false,
+      });
+    }
+  },
+  policies: {
+    gemini: { concurrency: 2, maxCallsPerWindow: 50, timeoutMs: 60000 },
+    openai: { concurrency: 2, maxCallsPerWindow: 30, timeoutMs: 45000 },
+    perplexity: { concurrency: 2, maxCallsPerWindow: 30, timeoutMs: 45000 },
+    gohighlevel: { concurrency: 3, maxCallsPerWindow: 60, timeoutMs: 30000 },
+    'search-console': { concurrency: 3, maxCallsPerWindow: 60, timeoutMs: 30000 },
+    'google-indexing': { concurrency: 2, maxCallsPerWindow: 30, timeoutMs: 30000 },
+    trustpilot: { concurrency: 2, maxCallsPerWindow: 60, timeoutMs: 20000 },
+  },
+});
 let isShuttingDown = false;
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const BROWSER_ASSETS = buildBrowserAssets(PUBLIC_DIR, [
@@ -79,6 +100,31 @@ function integrationErrorStatus(error) {
 // model. NOTE: the previous hardcoded 'gemini-3.5-flash' is not a valid model
 // ID, so every live generation silently failed and fell back to mock output.
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
+
+async function geminiGenerate(request, options = {}) {
+  if (!process.env.GEMINI_API_KEY) {
+    throw integrationUnavailable('gemini', 'Gemini is not configured. Add GEMINI_API_KEY before running AI features.');
+  }
+  const response = await providerRuntime.run('gemini', async () => {
+    if (!ai) ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+    return ai.models.generateContent(request);
+  }, { policy: { retries: 0, timeoutMs: options.timeoutMs || 60000 } });
+  const grounded = Array.isArray(request?.config?.tools) && request.config.tools.some(tool => tool && tool.googleSearch);
+  meterUsage(options.usageKind || (grounded ? 'grounded' : 'gemini'));
+  return response;
+}
+
+async function searchConsoleQuery(client, request) {
+  return providerRuntime.run('search-console', () => client.searchanalytics.query(request), {
+    policy: { retries: 1, timeoutMs: 30000 },
+  });
+}
+
+async function publishIndexNotification(client, request) {
+  return providerRuntime.run('google-indexing', () => client.urlNotifications.publish(request), {
+    policy: { retries: 0, timeoutMs: 30000 },
+  });
+}
 
 // State is isolated by tenant below the durable storage root. On first boot the
 // repository copies legacy root-level files into the tenant boundary, verifies
@@ -710,6 +756,18 @@ if (process.env.GEMINI_API_KEY) {
     : '[Gemini SDK] No GEMINI_API_KEY found. Live generation is unavailable; production will not fabricate output.');
 }
 
+providerRuntime.setConfigured('gemini', () => Boolean(process.env.GEMINI_API_KEY));
+providerRuntime.setConfigured('openai', () => Boolean(process.env.OPENAI_API_KEY));
+providerRuntime.setConfigured('perplexity', () => Boolean(process.env.PERPLEXITY_API_KEY));
+providerRuntime.setConfigured('gohighlevel', () => Boolean(process.env.GHL_ACCESS_TOKEN && process.env.GHL_LOCATION_ID));
+providerRuntime.setConfigured('search-console', () => Boolean(process.env.GSC_SITE_URL && getGoogleAuth()));
+providerRuntime.setConfigured('google-indexing', () => Boolean(getGoogleAuth()));
+providerRuntime.setConfigured('gmail', () => Boolean(process.env.GMAIL_CLIENT_ID && process.env.GMAIL_CLIENT_SECRET && process.env.GMAIL_REFRESH_TOKEN));
+providerRuntime.setConfigured('google-business-profile', () => Boolean(process.env.GBP_REFRESH_TOKEN && process.env.GBP_ACCOUNT_ID && process.env.GBP_LOCATION_ID));
+providerRuntime.setConfigured('reviews-site', true);
+providerRuntime.setConfigured('web-audit', true);
+providerRuntime.setConfigured('trustpilot', () => Boolean(process.env.TRUSTPILOT_API_KEY && process.env.TRUSTPILOT_DOMAIN));
+
 app.get('/api/diagnostics', requireAuth, (req, res) => {
   res.json({
     success: true,
@@ -727,7 +785,12 @@ app.get('/api/diagnostics', requireAuth, (req, res) => {
     audit: auditLog.verify(),
     repository: { backend: stateRepository.backend, tenantId: stateRepository.tenantId, files: stateRepository.listStateFiles().length },
     postgresMirror: { ...postgresStatus },
+    integrations: providerRuntime.snapshot(),
   });
+});
+
+app.get('/api/integration-health', requireAuth, (req, res) => {
+  res.json({ success: true, budget: { limitUSD: usageDb.budgetUSD, usedUSD: currentUsage().estCostUSD, reached: usageOverBudget() }, ...providerRuntime.snapshot() });
 });
 
 app.get('/api/auth/status', (req, res) => {
@@ -1182,10 +1245,10 @@ Return the HTML directly. Do not include markdown block markers like \`\`\`html.
   let generationError = null;
   if (ai) {
     try {
-      const response = await ai.models.generateContent({
+      const response = await geminiGenerate({
         model: GEMINI_MODEL,
         contents: prompt,
-      });
+      }, { usageKind: 'article' });
 
       const rawText = response.text || '';
       let htmlContent = rawText;
@@ -1455,7 +1518,7 @@ async function publishGhlHelper(title, content, status, config = {}) {
     payload.author = author;
   }
 
-  const response = await fetch('https://services.leadconnectorhq.com/blogs/posts', {
+  const response = await providerRuntime.fetch('gohighlevel', 'https://services.leadconnectorhq.com/blogs/posts', {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${accessToken}`,
@@ -1463,7 +1526,7 @@ async function publishGhlHelper(title, content, status, config = {}) {
       'Content-Type': 'application/json'
     },
     body: JSON.stringify(payload)
-  });
+  }, { retries: 0 });
 
   const data = await response.json();
 
@@ -1500,7 +1563,7 @@ async function indexUrlHelper(url) {
 
   if (auth) {
     const indexing = google.indexing({ version: 'v3', auth: auth });
-    const response = await indexing.urlNotifications.publish({
+    const response = await publishIndexNotification(indexing, {
       requestBody: {
         url: url,
         type: 'URL_UPDATED'
@@ -1603,7 +1666,7 @@ async function runAutopilotCycle() {
       const webmasters = google.webmasters({ version: 'v3', auth: auth });
       const today = new Date().toISOString().split('T')[0];
       const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-      const response = await webmasters.searchanalytics.query({
+      const response = await searchConsoleQuery(webmasters, {
         siteUrl,
         requestBody: {
           startDate: thirtyDaysAgo,
@@ -1906,6 +1969,7 @@ app.post('/api/save-settings', requireOwner, (req, res) => {
     // dashboard navigation is protected by short-lived upstream caches.
     getGscDashboardData.clear();
     computePerformance.clear();
+    providerRuntime.clearCache();
 
     return res.json({
       success: true,
@@ -1933,7 +1997,7 @@ async function computeGscDashboardData() {
       const today = new Date().toISOString().split('T')[0];
       const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
-      const response = await webmasters.searchanalytics.query({
+      const response = await searchConsoleQuery(webmasters, {
         siteUrl: siteUrl,
         requestBody: {
           startDate: thirtyDaysAgo,
@@ -2034,7 +2098,7 @@ app.get('/api/gsc-pages', async (req, res) => {
       }];
     }
 
-    const response = await webmasters.searchanalytics.query({ siteUrl, requestBody });
+    const response = await searchConsoleQuery(webmasters, { siteUrl, requestBody });
     const rows = (response.data.rows || []).map(row => {
       const impressions = row.impressions || 0;
       const clicks = row.clicks || 0;
@@ -2071,7 +2135,6 @@ app.post('/api/generate-article', requireAuth, async (req, res) => {
   if (usageOverBudget()) return budgetBlock(res);
 
   try {
-    meterUsage('article');
     const data = await generateArticleHelper(keyword, caseStudy, ctaText, ctaUrl, transcript);
     return res.json(data);
   } catch (err) {
@@ -2267,15 +2330,13 @@ app.post('/api/aio-audit', requireAuth, async (req, res) => {
   const brandDomainRoot = 'bestdayfitness';   // matches bestdayfitness.com in cited domains
 
   if (usageOverBudget()) return budgetBlock(res);
-  meterUsage('grounded');
   try {
-    const client = new GoogleGenAI({ apiKey: geminiKey });
 
     // --- Pass 1: REAL answer engine call, grounded in live Google Search. ---
     const prompt = `A person searching online asks: "${query}".
 Acting as a helpful AI answer engine, recommend the best specific local businesses that fit this search in and around St. Petersburg, Florida. Name the actual businesses and briefly say why each is a good fit. Base your answer only on current web information.`;
 
-    const response = await client.models.generateContent({
+    const response = await geminiGenerate({
       model: GEMINI_MODEL,
       contents: prompt,
       config: { tools: [{ googleSearch: {} }] }
@@ -2324,7 +2385,7 @@ ${answerText}
 """
 Return ONLY raw JSON (no markdown fences) shaped exactly as:
 {"reasons": ["short reasons the answer gave, if any"], "competitors": ["names of businesses OTHER THAN \\"${brandName}\\" that the answer recommends or mentions"]}`;
-        const extract = await client.models.generateContent({
+        const extract = await geminiGenerate({
           model: GEMINI_MODEL,
           contents: extractPrompt
         });
@@ -2427,8 +2488,7 @@ async function askGoogleEngine(promptText) {
   const key = process.env.GEMINI_API_KEY;
   if (!key) return { ok: false, answer: '', sources: [], error: 'no key' };
   try {
-    const client = new GoogleGenAI({ apiKey: key });
-    const r = await client.models.generateContent({
+    const r = await geminiGenerate({
       model: GEMINI_MODEL, contents: promptText, config: { tools: [{ googleSearch: {} }] }
     });
     const answer = (r.text || '').trim();
@@ -2440,41 +2500,31 @@ async function askGoogleEngine(promptText) {
 async function askOpenAiEngine(promptText) {
   const key = process.env.OPENAI_API_KEY;
   if (!key) return { ok: false, answer: '', sources: [], error: 'no key' };
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), 40000);
   try {
-    const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+    const resp = await providerRuntime.fetch('openai', 'https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
       body: JSON.stringify({ model: OPENAI_MODEL, messages: [{ role: 'user', content: promptText }], temperature: 0.3 }),
-      signal: ctrl.signal
-    });
-    if (!resp.ok) { const tx = await resp.text().catch(() => ''); return { ok: false, answer: '', sources: [], error: `OpenAI ${resp.status}: ${tx.slice(0, 160)}` }; }
+    }, { retries: 0 });
     const j = await resp.json();
     const answer = ((j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || '').trim();
     return { ok: true, answer, sources: [] };
-  } catch (e) { return { ok: false, answer: '', sources: [], error: e.name === 'AbortError' ? 'timeout' : e.message }; }
-  finally { clearTimeout(t); }
+  } catch (e) { return { ok: false, answer: '', sources: [], error: e.code === 'PROVIDER_TIMEOUT' ? 'timeout' : e.message }; }
 }
 async function askPerplexityEngine(promptText) {
   const key = process.env.PERPLEXITY_API_KEY;
   if (!key) return { ok: false, answer: '', sources: [], error: 'no key' };
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), 40000);
   try {
-    const resp = await fetch('https://api.perplexity.ai/chat/completions', {
+    const resp = await providerRuntime.fetch('perplexity', 'https://api.perplexity.ai/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
       body: JSON.stringify({ model: PERPLEXITY_MODEL, messages: [{ role: 'user', content: promptText }] }),
-      signal: ctrl.signal
-    });
-    if (!resp.ok) { const tx = await resp.text().catch(() => ''); return { ok: false, answer: '', sources: [], error: `Perplexity ${resp.status}: ${tx.slice(0, 160)}` }; }
+    }, { retries: 0 });
     const j = await resp.json();
     const answer = ((j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || '').trim();
     const sources = Array.isArray(j.citations) ? j.citations.map(u => ({ title: '', uri: u })) : [];
     return { ok: true, answer, sources };
-  } catch (e) { return { ok: false, answer: '', sources: [], error: e.name === 'AbortError' ? 'timeout' : e.message }; }
-  finally { clearTimeout(t); }
+  } catch (e) { return { ok: false, answer: '', sources: [], error: e.code === 'PROVIDER_TIMEOUT' ? 'timeout' : e.message }; }
 }
 async function askEngine(id, promptText) {
   if (id === 'google') return askGoogleEngine(promptText);
@@ -2494,14 +2544,13 @@ async function analyzeVisAnswer(query, answerText, sources) {
     return { recommended: stringHit, sentiment: stringHit ? 'neutral' : 'absent', competitors: [] };
   }
   try {
-    const client = new GoogleGenAI({ apiKey: key });
     const p = `An AI answer engine responded to the query "${query}" with:
 """
 ${answerText.slice(0, 4000)}
 """
 The brand we care about is "${brand}". Return ONLY raw JSON, no markdown:
 {"mentioned": true or false (does the answer recommend or mention ${brand}?), "sentiment": "positive" | "neutral" | "negative" (tone toward ${brand}; use "neutral" if merely listed; ignore if not mentioned), "competitors": ["names of OTHER businesses the answer recommends or mentions, excluding ${brand}"]}`;
-    const r = await client.models.generateContent({ model: GEMINI_MODEL, contents: p });
+    const r = await geminiGenerate({ model: GEMINI_MODEL, contents: p });
     const parsed = parseGeminiJson(r.text) || {};
     const mentioned = typeof parsed.mentioned === 'boolean' ? parsed.mentioned : stringHit;
     let competitors = Array.isArray(parsed.competitors) ? parsed.competitors.filter(Boolean).filter(c => !isBrandName(c)) : [];
@@ -2529,9 +2578,8 @@ async function runAiVisibility(engineIds) {
     for (const prompt of prompts) {
       const res = await askEngine(engine, visPrompt(prompt));
       if (!res.ok) { answers.push({ engine, prompt, recommended: false, sentiment: 'error', competitors: [], snippet: '', error: res.error || 'failed' }); continue; }
-      meterUsage(engine === 'google' ? 'grounded' : engine);
+      if (engine !== 'google') meterUsage(engine);
       const analysis = await analyzeVisAnswer(prompt, res.answer, res.sources);
-      meterUsage('gemini');
       answers.push({
         engine, prompt,
         recommended: analysis.recommended,
@@ -2706,7 +2754,6 @@ async function analyzeFactAnswer(answerText, truth) {
   const key = process.env.GEMINI_API_KEY;
   if (!key || !answerText) return { issues: [], summary: key ? 'The engine gave no usable answer.' : 'Add a Gemini key to analyze answers.' };
   try {
-    const client = new GoogleGenAI({ apiKey: key });
     const p = `An AI assistant said the following about our business:
 """
 ${answerText.slice(0, 4000)}
@@ -2716,7 +2763,7 @@ ${JSON.stringify(truth)}
 
 Compare the AI's factual claims to the ground truth. Focus on: location (city/state), street address, phone number, and business type/services. Ignore hedged or "I don't know" statements. Only list claims the AI actually asserted. Return ONLY raw JSON, no markdown:
 {"issues":[{"field":"location|address|phone|services|name|other","aiClaim":"what the AI asserted (short)","correct":true or false,"truth":"the correct value","note":"short note"}],"summary":"one sentence on overall accuracy"}`;
-    const r = await client.models.generateContent({ model: GEMINI_MODEL, contents: p });
+    const r = await geminiGenerate({ model: GEMINI_MODEL, contents: p });
     const parsed = parseGeminiJson(r.text) || {};
     const issues = Array.isArray(parsed.issues) ? parsed.issues.filter(i => i && i.aiClaim).map(i => ({
       field: String(i.field || 'other'), aiClaim: String(i.aiClaim), correct: i.correct !== false, truth: String(i.truth || ''), note: String(i.note || '')
@@ -2735,9 +2782,8 @@ async function runFactCheck() {
     const label = (AI_ENGINES.find(e => e.id === engine) || {}).label || engine;
     const res = await askEngine(engine, q);
     if (!res.ok) { results.push({ engine, label, error: res.error || 'failed', accuracy: null, wrong: 0, totalClaims: 0, issues: [], summary: '' }); continue; }
-    meterUsage(engine === 'google' ? 'grounded' : engine);
+    if (engine !== 'google') meterUsage(engine);
     const analysis = await analyzeFactAnswer(res.answer, truth);
-    meterUsage('gemini');
     const totalClaims = analysis.issues.length;
     const wrong = analysis.issues.filter(i => !i.correct).length;
     const accuracy = totalClaims ? Math.round((totalClaims - wrong) / totalClaims * 100) : null;
@@ -2821,11 +2867,14 @@ async function runCrawlerAudit() {
   const url = base + '/robots.txt';
   let robotsText = '', hadRobots = false, status = 0, fetchError = '';
   try {
-    const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), 15000);
-    const resp = await fetch(url, { signal: ctrl.signal, headers: { 'User-Agent': 'SEO-Buddy-AI-Readiness/1.0' } });
-    clearTimeout(t); status = resp.status;
+    const resp = await providerRuntime.fetch('web-audit', url, { headers: { 'User-Agent': 'SEO-Buddy-AI-Readiness/1.0' } }, {
+      throwOnHttpError: false,
+      retries: 1,
+      policy: { timeoutMs: 15000 },
+    });
+    status = resp.status;
     if (resp.ok) { robotsText = await resp.text(); hadRobots = true; }
-  } catch (e) { fetchError = e.name === 'AbortError' ? 'timeout' : e.message; }
+  } catch (e) { fetchError = e.code === 'PROVIDER_TIMEOUT' ? 'timeout' : e.message; }
   const groups = parseRobots(robotsText);
   const bots = AI_CRAWLERS.map(b => {
     const v = hadRobots ? crawlerVerdict(groups, b.ua) : { status: 'allowed', reason: 'no robots.txt found (site is open to all)', matchedBy: 'none' };
@@ -2870,12 +2919,11 @@ async function runRedditScan() {
   const region = BUSINESS.addressRegion || 'FL';
   const desc = kit.shortDesc || 'a senior-focused fitness & wellness studio for adults 50+';
   try {
-    const client = new GoogleGenAI({ apiKey: key });
     const p = `Using current web information, find real, active Reddit threads where a business like "${brand}" — ${desc} in ${city}, ${region} — could genuinely help by participating.
 Look for people asking for recommendations about: senior fitness, personal trainers for adults over 50, mobility/balance/strength for older adults, injury recovery, physical therapy, or gyms in ${city} or the Tampa Bay FL area — plus broader relevant discussions people ask AI about.
 Only include REAL reddit.com thread URLs you actually find in search. For each, give a short authentic, helpful, NON-spammy way to add value (be a real participant, disclose the affiliation, never hard-sell).
 Return ONLY raw JSON, no markdown: {"threads":[{"title":"the thread title","subreddit":"r/...","url":"https://www.reddit.com/...","why":"one line on why it's relevant","angle":"a short, genuine way to contribute value"}]}`;
-    const r = await client.models.generateContent({ model: GEMINI_MODEL, contents: p, config: { tools: [{ googleSearch: {} }] } });
+    const r = await geminiGenerate({ model: GEMINI_MODEL, contents: p, config: { tools: [{ googleSearch: {} }] } });
     const parsed = parseGeminiJson(r.text) || {};
     let threads = Array.isArray(parsed.threads) ? parsed.threads : [];
     threads = threads
@@ -2901,7 +2949,6 @@ app.post('/api/reddit-threads/run', requireAuth, async (req, res) => {
   if (redditRunning) return res.json({ success: true, busy: true });
   if (usageOverBudget()) return budgetBlock(res);
   redditRunning = true;
-  meterUsage('grounded');
   try {
     const out = await runRedditScan();
     if (out.error) return res.status(400).json({ success: false, error: out.error });
@@ -3096,7 +3143,7 @@ app.get('/api/gsc-diagnostics', requireAuth, async (req, res) => {
   if (auth && siteUrl) {
     try {
       const webmasters = google.webmasters({ version: 'v3', auth });
-      const r = await webmasters.searchanalytics.query({
+      const r = await searchConsoleQuery(webmasters, {
         siteUrl,
         requestBody: { startDate: '2024-01-01', endDate: '2024-01-02', dimensions: ['query'], rowLimit: 1 }
       });
@@ -3181,13 +3228,11 @@ app.post('/api/assistant', requireAuth, async (req, res) => {
   if (!messages.length) return res.status(400).json({ success: false, error: 'No message provided.' });
   if (!key) return res.json({ success: true, reply: "I need a Gemini API key to think — add one in Settings and I'll be right here to help. 🙂" });
   if (usageOverBudget()) return res.json({ success: true, reply: `Heads up — you've hit your monthly usage budget of $${usageDb.budgetUSD}. Raise or clear it in Settings and I'll be right back. 🙂` });
-  meterUsage('assistant');
   try {
     const ctx = assistantContext();
     const sys = assistantSystemPrompt(ctx);
     const contents = messages.slice(-12).map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: String(m.content || '').slice(0, 2000) }] }));
-    const client = new GoogleGenAI({ apiKey: key });
-    const r = await client.models.generateContent({ model: GEMINI_MODEL, contents, config: { systemInstruction: sys, temperature: 0.4, tools: ASSISTANT_TOOLS } });
+    const r = await geminiGenerate({ model: GEMINI_MODEL, contents, config: { systemInstruction: sys, temperature: 0.4, tools: ASSISTANT_TOOLS } }, { usageKind: 'assistant' });
     // Extract text + the first function call (if the model proposed an action).
     const cand = r.candidates && r.candidates[0];
     const parts = (cand && cand.content && cand.content.parts) || [];
@@ -3271,11 +3316,10 @@ app.post('/api/citation-targets', requireAuth, async (req, res) => {
     });
   }
 
-  const client = new GoogleGenAI({ apiKey: geminiKey });
   const cleanQueries = queries.map(q => String(q || '').trim()).filter(Boolean).slice(0, 8);
 
   try {
-    const { brandCited, sourcesFound, targets } = await discoverCitationTargets(client, cleanQueries);
+    const { brandCited, sourcesFound, targets } = await discoverCitationTargets(cleanQueries);
 
     return res.json({
       success: true,
@@ -3301,15 +3345,13 @@ app.post('/api/nap-audit', requireAuth, async (req, res) => {
   if (!geminiKey) {
     return res.json({ success: true, unavailable: true, message: 'Add your Gemini API key in Settings to run a NAP audit (uses live Google Search grounding).', canonical, listings: [] });
   }
-
-  const client = new GoogleGenAI({ apiKey: geminiKey });
   const digits = s => String(s || '').replace(/\D/g, '');
   const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
   const canonPhone = digits(canonical.phone);
 
   try {
     const prompt = `Find the current online business listings for "${BUSINESS.name}" located in ${BUSINESS.addressLocality}, ${BUSINESS.addressRegion}. For each major platform where it appears (for example Google Business Profile, Yelp, Facebook, Apple Maps, Bing Places, BBB, and local fitness directories), report the EXACT business name, full street address, and phone number shown there, based on current web information. Reply with ONLY raw JSON, no markdown fences: {"listings":[{"platform":"","name":"","address":"","phone":""}]}. If a field isn't shown on a platform, use an empty string.`;
-    const r = await client.models.generateContent({ model: GEMINI_MODEL, contents: prompt, config: { tools: [{ googleSearch: {} }] } });
+    const r = await geminiGenerate({ model: GEMINI_MODEL, contents: prompt, config: { tools: [{ googleSearch: {} }] } });
     let raw = (r.text || '').trim().replace(/^```json/i, '').replace(/^```/, '').replace(/```$/, '').trim();
     const m = raw.match(/\{[\s\S]*\}/);
     if (m) raw = m[0];
@@ -3340,7 +3382,6 @@ app.post('/api/local-generate', requireAuth, async (req, res) => {
   if (!geminiKey) {
     return res.json({ success: true, unavailable: true, message: 'Add your Gemini API key in Settings to generate local content.', text: '' });
   }
-  const client = new GoogleGenAI({ apiKey: geminiKey });
 
   const brand = brandPrompt(true);
 
@@ -3358,7 +3399,7 @@ app.post('/api/local-generate', requireAuth, async (req, res) => {
   }
 
   try {
-    const r = await client.models.generateContent({ model: GEMINI_MODEL, contents: prompt });
+    const r = await geminiGenerate({ model: GEMINI_MODEL, contents: prompt });
     return res.json({ success: true, text: (r.text || '').trim() });
   } catch (err) {
     console.error('[Local Generate] failed:', err.message);
@@ -3378,7 +3419,7 @@ function savePerf() {
 
 async function queryGscRange(auth, siteUrl, startDate, endDate) {
   const webmasters = google.webmasters({ version: 'v3', auth });
-  const resp = await webmasters.searchanalytics.query({
+  const resp = await searchConsoleQuery(webmasters, {
     siteUrl,
     requestBody: { startDate, endDate, dimensions: ['query'], rowLimit: 250 }
   });
@@ -3482,22 +3523,18 @@ async function computePerformanceSnapshot() {
   const lCurStart = Date.now() - 28 * day, lPrevStart = Date.now() - 56 * day, lPrevEnd = Date.now() - 28 * day;
   if (ghlToken && ghlLoc) {
     try {
-      const r = await fetch(`https://services.leadconnectorhq.com/contacts/?locationId=${encodeURIComponent(ghlLoc)}&limit=100`, {
+      const r = await providerRuntime.fetch('gohighlevel', `https://services.leadconnectorhq.com/contacts/?locationId=${encodeURIComponent(ghlLoc)}&limit=100`, {
         headers: { 'Authorization': `Bearer ${ghlToken}`, 'Version': '2021-07-28' }
+      }, { retries: 1 });
+      const d = await r.json();
+      const contacts = d.contacts || [];
+      let curN = 0, prevN = 0;
+      contacts.forEach(c => {
+        const t = new Date(c.dateAdded || c.dateUpdated || 0).getTime();
+        if (t >= lCurStart) curN++;
+        else if (t >= lPrevStart && t < lPrevEnd) prevN++;
       });
-      if (r.ok) {
-        const d = await r.json();
-        const contacts = d.contacts || [];
-        let curN = 0, prevN = 0;
-        contacts.forEach(c => {
-          const t = new Date(c.dateAdded || c.dateUpdated || 0).getTime();
-          if (t >= lCurStart) curN++;
-          else if (t >= lPrevStart && t < lPrevEnd) prevN++;
-        });
-        out.leads = { available: true, current: curN, previous: prevN, approx: contacts.length >= 100 };
-      } else {
-        out.leads = { available: false, reason: `GoHighLevel contacts API returned ${r.status} — the token may not have contacts access.` };
-      }
+      out.leads = { available: true, current: curN, previous: prevN, approx: contacts.length >= 100 };
     } catch (e) {
       out.leads = { available: false, reason: 'Could not reach GoHighLevel: ' + e.message };
     }
@@ -3642,20 +3679,19 @@ app.post('/api/onsite', requireAuth, async (req, res) => {
   if (!geminiKey) {
     return res.json({ success: true, unavailable: true, message: 'Add your Gemini API key in Settings to use the on-site tools.' });
   }
-  const client = new GoogleGenAI({ apiKey: geminiKey });
   const brand = brandPrompt(true);
 
   try {
     if (tool === 'keywords') {
       if (!seed) return res.status(400).json({ error: 'Enter a seed keyword.' });
       const prompt = `${brand}\nUsing current web information, expand the seed keyword "${seed}" into 4–5 topic clusters this business could realistically target. For each cluster give: a short theme, 4–6 specific keyword phrases people actually search (favor local and long‑tail), 2–3 real questions people ask, and one concrete blog/page content idea. Return ONLY raw JSON, no markdown: {"clusters":[{"theme":"","keywords":[],"questions":[],"contentIdea":""}]}`;
-      const r = await client.models.generateContent({ model: GEMINI_MODEL, contents: prompt, config: { tools: [{ googleSearch: {} }] } });
+      const r = await geminiGenerate({ model: GEMINI_MODEL, contents: prompt, config: { tools: [{ googleSearch: {} }] } });
       return res.json({ success: true, data: parseGeminiJson(r.text) });
     }
     if (tool === 'titlemeta') {
       if (!keyword) return res.status(400).json({ error: 'Enter a target keyword.' });
       const prompt = `${brand}\nWrite SEO title tags and meta descriptions targeting the keyword "${keyword}"${currentTitle ? ` (current title is: "${currentTitle}")` : ''}. Provide 3 title options (each 60 characters or fewer, compelling, naturally including the keyword) and 2 meta descriptions (each 155 characters or fewer, with a clear call to action). Return ONLY raw JSON, no markdown: {"titles":[],"metas":[]}`;
-      const r = await client.models.generateContent({ model: GEMINI_MODEL, contents: prompt });
+      const r = await geminiGenerate({ model: GEMINI_MODEL, contents: prompt });
       return res.json({ success: true, data: parseGeminiJson(r.text) });
     }
     if (tool === 'links') {
@@ -3664,7 +3700,7 @@ app.post('/api/onsite', requireAuth, async (req, res) => {
         return res.json({ success: true, data: { suggestions: [], note: 'Publish at least two pages first — then this suggests internal links between them to build topic authority.' } });
       }
       const prompt = `${brand}\nHere are the pages this website has published:\n${JSON.stringify(pages)}\nSuggest internal links between them to build topic authority (pillar/cluster style). For each suggestion give the source page title, the target page title, a natural anchor phrase, and a one‑line reason. Return ONLY raw JSON, no markdown: {"suggestions":[{"from":"","to":"","anchor":"","why":""}]}`;
-      const r = await client.models.generateContent({ model: GEMINI_MODEL, contents: prompt });
+      const r = await geminiGenerate({ model: GEMINI_MODEL, contents: prompt });
       return res.json({ success: true, data: parseGeminiJson(r.text) });
     }
     if (tool === 'fanout') {
@@ -3673,7 +3709,7 @@ app.post('/api/onsite', requireAuth, async (req, res) => {
       const q = (query || '').trim();
       if (!q) return res.status(400).json({ error: 'A search query is required.' });
       const prompt = `${brand}\nA person's search is: "${q}". AI answer engines break a search like this into several related sub-questions ("query fan-out"), then answer each one. Using current web information, list the 5–7 specific, natural questions real people ask around this search — the questions a single, citable article on this topic should answer to earn AI citations. Favor questions this business's audience (adults 50+, seniors, injury recovery, local St. Petersburg) would actually ask. Phrase each as a real question. Return ONLY raw JSON, no markdown: {"questions":["",""]}`;
-      const r = await client.models.generateContent({ model: GEMINI_MODEL, contents: prompt, config: { tools: [{ googleSearch: {} }] } });
+      const r = await geminiGenerate({ model: GEMINI_MODEL, contents: prompt, config: { tools: [{ googleSearch: {} }] } });
       return res.json({ success: true, data: parseGeminiJson(r.text) || { questions: [] } });
     }
     if (tool === 'aeoReadiness') {
@@ -3742,7 +3778,7 @@ Then set:
 Return ONLY raw JSON, no markdown:
 {"overallScore":0,"bucket":"","checklist":[{"key":"answerFirst","label":"Answer-first opening","pass":true,"note":""},{"key":"questionHeaders","label":"Question-style headers","pass":true,"note":""},{"key":"selfContained","label":"Self-contained sections","pass":true,"note":""},{"key":"listsTables","label":"Lists & tables","pass":true,"note":""},{"key":"fanoutCoverage","label":"Covers related questions","pass":true,"note":""},{"key":"freshness","label":"Freshness / dates","pass":true,"note":""},{"key":"dualAudience","label":"Clear for AI & humans","pass":true,"note":""}],"topFixes":[""]}`;
 
-      const r = await client.models.generateContent({ model: GEMINI_MODEL, contents: auditPrompt });
+      const r = await geminiGenerate({ model: GEMINI_MODEL, contents: auditPrompt });
       const data = parseGeminiJson(r.text) || {};
       data.url = target;
       data.pageTitle = pageTitle;
@@ -3905,9 +3941,8 @@ app.post('/api/listing-kit', requireAuth, async (req, res) => {
   const geminiKey = process.env.GEMINI_API_KEY;
   if (!geminiKey) return res.json({ success: true, kit: listingKit(), note: 'Add a Gemini key to regenerate descriptions; using the built-in defaults for now.' });
   try {
-    const client = new GoogleGenAI({ apiKey: geminiKey });
     const prompt = `${brandPrompt(true)}\n\nWrite listing copy for business directories. Return ONLY raw JSON, no markdown: {"tagline":"under 70 chars","shortDesc":"<=160 chars, keyword-aware","longDesc":"2-3 sentence paragraph","categories":["4 short business categories"]}`;
-    const r = await client.models.generateContent({ model: GEMINI_MODEL, contents: prompt });
+    const r = await geminiGenerate({ model: GEMINI_MODEL, contents: prompt });
     const parsed = parseGeminiJson(r.text);
     if (parsed) {
       citationsDb.kit = {
@@ -3927,7 +3962,7 @@ app.post('/api/listing-kit', requireAuth, async (req, res) => {
 });
 
 // Shared finder: grounded discovery + classification of the sources AI cites.
-async function discoverCitationTargets(client, cleanQueries) {
+async function discoverCitationTargets(cleanQueries) {
   const brandName = BUSINESS.name;
   const brandRoot = 'bestdayfitness';
   const domainInfo = {};
@@ -3935,7 +3970,7 @@ async function discoverCitationTargets(client, cleanQueries) {
   await Promise.all(cleanQueries.map(async (q) => {
     try {
       const prompt = `A person searching online asks: "${q}". Acting as a helpful AI answer engine, recommend the best specific local businesses that fit this search in and around St. Petersburg, Florida, based on current web information.`;
-      const resp = await client.models.generateContent({ model: GEMINI_MODEL, contents: prompt, config: { tools: [{ googleSearch: {} }] } });
+      const resp = await geminiGenerate({ model: GEMINI_MODEL, contents: prompt, config: { tools: [{ googleSearch: {} }] } });
       const gm = (resp.candidates && resp.candidates[0] && resp.candidates[0].groundingMetadata) || {};
       const chunks = gm.groundingChunks || [];
       const seen = new Set();
@@ -3955,7 +3990,7 @@ async function discoverCitationTargets(client, cleanQueries) {
     const base = { domain: dom, citedFor: domainInfo[dom].count, queries: domainInfo[dom].queries };
     try {
       const p = `On the website "${dom}", is the St. Petersburg, Florida fitness studio "Best Day Fitness" listed or mentioned? Also classify what kind of site "${dom}" is. Reply with ONLY raw JSON, no markdown fences: {"listed": true or false, "type": "directory" | "review" | "listicle" | "forum" | "competitor" | "news" | "other", "note": "one short line describing the site"}`;
-      const r = await client.models.generateContent({ model: GEMINI_MODEL, contents: p, config: { tools: [{ googleSearch: {} }] } });
+      const r = await geminiGenerate({ model: GEMINI_MODEL, contents: p, config: { tools: [{ googleSearch: {} }] } });
       const parsed = parseGeminiJson(r.text) || {};
       return { ...base, type: parsed.type || 'other', listed: (typeof parsed.listed === 'boolean' ? parsed.listed : null), note: parsed.note || '' };
     } catch (e) { return { ...base, type: 'other', listed: null, note: '' }; }
@@ -4001,8 +4036,7 @@ function worklistPayload() {
 // flags which domains are NEW since the previous scan. Used by the manual
 // endpoint and the weekly auto-scan.
 async function performCitationScan(queries) {
-  const client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-  const { brandCited, sourcesFound, targets } = await discoverCitationTargets(client, queries);
+  const { brandCited, sourcesFound, targets } = await discoverCitationTargets(queries);
   const prevDomains = new Set((citationsDb.targets || []).map(t => t.domain));
   const liveDomains = new Set(targets.map(t => t.domain));
   const keptStatuses = {};
@@ -4055,7 +4089,6 @@ app.post('/api/citation-scan', requireAuth, async (req, res) => {
   queries = queries.map(q => String(q || '').trim()).filter(Boolean).slice(0, 8);
   if (!queries.length) return res.status(400).json({ success: false, error: 'At least one search query is required.' });
   try {
-    meterUsage('grounded');
     await performCitationScan(queries);
     res.json(worklistPayload());
   } catch (err) {
@@ -4113,9 +4146,8 @@ app.post('/api/citation-outreach', requireAuth, async (req, res) => {
     let howTo = 'Look for a "Claim this business", "Add your business", or "For businesses" link, then paste the fields below.';
     if (geminiKey) {
       try {
-        const client = new GoogleGenAI({ apiKey: geminiKey });
         const p = `Best Day Fitness wants to claim or create a free business listing on "${domain}" (a ${t} site). Using current web information, find the exact URL where a business owner adds or claims a listing on ${domain}. Return ONLY raw JSON, no markdown: {"claimUrl":"the direct add/claim/for-business URL","howTo":"one short line on the steps"}`;
-        const r = await client.models.generateContent({ model: GEMINI_MODEL, contents: p, config: { tools: [{ googleSearch: {} }] } });
+        const r = await geminiGenerate({ model: GEMINI_MODEL, contents: p, config: { tools: [{ googleSearch: {} }] } });
         const parsed = parseGeminiJson(r.text);
         if (parsed && parsed.claimUrl) claimUrl = parsed.claimUrl;
         if (parsed && parsed.howTo) howTo = parsed.howTo;
@@ -4135,7 +4167,6 @@ app.post('/api/citation-outreach', requireAuth, async (req, res) => {
     return res.json({ success: true, kind: 'pitch', domain, unavailable: true, message: 'Add a Gemini key in Settings to auto-draft a personalized pitch for this source.' });
   }
   try {
-    const client = new GoogleGenAI({ apiKey: geminiKey });
     const p = `You are helping a local business get included in a third-party ${t}.
 Business: ${brandPrompt()}
 Phone ${kit.phone}. Owner's first name: Chris.
@@ -4144,7 +4175,7 @@ Do BOTH of the following using current web information about "${domain}":
 1) Find the single best REAL way to reach them to pitch inclusion: an actual publicly-listed email address if one exists (prefer editorial / tips / news / submissions / contact / info in that order), and the URL of the page where a pitch or listing submission is made (their contact, "submit a tip", "write for us", or about page). Only return an email you can actually find published — never invent one.
 2) Write a warm, specific pitch for inclusion. Reference what the site or article actually covers so it's clearly not a template. Under 130 words, one clear ask, friendly sign-off from Chris.
 Return ONLY raw JSON, no markdown: {"email":"the best real, publicly-listed email address, or empty string if none is published","contactUrl":"the URL to submit/pitch or the site's contact page (empty if none)","to":"a short human label for who this reaches, e.g. 'Features editor'","subject":"","body":"","howToFind":"one short line on how to reach or confirm the right recipient"}`;
-    const r = await client.models.generateContent({ model: GEMINI_MODEL, contents: p, config: { tools: [{ googleSearch: {} }] } });
+    const r = await geminiGenerate({ model: GEMINI_MODEL, contents: p, config: { tools: [{ googleSearch: {} }] } });
     const parsed = parseGeminiJson(r.text) || {};
     const emailRe = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
     const foundEmail = parsed.email && emailRe.test(String(parsed.email).trim()) ? String(parsed.email).trim() : '';
@@ -4199,12 +4230,11 @@ async function localNapScan() {
   const geminiKey = process.env.GEMINI_API_KEY;
   const canonical = { name: BUSINESS.name, address: `${BUSINESS.streetAddress}, ${BUSINESS.addressLocality}, ${BUSINESS.addressRegion} ${BUSINESS.postalCode}`, phone: BUSINESS.telephone };
   if (!geminiKey) return null;
-  const client = new GoogleGenAI({ apiKey: geminiKey });
   const digits = s => String(s || '').replace(/\D/g, '');
   const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
   const canonPhone = digits(canonical.phone);
   const prompt = `Find the current online business listings for "${BUSINESS.name}" located in ${BUSINESS.addressLocality}, ${BUSINESS.addressRegion}. For each major platform (Google Business Profile, Yelp, Facebook, Apple Maps, Bing Places, BBB, local fitness directories), report the EXACT business name, full street address, and phone number shown there, based on current web information. Reply with ONLY raw JSON, no markdown fences: {"listings":[{"platform":"","name":"","address":"","phone":""}]}. Empty string if a field isn't shown.`;
-  const r = await client.models.generateContent({ model: GEMINI_MODEL, contents: prompt, config: { tools: [{ googleSearch: {} }] } });
+  const r = await geminiGenerate({ model: GEMINI_MODEL, contents: prompt, config: { tools: [{ googleSearch: {} }] } });
   const parsed = parseGeminiJson(r.text) || { listings: [] };
   const listings = (parsed.listings || []).map(l => ({
     platform: l.platform || '', name: l.name || '', address: l.address || '', phone: l.phone || '',
@@ -4234,7 +4264,6 @@ const GBP_TOPIC_SEED = [
 async function localGbpDraft() {
   const geminiKey = process.env.GEMINI_API_KEY;
   if (!geminiKey) return null;
-  const client = new GoogleGenAI({ apiKey: geminiKey });
   let topic, topicLabel;
   if (historyDb && historyDb.length) {
     topicLabel = historyDb[0].title;
@@ -4246,7 +4275,7 @@ async function localGbpDraft() {
   }
   const brand = brandPrompt(true);
   const prompt = `${brand}\nWrite a Google Business Profile post about: ${topic}. Under 1500 characters, engaging and locally relevant to St. Petersburg, with a clear call to action at the end (book a consultation / call us / visit). Return only the post text.`;
-  const r = await client.models.generateContent({ model: GEMINI_MODEL, contents: prompt });
+  const r = await geminiGenerate({ model: GEMINI_MODEL, contents: prompt });
   return { text: (r.text || '').trim(), topic: topicLabel, postType: 'update', createdAt: new Date().toISOString() };
 }
 
@@ -4344,10 +4373,9 @@ app.post('/api/local-reply', requireAuth, async (req, res) => {
   const geminiKey = process.env.GEMINI_API_KEY;
   if (!geminiKey) return res.json({ success: true, unavailable: true, message: 'Add your Gemini API key in Settings to draft replies.' });
   try {
-    const client = new GoogleGenAI({ apiKey: geminiKey });
     const brand = brandPrompt(true);
     const prompt = `${brand}\nWrite a warm, personal, professional reply from the business to this Google review${rating ? ` (${rating} stars)` : ''}:\n"""${review}"""\nRules: reference something specific they mentioned; keep it 2–4 sentences; sound human, never templated; if it's negative, be gracious, take responsibility, and invite them to connect offline. Return only the reply text.`;
-    const r = await client.models.generateContent({ model: GEMINI_MODEL, contents: prompt });
+    const r = await geminiGenerate({ model: GEMINI_MODEL, contents: prompt });
     const reply = (r.text || '').trim();
     localDb.replyHistory.unshift({ review: String(review).slice(0, 500), rating: rating || '', reply, createdAt: new Date().toISOString() });
     localDb.replyHistory = localDb.replyHistory.slice(0, 20);
@@ -4398,9 +4426,8 @@ const ONSITE_SEEDS = [
 async function onsiteKeywordScan(seed) {
   const geminiKey = process.env.GEMINI_API_KEY;
   if (!geminiKey) return null;
-  const client = new GoogleGenAI({ apiKey: geminiKey });
   const prompt = `${ONSITE_BRAND()}\nUsing current web information, expand the seed keyword "${seed}" into 4–5 topic clusters this business could realistically target. For each cluster give: a short theme, 4–6 specific keyword phrases people actually search (favor local and long‑tail), 2–3 real questions people ask, and one concrete blog/page content idea. Return ONLY raw JSON, no markdown: {"clusters":[{"theme":"","keywords":[],"questions":[],"contentIdea":""}]}`;
-  const r = await client.models.generateContent({ model: GEMINI_MODEL, contents: prompt, config: { tools: [{ googleSearch: {} }] } });
+  const r = await geminiGenerate({ model: GEMINI_MODEL, contents: prompt, config: { tools: [{ googleSearch: {} }] } });
   const data = parseGeminiJson(r.text) || { clusters: [] };
   return { seed, clusters: data.clusters || [], generatedAt: new Date().toISOString() };
 }
@@ -4409,18 +4436,16 @@ async function onsiteLinkScan() {
   if (!geminiKey) return null;
   const pages = (historyDb || []).map(h => ({ title: h.title, keyword: h.keyword, url: h.url }));
   if (pages.length < 2) return { suggestions: [], note: 'Publish at least two pages first — then this suggests internal links between them.', generatedAt: new Date().toISOString() };
-  const client = new GoogleGenAI({ apiKey: geminiKey });
   const prompt = `${ONSITE_BRAND()}\nHere are the pages this website has published:\n${JSON.stringify(pages)}\nSuggest internal links between them to build topic authority (pillar/cluster style). For each suggestion give the source page title, the target page title, a natural anchor phrase, and a one‑line reason. Return ONLY raw JSON, no markdown: {"suggestions":[{"from":"","to":"","anchor":"","why":""}]}`;
-  const r = await client.models.generateContent({ model: GEMINI_MODEL, contents: prompt });
+  const r = await geminiGenerate({ model: GEMINI_MODEL, contents: prompt });
   const data = parseGeminiJson(r.text) || { suggestions: [] };
   return { suggestions: data.suggestions || [], note: '', generatedAt: new Date().toISOString() };
 }
 async function onsiteTitleMetaScan(keyword, page) {
   const geminiKey = process.env.GEMINI_API_KEY;
   if (!geminiKey) return null;
-  const client = new GoogleGenAI({ apiKey: geminiKey });
   const prompt = `${ONSITE_BRAND()}\nWrite SEO title tags and meta descriptions targeting the keyword "${keyword}". Provide 3 title options (each 60 characters or fewer, compelling, naturally including the keyword) and 2 meta descriptions (each 155 characters or fewer, with a clear call to action). Return ONLY raw JSON, no markdown: {"titles":[],"metas":[]}`;
-  const r = await client.models.generateContent({ model: GEMINI_MODEL, contents: prompt });
+  const r = await geminiGenerate({ model: GEMINI_MODEL, contents: prompt });
   const data = parseGeminiJson(r.text) || { titles: [], metas: [] };
   return { page: page || keyword, keyword, titles: data.titles || [], metas: data.metas || [], generatedAt: new Date().toISOString() };
 }
@@ -4519,7 +4544,9 @@ async function sendGmail(to, subject, body) {
     'Content-Type: text/plain; charset=UTF-8'
   ].filter(Boolean).join('\r\n');
   const raw = Buffer.from(`${headers}\r\n\r\n${body || ''}`).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  const r = await gmail.users.messages.send({ userId: 'me', requestBody: { raw } });
+  const r = await providerRuntime.run('gmail', () => gmail.users.messages.send({ userId: 'me', requestBody: { raw } }), {
+    policy: { retries: 0, timeoutMs: 30000 },
+  });
   return r.data && r.data.id;
 }
 
@@ -4560,7 +4587,7 @@ async function postGbpLocalPost(text) {
   const tokenObj = await auth.getAccessToken();
   const token = (tokenObj && tokenObj.token) || tokenObj;
   const url = `https://mybusiness.googleapis.com/v4/accounts/${process.env.GBP_ACCOUNT_ID}/locations/${process.env.GBP_LOCATION_ID}/localPosts`;
-  const resp = await fetch(url, {
+  const resp = await providerRuntime.fetch('google-business-profile', url, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -4569,7 +4596,7 @@ async function postGbpLocalPost(text) {
       topicType: 'STANDARD',
       callToAction: { actionType: 'LEARN_MORE', url: siteDomain() }
     })
-  });
+  }, { retries: 0 });
   const data = await resp.json().catch(() => ({}));
   if (!resp.ok) throw new Error(data.error && data.error.message ? data.error.message : `GBP API HTTP ${resp.status}`);
   return { posted: true, name: data.name, searchUrl: data.searchUrl };
@@ -5183,16 +5210,11 @@ function revUrl() {
 }
 
 async function revFetch(url, opts = {}, ms = 12000) {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), ms);
-  try {
-    return await fetch(url, {
-      redirect: 'follow',
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; SEOBuddyBot/1.0)' },
-      signal: ctrl.signal,
-      ...opts,
-    });
-  } finally { clearTimeout(timer); }
+  return providerRuntime.fetch('reviews-site', url, {
+    redirect: 'follow',
+    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; SEOBuddyBot/1.0)' },
+    ...opts,
+  }, { throwOnHttpError: false, policy: { timeoutMs: ms }, retries: 1 });
 }
 
 // ---------------------------------------------------------------------------
@@ -5227,21 +5249,18 @@ async function fetchTrustpilot() {
   const fail = (error) => remember({ configured: true, ok: false, domain, error });
 
   try {
-    const r = await revFetch(tpFindUrl(domain, process.env.TRUSTPILOT_API_BASE), {
+    const r = await providerRuntime.fetch('trustpilot', tpFindUrl(domain, process.env.TRUSTPILOT_API_BASE), {
       headers: { apikey: apiKey, Accept: 'application/json', 'User-Agent': 'SEOBuddyBot/1.0' },
-    }, 8000);
-    if (r.status === 401 || r.status === 403) {
-      return fail('Trustpilot rejected the API key. Check TRUSTPILOT_API_KEY, and that your Trustpilot plan includes API access.');
-    }
-    if (r.status === 404) return fail(`Trustpilot has no business profile for ${domain}.`);
-    if (r.status === 429) return fail('Trustpilot rate-limited this key. It will retry on the next audit.');
-    if (!r.ok) return fail(`Trustpilot returned HTTP ${r.status}.`);
+    }, { policy: { timeoutMs: 8000 }, retries: 1 });
 
     const parsed = tpNormalize(await r.json());
     if (!parsed) return fail('Trustpilot replied with a profile this version does not recognise.');
     return remember({ configured: true, ok: true, fetchedAt: new Date().toISOString(), ...parsed });
   } catch (e) {
-    return fail(e.name === 'AbortError' ? 'Trustpilot did not respond within 8 seconds.' : e.message);
+    if (e.statusCode === 401 || e.statusCode === 403) return fail('Trustpilot rejected the API key. Check TRUSTPILOT_API_KEY, and that your Trustpilot plan includes API access.');
+    if (e.statusCode === 404) return fail(`Trustpilot has no business profile for ${domain}.`);
+    if (e.statusCode === 429) return fail('Trustpilot rate-limited this key. It will retry on the next audit.');
+    return fail(e.code === 'PROVIDER_TIMEOUT' ? 'Trustpilot did not respond within 8 seconds.' : e.message);
   }
 }
 
@@ -5597,12 +5616,6 @@ const MEDIA_TYPES = [
   'video/mp4', 'video/webm', 'video/quicktime', 'video/x-m4v', 'video/mpeg',
 ];
 
-function mediaGemini() {
-  const key = process.env.GEMINI_API_KEY;
-  if (!key) throw new Error('GEMINI_API_KEY is not configured — add it in Railway variables.');
-  return new GoogleGenAI({ apiKey: key });
-}
-
 // ---------------------------------------------------------------------------
 // Transcribe. Gemini takes audio directly, so the recording never leaves the
 // stack we already pay for — no local ffmpeg, no unlisted-YouTube caption
@@ -5627,10 +5640,7 @@ app.post('/api/transcribe', requireAuth, async (req, res) => {
     }
 
     if (usageOverBudget()) return budgetBlock(res);
-    meterUsage('transcribe');
-
-    const client = mediaGemini();
-    const r = await client.models.generateContent({
+    const r = await geminiGenerate({
       model: GEMINI_MODEL,
       contents: [{
         parts: [
@@ -5641,7 +5651,7 @@ article, and the specifics and turns of phrase are the whole point. Do not
 summarise, tidy up, or add commentary. Return only the transcript text.` },
         ],
       }],
-    });
+    }, { usageKind: 'transcribe' });
 
     const transcript = String(r.text || '').trim();
     if (!transcript) throw new Error('Nothing came back from the transcription — try a shorter or clearer recording.');
@@ -5670,9 +5680,6 @@ app.post('/api/social-pack', requireAuth, async (req, res) => {
       return res.status(400).json({ success: false, error: 'Need a transcript of at least a couple of paragraphs.' });
     }
     if (usageOverBudget()) return budgetBlock(res);
-    meterUsage('social');
-
-    const client = mediaGemini();
     const prompt = `Here is a transcript of ${BUSINESS.name} answering a customer question:
 
 """
@@ -5690,7 +5697,7 @@ you include personal stories and specifics from the transcript — not generic a
 Return ONLY raw JSON, no markdown fences:
 {"ideas":["..."],"hooks":["..."],"script":"the spoken script, plain text, no stage directions","platforms":["Instagram","TikTok","Facebook","Threads","Bluesky","LinkedIn","YouTube Shorts"]}`;
 
-    const r = await client.models.generateContent({ model: GEMINI_MODEL, contents: prompt });
+    const r = await geminiGenerate({ model: GEMINI_MODEL, contents: prompt }, { usageKind: 'social' });
     const pack = parseGeminiJson(r.text) || {};
     if (!pack.script) throw new Error('Gemini did not return a usable script — try again.');
 

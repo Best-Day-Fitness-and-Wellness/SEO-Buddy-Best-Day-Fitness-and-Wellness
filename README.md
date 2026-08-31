@@ -293,6 +293,10 @@ For PostgreSQL, set `DATABASE_URL` and run `npm run db:migrate` for an explicit 
 
 Scheduled content, AI visibility, citations, local SEO, on-site SEO, performance digest, health snapshot, and backup checks are persisted in the tenant's `jobs.json` before execution. Jobs use stable idempotency keys, worker leases with heartbeats, and bounded exponential retries. A deployment can interrupt a worker without silently losing the scheduled run; the replacement process reclaims the job. Queue history is bounded and never exposes job payloads through the protected `GET /api/job-queue` operations endpoint.
 
+### Provider reliability and spend controls
+
+All external integrations run through one provider boundary with per-provider concurrency limits, rolling rate limits, timeouts, safe read retries, circuit breakers, and bounded cache support. Non-idempotent publishing and send operations are never retried automatically. The existing monthly AI budget is enforced inside this shared boundary as well as at user-facing routes, so scheduled work cannot bypass the spend limit. Operators can inspect non-secret status, latency, retry, cache, and failure totals through protected `GET /api/integration-health`; the same snapshot is included in diagnostics.
+
 Deploying by hand (GitHub web upload): keep `server.js`, `lib/`, `public/`, and `scripts/` together. The server reads the browser sources at boot and injects content-hashed URLs into `index.html`; there is no separate frontend build artifact to upload.
 
 ---
@@ -330,6 +334,8 @@ Deploying by hand (GitHub web upload): keep `server.js`, `lib/`, `public/`, and 
 | GET | `/api/audit-status` | 🔒 owner | Verify the audit hash/signature chain and return its entry count. |
 | GET | `/api/storage-backups` | 🔒 owner | List backups and independently verify every manifest checksum. |
 | POST | `/api/storage-backups` | 🔒 owner | Create a backup, or verify one by ID. Restore is deliberately CLI-only while the server is stopped. |
+| GET | `/api/job-queue` | 🔒 operator | Read bounded durable-job counts and recent execution status without payloads. |
+| GET | `/api/integration-health` | 🔒 operator | Read non-secret provider health, latency, retry, cache, circuit, and budget status. |
 
 ### Content
 | Method | Endpoint | Auth | Purpose |
