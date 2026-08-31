@@ -1,6 +1,6 @@
 'use strict';
 
-document.addEventListener('DOMContentLoaded', () => {
+(function initializeReviewsFeature() {
   const { safeExternalUrl, uiEsc } = window.SeoBuddyCore;
   // ===========================================================================
   // REVIEWS SITE — inventory, growth, and structured-data health
@@ -222,4 +222,4 @@ document.addEventListener('DOMContentLoaded', () => {
     const b = e.target.closest && e.target.closest('#rv-refresh');
     if (b) { b.disabled = true; loadReviews(true).finally(() => { b.disabled = false; }); }
   });
-});
+})();

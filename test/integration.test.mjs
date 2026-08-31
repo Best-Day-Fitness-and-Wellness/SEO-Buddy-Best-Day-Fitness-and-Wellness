@@ -292,7 +292,10 @@ test('static assets compress, cache briefly, and keep PDF code off the critical 
   assert.doesNotMatch(index.headers.get('content-security-policy') || '', /script-src 'self' 'unsafe-inline'/);
   assert.doesNotMatch(html, /{{[A-Z0-9_]+}}/);
   const hashedAssets = [...html.matchAll(/(?:href|src)="(\/assets\/[^"]+)"/g)].map(match => match[1]);
-  assert.equal(hashedAssets.length, 6, 'stylesheet, theme, core, app, assistant, and reviews must all be versioned');
+  assert.equal(hashedAssets.length, 5, 'stylesheet, theme, core, app, and assistant must be on the initial path');
+  const reviewsAsset = html.match(/data-reviews-asset="(\/assets\/reviews\.[a-f0-9]{12}\.js)"/)?.[1];
+  assert.ok(reviewsAsset, 'reviews must have a versioned lazy asset');
+  assert.equal(hashedAssets.includes(reviewsAsset), false, 'reviews must not execute on the initial path');
   for (const asset of hashedAssets) {
     assert.match(asset, /\.[a-f0-9]{12}\.(?:css|js)$/);
     const response = await request(asset, { auth: false, headers: { 'Accept-Encoding': 'gzip' } });
@@ -316,6 +319,7 @@ test('static assets compress, cache briefly, and keep PDF code off the critical 
   assert.match(source, /Live today/);
   assert.doesNotMatch(source, /SEO BUDDY ASSISTANT/);
   assert.doesNotMatch(source, /REVIEWS SITE/);
+  assert.match(source, /ensureReviewsFeature/);
 
   const coreSource = await (await request('/modules/core.js', { auth: false })).text();
   const assistantSource = await (await request('/modules/assistant.js', { auth: false })).text();

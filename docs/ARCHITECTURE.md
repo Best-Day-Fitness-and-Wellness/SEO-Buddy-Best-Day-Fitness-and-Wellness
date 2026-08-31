@@ -95,7 +95,8 @@ review monitoring, and `theme.js` owns theme behavior. `public/app.js` remains
 the main feature coordinator.
 
 The browser loads only the visible dashboard work initially. Feature loaders
-use same-origin APIs and render escaped values. Report libraries load on demand.
+use same-origin APIs and render escaped values. Report libraries and the Reviews
+feature module load on demand.
 Content-hashed assets prevent a deployment from combining new HTML with stale
 JavaScript.
 
@@ -230,7 +231,8 @@ so one production replica remains the supported topology.
    provider latency still consumes web-process memory and event-loop capacity.
    The database queue is ready for the PostgreSQL cutover; move the same handlers
    to a separate worker service after that cutover is verified.
-4. **`public/app.js` is still large.** Continue feature-by-feature extraction
+4. **`public/app.js` is still large.** Reviews, assistant, theme, and core are
+   separate modules; Reviews is lazy loaded. Continue feature-by-feature extraction
    and dynamic import while preserving DOM IDs and response contracts.
 5. **Configuration still supports UI-saved secrets.** A managed secret store is
    preferable for multi-instance deployment and independent rotation. Until

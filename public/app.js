@@ -26,6 +26,36 @@ document.addEventListener('DOMContentLoaded', () => {
   const pageSubtitle = document.getElementById('page-subtitle');
   const modeStatus = document.getElementById('mode-status');
   const modeStatusText = document.getElementById('mode-status-text');
+  let reviewsFeaturePromise = null;
+
+  function ensureReviewsFeature() {
+    if (window.loadReviews) return Promise.resolve();
+    if (reviewsFeaturePromise) return reviewsFeaturePromise;
+    const assetUrl = document.body.dataset.reviewsAsset;
+    if (!assetUrl || !assetUrl.startsWith('/assets/')) return Promise.reject(new Error('Reviews feature asset is unavailable.'));
+    reviewsFeaturePromise = new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = assetUrl;
+      script.async = true;
+      script.addEventListener('load', resolve, { once: true });
+      script.addEventListener('error', () => reject(new Error('Could not load the Reviews feature.')), { once: true });
+      document.head.appendChild(script);
+    }).catch(error => {
+      reviewsFeaturePromise = null;
+      throw error;
+    });
+    return reviewsFeaturePromise;
+  }
+
+  async function loadReviewsFeature() {
+    try {
+      await ensureReviewsFeature();
+      if (window.loadReviews) await window.loadReviews();
+    } catch (error) {
+      const checks = document.getElementById('rv-checks');
+      if (checks) checks.innerHTML = '<li class="rv-empty">Could not load the Reviews feature. Refresh and try again.</li>';
+    }
+  }
 
   function setDataMode(mode) {
     if (!modeStatus || !modeStatusText) return;
@@ -255,7 +285,7 @@ document.addEventListener('DOMContentLoaded', () => {
     } else if (tabId === 'reviews-tab') {
       pageTitle.innerText = 'Reviews Site';
       pageSubtitle.innerText = 'How many reviews are published, how that’s growing, and whether the page is structurally sound';
-      if (window.loadReviews) window.loadReviews();
+      loadReviewsFeature();
     } else if (tabId === 'gsc-tab') {
       pageTitle.innerText = 'Searches You’re Missing';
       pageSubtitle.innerText = 'Search queries where you show up but get no clicks — your biggest quick wins';

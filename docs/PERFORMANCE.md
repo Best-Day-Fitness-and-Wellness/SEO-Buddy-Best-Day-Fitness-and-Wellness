@@ -3,7 +3,7 @@
 ## Current protections
 
 The production path has compression, content-hashed immutable browser assets,
-lazy report libraries, visible-panel initialization, short-lived Search Console
+lazy report libraries, a lazy Reviews feature, visible-panel initialization, short-lived Search Console
 and performance caches, single-flight request coalescing, no-op daily snapshot
 writes, provider concurrency/rate controls, provider deadlines, and a durable
 job worker. These controls reduce transfer size, quota amplification, duplicate

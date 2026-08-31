@@ -58,8 +58,11 @@ assert.match(indexResponse.headers.get('content-security-policy') || '', /defaul
 assert.match(indexResponse.headers.get('strict-transport-security') || '', /max-age=31536000/);
 assert.doesNotMatch(indexHtml, /{{[A-Z0-9_]+}}/, 'Browser asset placeholders were not replaced');
 const browserAssets = [...indexHtml.matchAll(/(?:href|src)="(\/assets\/[^\"]+)"/g)].map(match => match[1]);
-assert.equal(browserAssets.length, 6, 'Expected six content-hashed browser assets');
+assert.equal(browserAssets.length, 5, 'Expected five initial content-hashed browser assets');
 assert.ok(browserAssets.every(asset => /\.[a-f0-9]{12}\.(?:css|js)$/.test(asset)));
+const reviewsAsset = indexHtml.match(/data-reviews-asset="(\/assets\/reviews\.[a-f0-9]{12}\.js)"/)?.[1];
+assert.ok(reviewsAsset, 'Expected a content-hashed lazy Reviews asset');
+assert.equal(browserAssets.includes(reviewsAsset), false, 'Reviews must stay off the initial script path');
 if (process.env.REQUIRE_LIVE_GSC === '1') assert.equal(gsc.source, 'live_gsc');
 
 console.log(JSON.stringify({
@@ -70,5 +73,5 @@ console.log(JSON.stringify({
   score: healthScore.overall,
   scoreVersion: healthScore.scoreVersion,
   storage: storage.backend,
-  assetCount: browserAssets.length,
+  assetCount: browserAssets.length + 1,
 }));
