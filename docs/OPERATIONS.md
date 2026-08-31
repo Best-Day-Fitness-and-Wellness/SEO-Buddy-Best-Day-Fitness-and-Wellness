@@ -92,9 +92,9 @@ runner uses an advisory lock and rejects changed historical checksums.
 In `STATE_BACKEND=filesystem`, PostgreSQL is an outbox-backed mirror and a
 mirror failure is an operational warning. To cut over, verify the mirror and a
 filesystem backup first, then set `STATE_BACKEND=postgres`; prestart replays the
-outbox and hydrates the runtime cache before readiness succeeds. Do not enable
-multiple replicas: feature mutations and the queue are not yet transactional
-database operations during a running process.
+outbox, hydrates the runtime cache, imports existing jobs, and then uses the
+transactional PostgreSQL queue before readiness succeeds. Do not enable multiple
+web replicas yet: feature mutations are still process-local during a run.
 
 ## Rollback
 

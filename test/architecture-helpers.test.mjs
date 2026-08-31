@@ -28,6 +28,8 @@ const { createFileStateRepository, normalizeTenantId } = require('../lib/state-r
 const { createBackupService } = require('../lib/backup-service.js');
 const { loadMigrations } = require('../lib/postgres-store.js');
 const { createDurableJobQueue } = require('../lib/durable-job-queue.js');
+const { createSwitchableJobQueue } = require('../lib/job-queue.js');
+const { createPostgresJobQueue, publicJob: publicPostgresJob } = require('../lib/postgres-job-queue.js');
 const { ProviderRuntimeError, createProviderRuntime } = require('../lib/provider-runtime.js');
 const { createPostgresStateBridge, replayPostgresOutbox } = require('../lib/postgres-state-bridge.js');
 const { classifyContactSource, summarizeContactAttribution } = require('../lib/attribution.js');
@@ -306,6 +308,38 @@ test('durable jobs do not retry deterministic failures', () => {
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('switchable job queue preserves one asynchronous worker contract', async () => {
+  const calls = [];
+  const fileQueue = { enqueue: value => { calls.push(`file:${value}`); return { created: true }; } };
+  const databaseQueue = { enqueue: async value => { calls.push(`postgres:${value}`); return { created: true }; } };
+  const queue = createSwitchableJobQueue(fileQueue, 'filesystem');
+  assert.deepEqual(await queue.enqueue('one'), { created: true });
+  queue.setBackend(databaseQueue, 'postgres');
+  assert.deepEqual(await queue.enqueue('two'), { created: true });
+  assert.equal(queue.backend(), 'postgres');
+  assert.deepEqual(calls, ['file:one', 'postgres:two']);
+});
+
+test('PostgreSQL job queue maps database rows without exposing payloads', async () => {
+  const timestamp = new Date('2026-08-31T12:00:00.000Z');
+  const row = {
+    job_id: '00000000-0000-4000-8000-000000000001', job_type: 'health.snapshot', payload: { secret: true },
+    status: 'pending', attempts: 0, max_attempts: 5, run_at: timestamp, lease_until: null,
+    idempotency_key: 'health:one', created_at: timestamp, updated_at: timestamp,
+    started_at: null, finished_at: null, last_error: null, result: null,
+  };
+  assert.equal(Object.hasOwn(publicPostgresJob(row), 'payload'), false);
+  const pool = { query: async sql => {
+    if (sql.startsWith('INSERT INTO durable_jobs')) return { rows: [row], rowCount: 1 };
+    throw new Error(`Unexpected query: ${sql}`);
+  } };
+  const queue = createPostgresJobQueue({ pool, tenantId: 'best-day-fitness' });
+  const inserted = await queue.enqueue('health.snapshot', { secret: true }, { idempotencyKey: 'health:one' });
+  assert.equal(inserted.created, true);
+  assert.equal(inserted.job.id, row.job_id);
+  assert.equal(Object.hasOwn(inserted.job, 'payload'), false);
 });
 
 test('provider runtime retries transient failures and reports bounded integration health', async () => {

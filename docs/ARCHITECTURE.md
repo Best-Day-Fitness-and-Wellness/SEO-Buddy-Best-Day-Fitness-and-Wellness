@@ -172,7 +172,9 @@ the application is stopped.
 `DATABASE_URL` enables immutable SQL migrations and an immediate, durable
 outbox-backed PostgreSQL mirror with periodic reconciliation. With
 `STATE_BACKEND=postgres`, the prestart step replays any pending outbox writes and
-hydrates the local runtime cache from PostgreSQL before traffic is accepted.
+hydrates the local runtime cache from PostgreSQL before traffic is accepted. It
+also imports existing file jobs once and switches claiming, leases,
+idempotency, retries, and job history to the transactional `durable_jobs` table.
 The current in-process feature model still uses that local cache during a run,
 so one production replica remains the supported topology.
 
@@ -225,8 +227,8 @@ so one production replica remains the supported topology.
    time-series tables.
 3. **The worker shares the web process.** Durable state prevents lost work, but
    provider latency still consumes web-process memory and event-loop capacity.
-   Move the same handlers to a separate worker only after the database queue is
-   authoritative.
+   The database queue is ready for the PostgreSQL cutover; move the same handlers
+   to a separate worker service after that cutover is verified.
 4. **`public/app.js` is still large.** Continue feature-by-feature extraction
    and dynamic import while preserving DOM IDs and response contracts.
 5. **Configuration still supports UI-saved secrets.** A managed secret store is

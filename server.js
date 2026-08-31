@@ -43,6 +43,8 @@ const { createBackupService } = require('./lib/backup-service');
 const { createPostgresStore } = require('./lib/postgres-store');
 const { createPostgresStateBridge } = require('./lib/postgres-state-bridge');
 const { createDurableJobQueue } = require('./lib/durable-job-queue');
+const { createSwitchableJobQueue } = require('./lib/job-queue');
+const { createPostgresJobQueue } = require('./lib/postgres-job-queue');
 const { ProviderRuntimeError, createProviderRuntime } = require('./lib/provider-runtime');
 const { summarizeContactAttribution } = require('./lib/attribution');
 const { assessArticleQuality } = require('./lib/content-quality');
@@ -147,7 +149,10 @@ const DATA_DIR = stateRepository.directory;
 // owner decision say which of the two they just did.
 const STORAGE_IS_PERSISTENT = !!process.env.DATA_DIR;
 const backupService = createBackupService({ repository: stateRepository, backupRoot: path.join(CONFIG_DIR, 'backups') });
-const durableJobQueue = createDurableJobQueue({ filePath: stateRepository.pathFor('jobs.json') });
+const durableJobQueue = createSwitchableJobQueue(
+  createDurableJobQueue({ filePath: stateRepository.pathFor('jobs.json') }),
+  'filesystem',
+);
 const jobHandlers = new Map();
 const JOB_WORKER_ID = `${process.env.RAILWAY_REPLICA_ID || 'local'}:${process.pid}`;
 let jobWorkerTimer = null;
@@ -159,9 +164,9 @@ function durableJobKey(type, windowMs, timestamp = Date.now()) {
   return `${type}:${Math.floor(timestamp / windowMs)}`;
 }
 
-function enqueueDurableJob(type, payload, options) {
+async function enqueueDurableJob(type, payload, options) {
   try {
-    const queued = durableJobQueue.enqueue(type, payload, options);
+    const queued = await durableJobQueue.enqueue(type, payload, options);
     if (queued.created) {
       logger.info('job.enqueued', { jobId: queued.job.id, jobType: queued.job.type, runAt: queued.job.runAt });
       if (jobWorkerStarted) setImmediate(drainDurableJobs);
@@ -178,23 +183,23 @@ async function drainDurableJobs() {
   jobWorkerDraining = true;
   try {
     for (let processed = 0; processed < 20 && !isShuttingDown; processed++) {
-      const job = durableJobQueue.claim(JOB_WORKER_ID, { leaseMs: 15 * 60 * 1000 });
+      const job = await durableJobQueue.claim(JOB_WORKER_ID, { leaseMs: 15 * 60 * 1000 });
       if (!job) break;
       const handler = jobHandlers.get(job.type);
       activeJobId = job.id;
       logger.info('job.started', { jobId: job.id, jobType: job.type, attempt: job.attempts });
-      const leaseHeartbeat = setInterval(() => {
-        try { durableJobQueue.renewLease(job.id, JOB_WORKER_ID, 15 * 60 * 1000); }
+      const leaseHeartbeat = setInterval(async () => {
+        try { await durableJobQueue.renewLease(job.id, JOB_WORKER_ID, 15 * 60 * 1000); }
         catch (error) { logger.error('job.lease_renewal_failed', { jobId: job.id, jobType: job.type, error }); }
       }, 60 * 1000);
       leaseHeartbeat.unref?.();
       try {
         if (!handler) throw new Error(`No handler registered for job type ${job.type}.`);
         const result = await handler(job.payload || {});
-        durableJobQueue.complete(job.id, result || { completed: true }, { workerId: JOB_WORKER_ID });
+        await durableJobQueue.complete(job.id, result || { completed: true }, { workerId: JOB_WORKER_ID });
         logger.info('job.completed', { jobId: job.id, jobType: job.type, attempt: job.attempts });
       } catch (error) {
-        const failed = durableJobQueue.fail(job.id, error, { workerId: JOB_WORKER_ID });
+        const failed = await durableJobQueue.fail(job.id, error, { workerId: JOB_WORKER_ID });
         logger.error('job.failed', {
           jobId: job.id,
           jobType: job.type,
@@ -265,6 +270,9 @@ async function initializePostgresMirror() {
   if (!process.env.DATABASE_URL) return;
   postgresMirror = createPostgresStore({ connectionString: process.env.DATABASE_URL, ssl: process.env.PGSSL !== 'disable' });
   const migrations = await postgresMirror.migrate(path.join(__dirname, 'migrations'));
+  if (STATE_BACKEND_MODE === 'postgres') {
+    durableJobQueue.setBackend(createPostgresJobQueue({ pool: postgresMirror.pool, tenantId: stateRepository.tenantId }), 'postgres');
+  }
   postgresStateBridge = createPostgresStateBridge({ repository: stateRepository, store: postgresMirror, logger });
   setJsonWriteObserver(postgresStateBridge.capture);
   await syncPostgresMirror();
@@ -5786,6 +5794,12 @@ function registerDurableJobHandlers() {
 }
 
 
+function startBackgroundWork() {
+  startDurableJobWorker();
+  scheduleDailyHealthSnapshots();
+  scheduleDailyStateBackups();
+}
+
 const server = app.listen(PORT, () => {
   logger.info('server.started', {
     port: Number(PORT),
@@ -5805,14 +5819,17 @@ const server = app.listen(PORT, () => {
   });
   if (!ADMIN_PASSWORD) logger.warn('security.admin_lock_disabled', { mode: APP_MODE });
   registerDurableJobHandlers();
-  startDurableJobWorker();
-  scheduleDailyHealthSnapshots();
-  scheduleDailyStateBackups();
-  initializePostgresMirror().catch(error => {
+  const databaseInitialization = initializePostgresMirror().catch(error => {
     postgresStatus.ready = false;
     postgresStatus.error = error.code || error.message;
     logger.error('storage.postgres_initialization_failed', { tenantId: stateRepository.tenantId, error });
+    if (STATE_BACKEND_MODE === 'postgres') throw error;
   });
+  if (STATE_BACKEND_MODE === 'postgres') {
+    databaseInitialization.then(startBackgroundWork).catch(() => { /* readiness remains false */ });
+  } else {
+    startBackgroundWork();
+  }
   // Fire-and-forget: repair-triggered re-indexing (safe, self-clearing).
   reindexRepairedPosts().catch(e => console.error('[URL Migration] reindex batch error:', e.message));
 });
@@ -5821,10 +5838,6 @@ function gracefulShutdown(signal) {
   if (isShuttingDown) return;
   isShuttingDown = true;
   if (jobWorkerTimer) clearInterval(jobWorkerTimer);
-  if (activeJobId) {
-    try { durableJobQueue.fail(activeJobId, new Error('Worker stopped during deployment.'), { baseDelayMs: 1000, workerId: JOB_WORKER_ID }); }
-    catch (error) { logger.warn('job.shutdown_requeue_failed', { jobId: activeJobId, error }); }
-  }
   logger.info('server.shutdown_started', { signal });
   const forceExit = setTimeout(() => {
     logger.error('server.shutdown_timeout', { signal, timeoutMs: 10000 });
@@ -5839,6 +5852,10 @@ function gracefulShutdown(signal) {
       process.exit(1);
     }
     try {
+      if (activeJobId) {
+        try { await durableJobQueue.fail(activeJobId, new Error('Worker stopped during deployment.'), { baseDelayMs: 1000, workerId: JOB_WORKER_ID }); }
+        catch (jobError) { logger.warn('job.shutdown_requeue_failed', { jobId: activeJobId, error: jobError }); }
+      }
       if (postgresStateBridge) {
         await postgresStateBridge.flush();
         postgresStateBridge.close();

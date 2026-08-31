@@ -7,6 +7,7 @@ const dotenv = require('dotenv');
 const { createFileStateRepository } = require('../lib/state-repository.js');
 const { createPostgresStore } = require('../lib/postgres-store.js');
 const { replayPostgresOutbox } = require('../lib/postgres-state-bridge.js');
+const { createPostgresJobQueue } = require('../lib/postgres-job-queue.js');
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const storageRoot = resolve(process.env.DATA_DIR || projectRoot);
@@ -29,7 +30,10 @@ if (mode === 'postgres') {
       states = await postgres.listStates(repository.tenantId);
     }
     for (const state of states) repository.writeJson(state.state_key, state.payload);
-    console.log(JSON.stringify({ success: true, mode, tenantId: repository.tenantId, migrations, replayed, seeded, hydrated: states.length }));
+    const jobQueue = createPostgresJobQueue({ pool: postgres.pool, tenantId: repository.tenantId });
+    const fileJobs = repository.readJson('jobs.json', { jobs: [] });
+    const importedJobs = await jobQueue.importJobs(fileJobs.jobs);
+    console.log(JSON.stringify({ success: true, mode, tenantId: repository.tenantId, migrations, replayed, seeded, hydrated: states.length, importedJobs }));
   } finally {
     await postgres.close();
   }
