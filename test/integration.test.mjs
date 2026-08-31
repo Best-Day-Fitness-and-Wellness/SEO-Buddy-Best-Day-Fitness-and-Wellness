@@ -13,6 +13,7 @@ const { parse: parseDotenv } = require('dotenv');
 const ADMIN_PASSWORD = 'integration-test-password';
 const OPERATOR_PASSWORD = 'integration-test-operator-password';
 const dataDir = mkdtempSync(join(tmpdir(), 'seo-buddy-test-'));
+const tenantDir = join(dataDir, 'tenants', 'best-day-fitness');
 let child;
 let base;
 let childLogs = '';
@@ -62,6 +63,7 @@ before(async () => {
       DATA_DIR: dataDir,
       ADMIN_PASSWORD,
       OPERATOR_PASSWORD,
+      DATABASE_URL: '',
       GEMINI_API_KEY: '',
       OPENAI_API_KEY: '',
       PERPLEXITY_API_KEY: '',
@@ -83,7 +85,7 @@ after(() => {
 });
 
 test('reading the health score does not write score history', async () => {
-  const healthFile = join(dataDir, 'health-score.json');
+  const healthFile = join(tenantDir, 'health-score.json');
   assert.equal(existsSync(healthFile), false);
 
   const response = await request('/api/health-score', { auth: false });
@@ -138,6 +140,7 @@ test('production mode never reports demo generation, publishing, indexing, or se
       DATA_DIR: productionDir,
       ADMIN_PASSWORD,
       OPERATOR_PASSWORD,
+      DATABASE_URL: '',
       GEMINI_API_KEY: '',
       GHL_ACCESS_TOKEN: '',
       GHL_LOCATION_ID: '',
@@ -275,7 +278,7 @@ test('every mutating or credit-spending route is password protected', async () =
     '/api/onsite-autopilot/seen', '/api/send-pitch', '/api/gbp-post',
     '/api/gbp-mark-posted', '/api/performance-digest/toggle',
     '/api/performance-digest/run', '/api/performance-digest/seen',
-    '/api/performance-digest/send', '/api/transcribe', '/api/social-pack',
+    '/api/performance-digest/send', '/api/transcribe', '/api/social-pack', '/api/storage-backups',
   ];
   for (const path of paths) {
     const response = await request(path, { method: 'POST', auth: false, body: {} });
@@ -409,6 +412,7 @@ test('an unrelated settings save migrates inherited raw Google JSON without corr
       PORT: String(isolatedPort),
       DATA_DIR: isolatedDir,
       ADMIN_PASSWORD,
+      DATABASE_URL: '',
       GEMINI_API_KEY: '',
       GOOGLE_APPLICATION_CREDENTIALS: JSON.stringify(serviceAccount),
       GSC_SITE_URL: 'sc-domain:bestdayfitness.com',
@@ -494,9 +498,31 @@ test('audit status verifies the mutation chain without retaining credentials or 
   assert.equal(body.audit.valid, true);
   assert.ok(body.audit.entries > 10);
 
-  const log = readFileSync(join(dataDir, 'audit-log.jsonl'), 'utf8');
+  const log = readFileSync(join(tenantDir, 'audit-log.jsonl'), 'utf8');
   assert.match(log, /POST \/api\/save-settings/);
   assert.match(log, /POST \/api\/autopilot-queue\/add/);
   assert.doesNotMatch(log, /integration-test-(?:password|operator-password)/);
   assert.doesNotMatch(log, /operator permission test|INJECTED_KEY|BEGIN PRIVATE KEY/);
+});
+
+test('owner can create and independently verify a tenant-scoped backup', async () => {
+  const created = await request('/api/storage-backups', { method: 'POST', body: { action: 'create' } });
+  const createdBody = await created.json();
+  assert.equal(created.status, 200);
+  assert.equal(createdBody.backup.valid, true);
+  assert.equal(createdBody.backup.tenantId, 'best-day-fitness');
+  assert.ok(createdBody.backup.files.length > 0);
+
+  const verified = await request('/api/storage-backups', {
+    method: 'POST', body: { action: 'verify', id: createdBody.backup.id },
+  });
+  const verifiedBody = await verified.json();
+  assert.equal(verified.status, 200);
+  assert.equal(verifiedBody.backup.valid, true);
+
+  const list = await request('/api/storage-backups');
+  const listBody = await list.json();
+  assert.equal(list.status, 200);
+  assert.equal(listBody.tenantId, 'best-day-fitness');
+  assert.ok(listBody.backups.some(item => item.id === createdBody.backup.id && item.valid));
 });

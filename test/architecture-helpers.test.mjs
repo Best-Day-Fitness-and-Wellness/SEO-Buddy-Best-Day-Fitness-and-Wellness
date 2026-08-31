@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
@@ -24,6 +24,9 @@ const { buildBrowserAssets, renderAssetIndex } = require('../lib/browser-assets.
 const { createAccessControl, tokenFingerprint } = require('../lib/access-control.js');
 const { createAuditLog } = require('../lib/audit-log.js');
 const { normalizeSecretInput } = require('../lib/secrets.js');
+const { createFileStateRepository, normalizeTenantId } = require('../lib/state-repository.js');
+const { createBackupService } = require('../lib/backup-service.js');
+const { loadMigrations } = require('../lib/postgres-store.js');
 const { parse: parseDotenv } = require('dotenv');
 const { serializeDotenv } = require('../lib/dotenv-store.js');
 const { writeFileAtomicSync, writeJsonFileSync } = require('../lib/json-file-store.js');
@@ -129,6 +132,57 @@ test('secret inputs reject control characters and never normalize malformed cred
   assert.equal(normalizeSecretInput('  valid-token-123  ', 'API key'), 'valid-token-123');
   assert.throws(() => normalizeSecretInput('valid\nINJECTED=value', 'API key'), /control characters/);
   assert.throws(() => normalizeSecretInput('x'.repeat(20), 'API key', 10), /longer than expected/);
+});
+
+test('file repository migrates legacy state without deleting it and enforces tenant boundaries', () => {
+  const root = mkdtempSync(join(tmpdir(), 'seo-buddy-repository-'));
+  try {
+    writeJsonFileSync(join(root, 'history.json'), [{ title: 'Legacy article' }]);
+    const repository = createFileStateRepository({ storageRoot: root, tenantId: 'Best Day Fitness / St Pete' });
+    assert.equal(repository.tenantId, 'best-day-fitness-st-pete');
+    assert.deepEqual(repository.readJson('history.json', []), [{ title: 'Legacy article' }]);
+    assert.equal(existsSync(join(root, 'history.json')), true, 'rollback copy stays untouched');
+    assert.deepEqual(repository.migrated, ['history.json']);
+    assert.throws(() => repository.pathFor('../outside.json'), /Invalid state key|escapes tenant boundary/);
+    assert.throws(() => normalizeTenantId('../../'), /TENANT_ID/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('backup manifests verify checksums and restore a tenant snapshot', () => {
+  const root = mkdtempSync(join(tmpdir(), 'seo-buddy-backup-'));
+  try {
+    const repository = createFileStateRepository({ storageRoot: root, tenantId: 'tenant-one' });
+    repository.writeJson('history.json', [{ title: 'Before' }]);
+    const service = createBackupService({ repository, backupRoot: join(root, 'backups') });
+    const backup = service.create();
+    assert.equal(service.verify(backup.id).valid, true);
+    repository.writeJson('history.json', [{ title: 'After' }]);
+    service.restore(backup.id);
+    assert.deepEqual(repository.readJson('history.json', []), [{ title: 'Before' }]);
+    const manifestPath = join(service.backupRoot, backup.id, 'manifest.json');
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    manifest.files[0].name = '../outside.json';
+    writeJsonFileSync(manifestPath, manifest);
+    assert.match(service.verify(backup.id).error, /invalid state key/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('PostgreSQL migrations are immutable, ordered, and ignore unrelated files', () => {
+  const root = mkdtempSync(join(tmpdir(), 'seo-buddy-migrations-'));
+  try {
+    writeFileAtomicSync(join(root, '002_second.sql'), 'SELECT 2;');
+    writeFileAtomicSync(join(root, '001_first.sql'), 'SELECT 1;');
+    writeFileAtomicSync(join(root, 'notes.txt'), 'ignored');
+    const migrations = loadMigrations(root);
+    assert.deepEqual(migrations.map(item => item.name), ['001_first.sql', '002_second.sql']);
+    assert.ok(migrations.every(item => /^[a-f0-9]{64}$/.test(item.checksum)));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('singleFlight coalesces overlap without caching settled results', async () => {

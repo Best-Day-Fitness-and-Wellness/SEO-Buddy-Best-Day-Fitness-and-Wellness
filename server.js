@@ -38,10 +38,13 @@ const { buildBrowserAssets, renderAssetIndex } = require('./lib/browser-assets')
 const { createAccessControl } = require('./lib/access-control');
 const { createAuditLog } = require('./lib/audit-log');
 const { normalizeSecretInput } = require('./lib/secrets');
+const { createFileStateRepository } = require('./lib/state-repository');
+const { createBackupService } = require('./lib/backup-service');
+const { createPostgresStore } = require('./lib/postgres-store');
 
-// Load UI-saved settings from the same durable directory used by the JSON
-// stores. Host-provided environment variables still win unless a user
-// explicitly saves a replacement through Settings.
+// Load UI-saved secrets from the durable storage root. Tenant state is isolated
+// below this root after configuration is loaded; host-provided variables still
+// win unless a user explicitly saves a replacement through Settings.
 const CONFIG_DIR = process.env.DATA_DIR || __dirname;
 dotenv.config({ path: path.join(CONFIG_DIR, '.env') });
 
@@ -76,20 +79,51 @@ function integrationErrorStatus(error) {
 // ID, so every live generation silently failed and fell back to mock output.
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
 
-// Durable data directory. Railway (and most container hosts) wipe the app
-// folder on every redeploy, so the history/logs/audit JSON files must live on a
-// persistent disk. On Railway: attach a Volume and set DATA_DIR to its mount
-// path (e.g. /data). Defaults to the app folder for local development.
-const DATA_DIR = CONFIG_DIR;
+// State is isolated by tenant below the durable storage root. On first boot the
+// repository copies legacy root-level files into the tenant boundary, verifies
+// checksums, and leaves the originals untouched for rollback.
+const stateRepository = createFileStateRepository({
+  storageRoot: CONFIG_DIR,
+  tenantId: process.env.TENANT_ID || 'best-day-fitness',
+});
+const DATA_DIR = stateRepository.directory;
 // Without DATA_DIR the files sit on the container filesystem, which the host
 // replaces on every deploy. Anything the owner confirms through the UI is then
 // true until the next deploy and false afterwards, so endpoints that record an
 // owner decision say which of the two they just did.
 const STORAGE_IS_PERSISTENT = !!process.env.DATA_DIR;
-try {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-} catch (e) {
-  console.error('[Data Dir] Could not create DATA_DIR:', e.message);
+const backupService = createBackupService({ repository: stateRepository, backupRoot: path.join(CONFIG_DIR, 'backups') });
+let postgresMirror = null;
+const postgresStatus = {
+  configured: Boolean(process.env.DATABASE_URL),
+  ready: false,
+  lastSyncAt: null,
+  syncedFiles: 0,
+  error: null,
+};
+
+async function syncPostgresMirror() {
+  if (!postgresMirror) return;
+  try {
+    postgresStatus.syncedFiles = await postgresMirror.syncFrom(stateRepository);
+    postgresStatus.lastSyncAt = new Date().toISOString();
+    postgresStatus.ready = true;
+    postgresStatus.error = null;
+  } catch (error) {
+    postgresStatus.ready = false;
+    postgresStatus.error = error.code || error.message;
+    logger.error('storage.postgres_sync_failed', { tenantId: stateRepository.tenantId, error });
+  }
+}
+
+async function initializePostgresMirror() {
+  if (!process.env.DATABASE_URL) return;
+  postgresMirror = createPostgresStore({ connectionString: process.env.DATABASE_URL, ssl: process.env.PGSSL !== 'disable' });
+  const migrations = await postgresMirror.migrate(path.join(__dirname, 'migrations'));
+  await syncPostgresMirror();
+  logger.info('storage.postgres_ready', { tenantId: stateRepository.tenantId, migrations, syncedFiles: postgresStatus.syncedFiles });
+  const timer = setInterval(syncPostgresMirror, 5 * 60 * 1000);
+  timer.unref?.();
 }
 
 // Optional admin password. When set, it locks down the sensitive endpoints
@@ -101,7 +135,7 @@ const accessControl = createAccessControl({ ownerToken: ADMIN_PASSWORD, operator
 const requireAuth = accessControl.requireRole('operator');
 const requireOwner = accessControl.requireRole('owner');
 const auditLog = createAuditLog({
-  filePath: path.join(DATA_DIR, 'audit-log.jsonl'),
+  filePath: stateRepository.pathFor('audit-log.jsonl'),
   signingKey: process.env.AUDIT_SIGNING_KEY || '',
 });
 
@@ -603,6 +637,8 @@ app.get('/api/diagnostics', requireAuth, (req, res) => {
     requests: requestMetrics.snapshot(),
     access: accessControl.configuredRoles(),
     audit: auditLog.verify(),
+    repository: { backend: stateRepository.backend, tenantId: stateRepository.tenantId, files: stateRepository.listStateFiles().length },
+    postgresMirror: { ...postgresStatus },
   });
 });
 
@@ -612,6 +648,24 @@ app.get('/api/auth/status', (req, res) => {
 
 app.get('/api/audit-status', requireOwner, (req, res) => {
   res.json({ success: true, audit: auditLog.verify() });
+});
+
+app.get('/api/storage-backups', requireOwner, (req, res) => {
+  res.json({ success: true, tenantId: stateRepository.tenantId, backups: backupService.list() });
+});
+
+app.post('/api/storage-backups', requireOwner, (req, res) => {
+  try {
+    const action = String(req.body?.action || 'create');
+    if (action === 'create') return res.json({ success: true, backup: backupService.create() });
+    if (action === 'verify') {
+      const backup = backupService.verify(String(req.body?.id || ''));
+      return res.status(backup.valid ? 200 : 422).json({ success: backup.valid, backup });
+    }
+    return res.status(400).json({ success: false, error: 'Backup action must be create or verify.' });
+  } catch (error) {
+    return res.status(500).json({ success: false, error: error.message });
+  }
 });
 
 // ----------------------------------------------------
@@ -1696,7 +1750,7 @@ app.post('/api/save-settings', requireOwner, (req, res) => {
         if (!credentials || typeof credentials !== 'object' || !credentials.client_email || !credentials.private_key) {
           return res.status(400).json({ success: false, error: 'The Google credentials JSON is missing client_email or private_key.' });
         }
-        const credentialsPath = path.join(DATA_DIR, 'google-creations.json');
+        const credentialsPath = path.join(CONFIG_DIR, 'google-creations.json');
         writeFileAtomicSync(credentialsPath, JSON.stringify(credentials), { mode: 0o600 });
         saved.GOOGLE_APPLICATION_CREDENTIALS = credentialsPath;
       } catch (jsonErr) {
@@ -1722,7 +1776,7 @@ app.post('/api/save-settings', requireOwner, (req, res) => {
     if (inheritedRaw.trim().startsWith('{')) {
       const inherited = parseServiceAccountJson(inheritedRaw);
       if (inherited.creds) {
-        const inheritedPath = path.join(DATA_DIR, 'google-creations.json');
+        const inheritedPath = path.join(CONFIG_DIR, 'google-creations.json');
         writeFileAtomicSync(inheritedPath, JSON.stringify(inherited.creds), { mode: 0o600 });
         saved.GOOGLE_APPLICATION_CREDENTIALS = inheritedPath;
         process.env.GOOGLE_APPLICATION_CREDENTIALS = inheritedPath;
@@ -1739,7 +1793,7 @@ app.post('/api/save-settings', requireOwner, (req, res) => {
     // back byte-for-byte. This prevents both line injection and silent loss of
     // legitimate backslashes (including Windows credential paths).
     const envContent = serializeDotenv(saved);
-    const settingsPath = path.join(DATA_DIR, '.env');
+    const settingsPath = path.join(CONFIG_DIR, '.env');
     writeFileAtomicSync(settingsPath, envContent, { mode: 0o600 });
     
     // Reload dotenv
@@ -2864,7 +2918,7 @@ app.get('/api/usage', (req, res) => {
 });
 // Storage status — is DATA_DIR pointed at a persistent volume (survives redeploys) or ephemeral?
 app.get('/api/storage-status', (req, res) => {
-  res.json({ persistent: !!process.env.DATA_DIR });
+  res.json({ persistent: !!process.env.DATA_DIR, backend: stateRepository.backend, tenantId: stateRepository.tenantId, postgresMirror: { ...postgresStatus } });
 });
 
 // Why is Search Console not connected? The readiness board can only say yes or
@@ -5561,6 +5615,24 @@ Return ONLY raw JSON, no markdown fences:
   }
 });
 
+function scheduleDailyStateBackups() {
+  const run = () => {
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      if (!backupService.list().some(item => item.valid && String(item.id).startsWith(today))) {
+        const backup = backupService.create();
+        logger.info('storage.backup_created', { tenantId: stateRepository.tenantId, backupId: backup.id, files: backup.files.length });
+      }
+    } catch (error) {
+      logger.error('storage.backup_failed', { tenantId: stateRepository.tenantId, error });
+    }
+  };
+  const startup = setTimeout(run, 2 * 60 * 1000);
+  const daily = setInterval(run, 24 * 60 * 60 * 1000);
+  startup.unref?.();
+  daily.unref?.();
+}
+
 
 const server = app.listen(PORT, () => {
   logger.info('server.started', {
@@ -5572,11 +5644,20 @@ const server = app.listen(PORT, () => {
     adminLockEnabled: Boolean(ADMIN_PASSWORD),
     operatorLockEnabled: Boolean(OPERATOR_PASSWORD),
     auditSigningEnabled: Boolean(process.env.AUDIT_SIGNING_KEY),
+    tenantId: stateRepository.tenantId,
+    repositoryBackend: stateRepository.backend,
+    migratedStateFiles: stateRepository.migrated.length,
     railwayEnvironment: process.env.RAILWAY_ENVIRONMENT_NAME || null,
     railwayReplica: process.env.RAILWAY_REPLICA_ID || null,
   });
   if (!ADMIN_PASSWORD) logger.warn('security.admin_lock_disabled', { mode: APP_MODE });
   scheduleDailyHealthSnapshots();
+  scheduleDailyStateBackups();
+  initializePostgresMirror().catch(error => {
+    postgresStatus.ready = false;
+    postgresStatus.error = error.code || error.message;
+    logger.error('storage.postgres_initialization_failed', { tenantId: stateRepository.tenantId, error });
+  });
   // Fire-and-forget: repair-triggered re-indexing (safe, self-clearing).
   reindexRepairedPosts().catch(e => console.error('[URL Migration] reindex batch error:', e.message));
 });
@@ -5591,12 +5672,13 @@ function gracefulShutdown(signal) {
     process.exit(1);
   }, 10000);
   forceExit.unref();
-  server.close(error => {
+  server.close(async error => {
     clearTimeout(forceExit);
     if (error) {
       logger.error('server.shutdown_failed', { signal, error });
       process.exit(1);
     }
+    try { if (postgresMirror) await postgresMirror.close(); } catch (error) { logger.warn('storage.postgres_close_failed', { error }); }
     logger.info('server.shutdown_completed', { signal });
     process.exit(0);
   });

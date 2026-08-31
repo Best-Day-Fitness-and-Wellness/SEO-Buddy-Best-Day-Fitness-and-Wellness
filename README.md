@@ -138,6 +138,9 @@ Set these in your host's environment (e.g., Railway → Variables) or, for local
 | `ADMIN_PASSWORD` | *(unset)* | When set, locks the sensitive endpoints (see **Security**). Enter the same value in Settings → Admin Password. Leave unset only for trusted local dev. |
 | `OPERATOR_PASSWORD` | *(unset)* | Optional lower-privilege password for running publishing, indexing, audits, and autopilots without permission to change integration secrets, business identity, brand voice, or budgets. |
 | `AUDIT_SIGNING_KEY` | *(unset)* | Optional stable secret used to HMAC-sign the mutation audit chain. Keep it separate from passwords and do not rotate it unless you intentionally start a new verification chain. |
+| `TENANT_ID` | `best-day-fitness` | Stable location/tenant key used to isolate all runtime state under `DATA_DIR/tenants/<tenant>/`. |
+| `DATABASE_URL` | *(unset)* | Optional PostgreSQL connection. When present, versioned SQL migrations run automatically and tenant JSON state is mirrored every five minutes for a safe staged cutover. The filesystem remains the source of truth until an explicit future cutover. |
+| `PGSSL` | enabled | Set to `disable` only for a trusted local PostgreSQL server that does not use TLS. |
 | `ALLOWED_ORIGIN` | *(same‑origin)* | Optional comma‑separated CORS allowlist. Leave blank for same‑origin only. |
 
 ### Generative AI (Gemini)
@@ -269,6 +272,23 @@ npm run smoke -- https://your-service.up.railway.app
 
 Set `REQUIRE_LIVE_GSC=1` when the smoke run must also prove Search Console is live. The script never generates, publishes, indexes, or spends AI credits.
 
+### Backups and restore
+
+SEO Buddy creates one checksum-verified, tenant-scoped state backup per day under `DATA_DIR/backups/<tenant>/`. Secrets are intentionally excluded. Owners can create or verify a backup through `/api/storage-backups`, or from a stopped application process:
+
+```bash
+npm run backup
+npm run backup -- --verify 2026-08-31T12-00-00-000Z
+```
+
+Restore only while the application is stopped. The restore command verifies every checksum and creates an additional safety backup before replacing state:
+
+```bash
+node scripts/restore-backup.mjs --backup <id> --confirm "RESTORE <id>"
+```
+
+For PostgreSQL, set `DATABASE_URL` and run `npm run db:migrate` for an explicit migration/sync check. Applied migration checksums are immutable; a changed historical migration is rejected rather than silently reapplied.
+
 Deploying by hand (GitHub web upload): keep `server.js`, `lib/`, `public/`, and `scripts/` together. The server reads the browser sources at boot and injects content-hashed URLs into `index.html`; there is no separate frontend build artifact to upload.
 
 ---
@@ -304,6 +324,8 @@ Deploying by hand (GitHub web upload): keep `server.js`, `lib/`, `public/`, and 
 | GET | `/api/diagnostics` | 🔒 | Bounded request totals, latency buckets, process uptime, runtime mode, and storage state. |
 | GET | `/api/auth/status` | — | Whether owner/operator roles are configured (never returns credentials). |
 | GET | `/api/audit-status` | 🔒 owner | Verify the audit hash/signature chain and return its entry count. |
+| GET | `/api/storage-backups` | 🔒 owner | List backups and independently verify every manifest checksum. |
+| POST | `/api/storage-backups` | 🔒 owner | Create a backup, or verify one by ID. Restore is deliberately CLI-only while the server is stopped. |
 
 ### Content
 | Method | Endpoint | Auth | Purpose |
@@ -404,7 +426,7 @@ Deploying by hand (GitHub web upload): keep `server.js`, `lib/`, `public/`, and 
 
 ## Data & persistence
 
-State is stored as flat JSON in `DATA_DIR`:
+State is stored as atomic JSON inside `DATA_DIR/tenants/<TENANT_ID>/`. On the first tenant-aware boot, legacy root-level files are copied into that boundary, checksum-verified, and left untouched as a rollback copy:
 
 | File | Contents |
 |---|---|
@@ -427,6 +449,8 @@ State is stored as flat JSON in `DATA_DIR`:
 | `google-creations.json` | Google service-account credentials saved through the UI (server-side only). |
 
 Point `DATA_DIR` at a persistent volume in production so this data survives redeploys.
+
+`lib/state-repository.js` owns tenant containment and legacy migration. `lib/backup-service.js` owns checksummed snapshots and restore. `lib/postgres-store.js` provides parameterized PostgreSQL access, advisory-locked migrations, and staged state mirroring; SQL lives in `migrations/`.
 
 ---
 

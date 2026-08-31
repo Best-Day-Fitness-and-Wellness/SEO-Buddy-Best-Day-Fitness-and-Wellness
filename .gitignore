@@ -30,3 +30,5 @@ usage.json
 health-score.json
 performance-digest.json
 reviews-snapshots.json
+tenants/
+backups/
