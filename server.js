@@ -34,6 +34,7 @@ const {
 const { integrationUnavailable, mocksAllowed, resolveAppMode } = require('./lib/runtime-mode');
 const { createLogger } = require('./lib/logger');
 const { createRequestMetrics } = require('./lib/request-metrics');
+const { buildBrowserAssets, renderAssetIndex } = require('./lib/browser-assets');
 
 // Load UI-saved settings from the same durable directory used by the JSON
 // stores. Host-provided environment variables still win unless a user
@@ -49,6 +50,15 @@ const BOOTED_AT = new Date().toISOString();
 const logger = createLogger({ service: 'seo-buddy', environment: APP_MODE });
 const requestMetrics = createRequestMetrics();
 let isShuttingDown = false;
+const PUBLIC_DIR = path.join(__dirname, 'public');
+const BROWSER_ASSETS = buildBrowserAssets(PUBLIC_DIR, [
+  { token: 'STYLE_ASSET', file: 'style.css' },
+  { token: 'CORE_ASSET', file: 'modules/core.js' },
+  { token: 'APP_ASSET', file: 'app.js' },
+  { token: 'ASSISTANT_ASSET', file: 'modules/assistant.js' },
+  { token: 'REVIEWS_ASSET', file: 'modules/reviews.js' },
+]);
+const INDEX_HTML = renderAssetIndex(fs.readFileSync(path.join(PUBLIC_DIR, 'index.html'), 'utf8'), BROWSER_ASSETS);
 
 function integrationErrorStatus(error) {
   return error && Number.isInteger(error.statusCode) ? error.statusCode : 500;
@@ -405,7 +415,23 @@ app.get('/health/ready', (req, res) => {
 // Mounted path-first so the global limit below still protects every other route.
 app.use('/api/transcribe', bodyParser.json({ limit: '34mb' }));
 app.use(bodyParser.json());
-app.use(express.static(path.join(__dirname, 'public'), {
+
+// The HTML is rendered with content-hashed asset URLs at process start. A new
+// deployment therefore gets new URLs while unchanged assets remain safely
+// cacheable for a year; browsers can no longer mix old JS with new server code.
+for (const asset of BROWSER_ASSETS) {
+  app.get(asset.url, (req, res) => {
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    res.sendFile(asset.filePath);
+  });
+}
+app.get(['/', '/index.html'], (req, res) => {
+  res.setHeader('Cache-Control', 'no-cache');
+  res.type('html').send(INDEX_HTML);
+});
+
+app.use(express.static(PUBLIC_DIR, {
+  index: false,
   etag: true,
   lastModified: true,
   setHeaders(res, filePath) {

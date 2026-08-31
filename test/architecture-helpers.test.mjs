@@ -20,6 +20,7 @@ const {
 const { mocksAllowed, resolveAppMode, integrationUnavailable } = require('../lib/runtime-mode.js');
 const { sanitize } = require('../lib/logger.js');
 const { createRequestMetrics } = require('../lib/request-metrics.js');
+const { buildBrowserAssets, renderAssetIndex } = require('../lib/browser-assets.js');
 const { parse: parseDotenv } = require('dotenv');
 const { serializeDotenv } = require('../lib/dotenv-store.js');
 const { writeFileAtomicSync, writeJsonFileSync } = require('../lib/json-file-store.js');
@@ -59,6 +60,21 @@ test('request metrics stay bounded and expose operational totals', () => {
     averageDurationMs: 1221,
     inFlight: 0,
   });
+});
+
+test('browser assets use deterministic content hashes and replace every index token', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'seo-buddy-assets-'));
+  try {
+    writeFileAtomicSync(join(dir, 'app.js'), 'console.log("v1")');
+    const first = buildBrowserAssets(dir, [{ token: 'APP_ASSET', file: 'app.js' }]);
+    const second = buildBrowserAssets(dir, [{ token: 'APP_ASSET', file: 'app.js' }]);
+    assert.match(first[0].url, /^\/assets\/app\.[a-f0-9]{12}\.js$/);
+    assert.equal(first[0].url, second[0].url);
+    assert.equal(renderAssetIndex('<script src="{{APP_ASSET}}"></script>', first), `<script src="${first[0].url}"></script>`);
+    assert.throws(() => renderAssetIndex('{{MISSING_ASSET}}', first), /Unresolved browser asset token/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('singleFlight coalesces overlap without caching settled results', async () => {

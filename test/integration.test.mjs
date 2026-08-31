@@ -217,6 +217,15 @@ test('static assets compress, cache briefly, and keep PDF code off the critical 
   assert.match(html, /Checking live data/);
   assert.doesNotMatch(html, />Mock Mode</);
   assert.doesNotMatch(html, /mock-data\.js/);
+  assert.doesNotMatch(html, /{{[A-Z0-9_]+}}/);
+  const hashedAssets = [...html.matchAll(/(?:href|src)="(\/assets\/[^"]+)"/g)].map(match => match[1]);
+  assert.equal(hashedAssets.length, 5, 'stylesheet, core, app, assistant, and reviews must all be versioned');
+  for (const asset of hashedAssets) {
+    assert.match(asset, /\.[a-f0-9]{12}\.(?:css|js)$/);
+    const response = await request(asset, { auth: false, headers: { 'Accept-Encoding': 'gzip' } });
+    assert.equal(response.status, 200, `${asset} must be served`);
+    assert.match(response.headers.get('cache-control') || '', /max-age=31536000, immutable/);
+  }
 
   const appJs = await request('/app.js', {
     auth: false,
@@ -232,6 +241,15 @@ test('static assets compress, cache briefly, and keep PDF code off the critical 
   assert.match(source, /no demo data substituted/i);
   assert.match(source, /Building 7-day baseline/);
   assert.match(source, /Live today/);
+  assert.doesNotMatch(source, /SEO BUDDY ASSISTANT/);
+  assert.doesNotMatch(source, /REVIEWS SITE/);
+
+  const coreSource = await (await request('/modules/core.js', { auth: false })).text();
+  const assistantSource = await (await request('/modules/assistant.js', { auth: false })).text();
+  const reviewsSource = await (await request('/modules/reviews.js', { auth: false })).text();
+  assert.match(coreSource, /global\.SeoBuddyCore/);
+  assert.match(assistantSource, /SEO BUDDY ASSISTANT/);
+  assert.match(reviewsSource, /REVIEWS SITE/);
 });
 
 test('every mutating or credit-spending route is password protected', async () => {

@@ -264,7 +264,7 @@ npm run smoke -- https://your-service.up.railway.app
 
 Set `REQUIRE_LIVE_GSC=1` when the smoke run must also prove Search Console is live. The script never generates, publishes, indexes, or spends AI credits.
 
-Deploying by hand (GitHub web upload): the whole app is one bundle — `server.js` at the repo **root**, and `app.js` / `index.html` / `style.css` under **`public/`**.
+Deploying by hand (GitHub web upload): keep `server.js`, `lib/`, `public/`, and `scripts/` together. The server reads the browser sources at boot and injects content-hashed URLs into `index.html`; there is no separate frontend build artifact to upload.
 
 ---
 
@@ -425,6 +425,8 @@ Point `DATA_DIR` at a persistent volume in production so this data survives rede
 ## Tech stack
 
 Node.js · Express · `@google/genai` (Gemini) · `googleapis` (Search Console, Indexing, Gmail, Business Profile) · OpenAI & Perplexity REST APIs (optional AI‑visibility engines) · GoHighLevel API · vanilla‑JS single‑page front‑end.
+
+The browser code is split by responsibility: `public/modules/core.js` owns authentication and safe rendering helpers, `assistant.js` owns the copilot, `reviews.js` owns review monitoring, and `public/app.js` coordinates the remaining dashboard features. `lib/browser-assets.js` gives every stylesheet and script a deterministic content hash with immutable caching, while HTML always revalidates and points to the current files.
 
 ---
 
