@@ -29,6 +29,8 @@ const { createBackupService } = require('../lib/backup-service.js');
 const { loadMigrations } = require('../lib/postgres-store.js');
 const { createDurableJobQueue } = require('../lib/durable-job-queue.js');
 const { ProviderRuntimeError, createProviderRuntime } = require('../lib/provider-runtime.js');
+const { classifyContactSource, summarizeContactAttribution } = require('../lib/attribution.js');
+const { assessArticleQuality } = require('../lib/content-quality.js');
 const { parse: parseDotenv } = require('dotenv');
 const { serializeDotenv } = require('../lib/dotenv-store.js');
 const { writeFileAtomicSync, writeJsonFileSync } = require('../lib/json-file-store.js');
@@ -246,6 +248,22 @@ test('durable jobs reclaim expired leases and retry with bounded exponential bac
   }
 });
 
+test('durable jobs do not retry deterministic failures', () => {
+  const root = mkdtempSync(join(tmpdir(), 'seo-buddy-job-terminal-'));
+  try {
+    const queue = createDurableJobQueue({ filePath: join(root, 'jobs.json') });
+    queue.enqueue('content.quality', {}, { idempotencyKey: 'quality:one', maxAttempts: 5 });
+    const job = queue.claim('worker-one');
+    const error = new Error('quality gate failed');
+    error.retryable = false;
+    const failed = queue.fail(job.id, error);
+    assert.equal(failed.status, 'failed');
+    assert.equal(failed.attempts, 1);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('provider runtime retries transient failures and reports bounded integration health', async () => {
   let calls = 0;
   const runtime = createProviderRuntime({ sleep: async () => {} });
@@ -311,6 +329,39 @@ test('provider runtime enforces the central spend guard before a provider call',
   } });
   await assert.rejects(runtime.run('gemini', async () => { called = true; }), error => error.code === 'PROVIDER_BUDGET_EXCEEDED');
   assert.equal(called, false);
+});
+
+test('contact attribution separates all new contacts from explicit organic and AI evidence', () => {
+  const contacts = [
+    { dateAdded: '2026-08-20T12:00:00Z', source: 'Google Organic Search' },
+    { dateAdded: '2026-08-21T12:00:00Z', tags: ['ChatGPT referral'] },
+    { dateAdded: '2026-08-22T12:00:00Z' },
+    { dateAdded: '2026-07-20T12:00:00Z', source: 'Facebook' },
+  ];
+  const summary = summarizeContactAttribution(contacts, {
+    currentStart: Date.parse('2026-08-01T00:00:00Z'),
+    currentEnd: Date.parse('2026-08-31T23:59:59Z'),
+    previousStart: Date.parse('2026-07-01T00:00:00Z'),
+    previousEnd: Date.parse('2026-08-01T00:00:00Z'),
+  });
+  assert.equal(summary.currentTotal, 3);
+  assert.equal(summary.previousTotal, 1);
+  assert.equal(summary.explicitlySearchAttributed, 2);
+  assert.equal(summary.unknownCurrent, 1);
+  assert.equal(summary.confidence, 'medium');
+  assert.equal(classifyContactSource({ source: 'Google Ads CPC' }).channel, 'paid_search');
+});
+
+test('article quality is deterministic and blocks only structural or brand-safety failures', () => {
+  const body = `<div><h1>Guide</h1><p>${'direct answer '.repeat(30)}</p><h2>What matters?</h2><p>${'useful detail '.repeat(360)}</p><h2>How does it work?</h2><h2>Practical steps</h2><h2>Frequently Asked Questions</h2><ul><li>One</li></ul><table><tr><td>A</td></tr></table><a href="https://example.com">Book now</a></div>`;
+  const quality = assessArticleQuality(body);
+  assert.equal(quality.score, 100);
+  assert.equal(quality.publishable, true);
+  assert.equal(quality.status, 'excellent');
+
+  const unsafe = assessArticleQuality('<p>Short copy</p>', { brandViolations: ['blocked phrase'] });
+  assert.equal(unsafe.publishable, false);
+  assert.ok(unsafe.blockingIssues.some(issue => /blocked brand/i.test(issue)));
 });
 
 test('singleFlight coalesces overlap without caching settled results', async () => {
@@ -408,6 +459,9 @@ test('health score keeps raw precision and rounds only the final weighted score'
   assert.equal(score.rawOverall, 69.6);
   assert.equal(score.liveOverall, 70);
   assert.equal(score.confidence.level, 'high');
+  assert.equal(score.explainability.earnedWeightedPoints, 69.6);
+  assert.equal(Math.round(score.pillars.reduce((sum, pillar) => sum + pillar.overallContribution, 0) * 100) / 100, 69.6);
+  assert.equal(score.explainability.topOpportunity.key, 'primary');
 });
 
 test('health score treats missing data as unknown and lowers confidence for stale sources', () => {

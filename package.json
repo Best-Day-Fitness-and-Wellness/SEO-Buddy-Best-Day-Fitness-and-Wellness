@@ -9,7 +9,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "check": "node --check server.js && node --check lib/durable-job-queue.js && node --check lib/provider-runtime.js && node --check public/app.js && node --check public/modules/theme.js && node --check public/modules/core.js && node --check public/modules/assistant.js && node --check public/modules/reviews.js && node --check scripts/smoke-test.mjs && node --check scripts/backup-state.mjs && node --check scripts/restore-backup.mjs && node --check scripts/migrate-database.mjs",
+    "check": "node --check server.js && node --check lib/durable-job-queue.js && node --check lib/provider-runtime.js && node --check lib/attribution.js && node --check lib/content-quality.js && node --check public/app.js && node --check public/modules/theme.js && node --check public/modules/core.js && node --check public/modules/assistant.js && node --check public/modules/reviews.js && node --check scripts/smoke-test.mjs && node --check scripts/backup-state.mjs && node --check scripts/restore-backup.mjs && node --check scripts/migrate-database.mjs",
     "test": "node --test --test-concurrency=1 test/*.test.mjs",
     "smoke": "node scripts/smoke-test.mjs",
     "backup": "node scripts/backup-state.mjs",

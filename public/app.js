@@ -2113,11 +2113,13 @@ document.addEventListener('DOMContentLoaded', () => {
       ? hs.confidence.level.charAt(0).toUpperCase() + hs.confidence.level.slice(1) + ' confidence'
       : '';
     const updated = hs.freshness && hs.freshness.calculatedAt ? 'Updated ' + tdAgo(hs.freshness.calculatedAt) : '';
+    const opportunity = hs.explainability && hs.explainability.topOpportunity;
     return '<div class="sb-score-meta">'
       + '<span><b>' + stableLabel + '</b> ' + hs.overall + '</span>'
       + '<span><b>Live today</b> ' + live + '</span>'
       + (confidence ? '<span>' + sumEsc(confidence) + '</span>' : '')
       + (updated ? '<span>' + sumEsc(updated) + '</span>' : '')
+      + (opportunity ? '<span><b>Largest score opportunity</b> ' + sumEsc(opportunity.label) + ' · up to +' + Number(opportunity.availableScorePoints).toFixed(1) + '</span>' : '')
       + (hs.scoreVersion ? '<span>Formula v' + Number(hs.scoreVersion) + '</span>' : '')
       + '</div>';
   }
@@ -2167,7 +2169,8 @@ document.addEventListener('DOMContentLoaded', () => {
         ? `<span class="pdot" style="background:var(--${v}-g)"></span>`
         : `<span class="pdot" style="background:transparent;box-shadow:inset 0 0 0 2px var(--unmeasured)"></span>`;
       const value = p.measured && p.score != null ? `<span class="pval" title="Live pillar score${p.rawScore != null ? ': ' + p.rawScore : ''}">${p.score}</span>` : '';
-      return `<div class="home-pillar" data-tab="${HOME_TAB_MAP[p.key] || 'summary-tab'}">${dot}<span class="plbl">${sumEsc(p.label)}</span>${value}<div class="pdet ${detCls}">${sumEsc(p.detail)}</div></div>`;
+      const contribution = p.overallContribution != null ? `Contributes ${Number(p.overallContribution).toFixed(1)} points to today’s score; ${Number(p.headroomPoints || 0).toFixed(1)} points remain available.` : 'Not measured yet.';
+      return `<div class="home-pillar" title="${sumEsc(contribution)}" data-tab="${HOME_TAB_MAP[p.key] || 'summary-tab'}">${dot}<span class="plbl">${sumEsc(p.label)}</span>${value}<div class="pdet ${detCls}">${sumEsc(p.detail)}</div></div>`;
     }).join('');
     el.querySelectorAll('.home-pillar').forEach(c => c.addEventListener('click', () => homeGoTab(c.dataset.tab)));
   }
@@ -4579,7 +4582,8 @@ document.addEventListener('DOMContentLoaded', () => {
       if (leads && leads.available) {
         sbMetricFilled($('perf-leads'));
         $('perf-leads').innerText = leads.current; perfDelta($('perf-leads-d'), leads.current, leads.previous, {});
-        $('perf-leads-note').innerText = 'new leads' + (leads.approx ? ' (approx.)' : '');
+        const attributed = leads.attribution && Number(leads.attribution.explicitlySearchAttributed || 0);
+        $('perf-leads-note').innerText = 'all new GHL contacts' + (leads.approx ? ' (approx.)' : '') + (attributed ? ` · ${attributed} explicitly organic/AI` : ' · source not proven as SEO');
       } else {
         sbMetricEmpty($('perf-leads'), 'Not measured yet', (leads && leads.reason) ? leads.reason : 'GoHighLevel isn\u2019t connected.', { label: 'Connect it', tab: 'settings-tab' });
       }
@@ -5101,7 +5105,10 @@ document.addEventListener('DOMContentLoaded', () => {
       if (obj.available === false) impact.push([label, 'Not measured', obj.reason || '']);
       else impact.push([label, fmt ? fmt(obj) : num(obj.value), obj.note || '']);
     };
-    row('Leads from search', perf && perf.leads);
+    row('All new GHL contacts', perf && perf.leads, o => num(o.current));
+    if (perf && perf.leads && perf.leads.attribution) {
+      row('Explicit organic / AI contacts', { value: perf.leads.attribution.explicitlySearchAttributed, note: perf.leads.attribution.note });
+    }
     row('Branded searches', perf && perf.brandedSearch);
     row('Visits from AI answers', perf && perf.aiReferral);
     table(['Measure', 'Value', 'Why'], impact, { columnStyles: { 0: { fontStyle: 'bold', cellWidth: 130 }, 1: { cellWidth: 78 } } });

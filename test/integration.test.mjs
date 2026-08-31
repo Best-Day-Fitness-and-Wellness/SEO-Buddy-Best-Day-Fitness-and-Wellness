@@ -96,6 +96,8 @@ test('reading the health score does not write score history', async () => {
   assert.ok(score.smoothing);
   assert.ok(score.confidence);
   assert.ok(score.freshness);
+  assert.equal(score.explainability.method, 'weighted-average-of-measured-pillars');
+  assert.ok(Array.isArray(score.explainability.opportunities));
   assert.equal(existsSync(healthFile), false);
 });
 
@@ -484,6 +486,8 @@ test('generated and published content is sanitized', async () => {
   const article = await generated.json();
   assert.equal(article.success, true);
   assert.doesNotMatch(article.content, /<(?:script|img)\b|<[^>]+\sonerror\s*=/i);
+  assert.equal(typeof article.quality.score, 'number');
+  assert.equal(typeof article.quality.publishable, 'boolean');
 
   const published = await request('/api/publish-ghl', {
     method: 'POST',
@@ -492,6 +496,7 @@ test('generated and published content is sanitized', async () => {
   assert.equal(published.status, 200);
   const result = await published.json();
   assert.doesNotMatch(result.content, /onerror\s*=|<script>alert|javascript\s*:/i);
+  assert.equal(result.quality.publishable, false, 'manual publishing stays available but returns an honest quality warning');
 });
 
 test('URL tools reject unsafe destinations and schemes', async () => {

@@ -43,6 +43,8 @@ const { createBackupService } = require('./lib/backup-service');
 const { createPostgresStore } = require('./lib/postgres-store');
 const { createDurableJobQueue } = require('./lib/durable-job-queue');
 const { ProviderRuntimeError, createProviderRuntime } = require('./lib/provider-runtime');
+const { summarizeContactAttribution } = require('./lib/attribution');
+const { assessArticleQuality } = require('./lib/content-quality');
 
 // Load UI-saved secrets from the durable storage root. Tenant state is isolated
 // below this root after configuration is loaded; host-provided variables still
@@ -1279,6 +1281,8 @@ Return the HTML directly. Do not include markdown block markers like \`\`\`html.
         htmlContent = htmlContent.replace(claimsMatch[0], '').trim();
       }
       htmlContent = sanitizeArticleHtml(htmlContent);
+      const violations = brandViolations(htmlContent + ' ' + title);
+      const quality = assessArticleQuality(htmlContent, { claimsToCheck, brandViolations: violations });
 
       return {
         success: true,
@@ -1291,7 +1295,8 @@ Return the HTML directly. Do not include markdown block markers like \`\`\`html.
         // The never-use list is requested in the prompt AND checked here. Models
         // drop negative instructions routinely; trusting the prompt alone would
         // let "transform your body" reach a published page.
-        brandViolations: brandViolations(htmlContent + ' ' + title)
+        brandViolations: violations,
+        quality,
       };
     } catch (err) {
       console.error('[Service Helper] Gemini generation failed:', err.message);
@@ -1344,6 +1349,7 @@ Return the HTML directly. Do not include markdown block markers like \`\`\`html.
   </div>
 </div>`;
 
+  const mockViolations = brandViolations(mockHtml + ' ' + title);
   return {
     success: true,
     source: 'mock_generator',
@@ -1354,7 +1360,8 @@ Return the HTML directly. Do not include markdown block markers like \`\`\`html.
     // never has to branch on which one produced the article.
     fromTranscript: !!spoken,
     claimsToCheck: [],
-    brandViolations: brandViolations(mockHtml + ' ' + title)
+    brandViolations: mockViolations,
+    quality: assessArticleQuality(mockHtml, { brandViolations: mockViolations }),
   };
 }
 
@@ -1751,6 +1758,13 @@ async function runAutopilotCycle() {
       'Claim Longevity Assessment', 
       ctaUrl
     );
+    if (!article.quality?.publishable) {
+      const reason = article.quality?.blockingIssues?.join(' ') || 'Generated article did not pass the content quality gate.';
+      const qualityError = new Error(`Content quality gate stopped automatic publishing. ${reason}`);
+      qualityError.code = 'CONTENT_QUALITY_FAILED';
+      qualityError.retryable = false;
+      throw qualityError;
+    }
 
     // 2. Publish Content to GHL
     logAutopilotActivity('Publishing article to GoHighLevel...');
@@ -1775,7 +1789,9 @@ async function runAutopilotCycle() {
       platform: publish.source === 'mock_ghl' ? 'GHL (Mock Autopilot)' : 'GoHighLevel (Published)',
       date: new Date().toISOString().split('T')[0],
       indexed: indexStatus,
-      url: publish.url
+      url: publish.url,
+      qualityScore: article.quality.score,
+      qualityVersion: article.quality.version,
     };
 
     historyDb.unshift(historyEntry);
@@ -2157,6 +2173,7 @@ app.post('/api/publish-ghl', requireAuth, async (req, res) => {
     // Credentials and destination IDs come only from server-side settings.
     // Never accept secret or routing overrides from a browser request.
     const data = await publishGhlHelper(title, content, status);
+    const quality = assessArticleQuality(content, { brandViolations: brandViolations(content + ' ' + title) });
     
     // Save to history list
     const historyEntry = {
@@ -2165,7 +2182,9 @@ app.post('/api/publish-ghl', requireAuth, async (req, res) => {
       platform: data.source === 'mock_ghl' ? 'GHL (Mock Manual)' : `GoHighLevel (${status})`,
       date: new Date().toISOString().split('T')[0],
       indexed: 'Indexing Available',
-      url: data.url
+      url: data.url,
+      qualityScore: quality.score,
+      qualityVersion: quality.version,
     };
     
     // Avoid duplicates
@@ -2174,7 +2193,7 @@ app.post('/api/publish-ghl', requireAuth, async (req, res) => {
       saveHistory();
     }
 
-    return res.json(data);
+    return res.json({ ...data, quality });
   } catch (err) {
     return res.status(integrationErrorStatus(err)).json({ success: false, code: err.code || 'PUBLISH_FAILED', error: err.message });
   }
@@ -3528,13 +3547,19 @@ async function computePerformanceSnapshot() {
       }, { retries: 1 });
       const d = await r.json();
       const contacts = d.contacts || [];
-      let curN = 0, prevN = 0;
-      contacts.forEach(c => {
-        const t = new Date(c.dateAdded || c.dateUpdated || 0).getTime();
-        if (t >= lCurStart) curN++;
-        else if (t >= lPrevStart && t < lPrevEnd) prevN++;
+      const attribution = summarizeContactAttribution(contacts, {
+        currentStart: lCurStart,
+        currentEnd: Date.now(),
+        previousStart: lPrevStart,
+        previousEnd: lPrevEnd,
       });
-      out.leads = { available: true, current: curN, previous: prevN, approx: contacts.length >= 100 };
+      out.leads = {
+        available: true,
+        current: attribution.currentTotal,
+        previous: attribution.previousTotal,
+        approx: contacts.length >= 100,
+        attribution,
+      };
     } catch (e) {
       out.leads = { available: false, reason: 'Could not reach GoHighLevel: ' + e.message };
     }
@@ -4773,6 +4798,10 @@ async function computeHealthScore() {
         score: 0.6 * leakScore + 0.4 * rankScore,
         detail: `${leaks} search${leaks === 1 ? '' : 'es'} with no clicks · avg rank ${pos}`,
         inputs: { leaks, averagePosition: pos },
+        factors: [
+          { key: 'clickGaps', label: 'Searches with impressions but no clicks', share: 60, score: Math.round(leakScore) },
+          { key: 'averageRank', label: 'Average Google position', share: 40, score: Math.round(rankScore) },
+        ],
         sourceUpdatedAt: snap && snap.date ? `${snap.date}T00:00:00.000Z` : null,
       });
     } else {
@@ -4791,6 +4820,10 @@ async function computeHealthScore() {
       key: 'local', label: 'Local listings', weight: 20, measured: true, score,
       detail: mm ? `${mm} listing${mm > 1 ? 's' : ''} to fix` : 'Consistent everywhere',
       inputs: { mismatches: mm, gbpPosted: !!(localDb.gbpDraft && localDb.gbpDraft.posted) },
+      factors: [
+        { key: 'napConsistency', label: 'Name, address, and phone consistency', value: mm, effect: `${mm * 15}-point mismatch penalty` },
+        { key: 'gbpActivity', label: 'Current Google Business Profile activity', value: !!(localDb.gbpDraft && localDb.gbpDraft.posted), effect: 'Up to 8 bonus points' },
+      ],
       sourceUpdatedAt: localDb.lastNapRun || (localDb.gbpDraft && (localDb.gbpDraft.postedAt || localDb.gbpDraft.createdAt)) || null,
     });
   } else {
@@ -4806,6 +4839,7 @@ async function computeHealthScore() {
       score: rec / aioAuditsDb.length * 100,
       detail: `Recommended in ${rec} of ${aioAuditsDb.length} check${aioAuditsDb.length > 1 ? 's' : ''}`,
       inputs: { recommended: rec, checks: aioAuditsDb.length },
+      factors: [{ key: 'recommendationRate', label: 'Observed AI recommendation rate', numerator: rec, denominator: aioAuditsDb.length }],
       sourceUpdatedAt: latestAudit.timestamp || latestAudit.createdAt || latestAudit.date || null,
     });
   } else {
@@ -4822,6 +4856,7 @@ async function computeHealthScore() {
       score: done / total * 100,
       detail: `On ${done} of ${total} source${total > 1 ? 's' : ''} AI cites`,
       inputs: { listed: done, total },
+      factors: [{ key: 'citationCoverage', label: 'Confirmed live on AI-cited sources', numerator: done, denominator: total }],
       sourceUpdatedAt: citationsDb.lastScanned || citationsDb.lastRun || null,
     });
   } else {
@@ -4842,6 +4877,10 @@ async function computeHealthScore() {
         key: 'fresh', label: 'Fresh content', weight: 15, measured: true, score,
         detail: posts.length ? `Last post ${Math.round(days)}d ago${autopilotEnabled ? ' · autopilot on' : ''}` : 'Autopilot on, no posts yet',
         inputs: { daysSincePost: Number.isFinite(days) ? Math.round(days * 100) / 100 : null, autopilotEnabled, postCount: posts.length },
+        factors: [
+          { key: 'recency', label: 'Days since latest published post', value: Number.isFinite(days) ? Math.round(days * 100) / 100 : null },
+          { key: 'automation', label: 'Content autopilot enabled', value: autopilotEnabled, effect: 'Up to 10 bonus points' },
+        ],
         sourceUpdatedAt: posts.length ? (posts[0].publishedAt || `${posts[0].date}T00:00:00.000Z`) : null,
       });
     }

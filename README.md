@@ -297,6 +297,10 @@ Scheduled content, AI visibility, citations, local SEO, on-site SEO, performance
 
 All external integrations run through one provider boundary with per-provider concurrency limits, rolling rate limits, timeouts, safe read retries, circuit breakers, and bounded cache support. Non-idempotent publishing and send operations are never retried automatically. The existing monthly AI budget is enforced inside this shared boundary as well as at user-facing routes, so scheduled work cannot bypass the spend limit. Operators can inspect non-secret status, latency, retry, cache, and failure totals through protected `GET /api/integration-health`; the same snapshot is included in diagnostics.
 
+### Explainable score, attribution, and content quality
+
+Formula v2 remains mathematically unchanged, so this release does not manufacture a higher score or reset its trend. The score response now shows each pillar's weighted contribution, remaining headroom, source factors, missing measurements, and the largest real opportunity. GoHighLevel's count is labeled as all new contacts; a separate deterministic attribution summary reports only contacts carrying explicit organic-search or AI-referral evidence, with unknown sources kept unknown. Every generated article receives a versioned structural/brand-safety quality report, and automatic publishing stops if the output is too short, lacks basic section structure, or contains a blocked brand phrase. Manual publishing remains available and returns the report as a warning rather than changing the workflow.
+
 Deploying by hand (GitHub web upload): keep `server.js`, `lib/`, `public/`, and `scripts/` together. The server reads the browser sources at boot and injects content-hashed URLs into `index.html`; there is no separate frontend build artifact to upload.
 
 ---
