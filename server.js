@@ -32,6 +32,8 @@ const {
   stabilizeScore,
 } = require('./lib/health-score');
 const { integrationUnavailable, mocksAllowed, resolveAppMode } = require('./lib/runtime-mode');
+const { createLogger } = require('./lib/logger');
+const { createRequestMetrics } = require('./lib/request-metrics');
 
 // Load UI-saved settings from the same durable directory used by the JSON
 // stores. Host-provided environment variables still win unless a user
@@ -43,6 +45,10 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const APP_MODE = resolveAppMode(process.env);
 const ALLOW_MOCK_INTEGRATIONS = mocksAllowed(APP_MODE, process.env);
+const BOOTED_AT = new Date().toISOString();
+const logger = createLogger({ service: 'seo-buddy', environment: APP_MODE });
+const requestMetrics = createRequestMetrics();
+let isShuttingDown = false;
 
 function integrationErrorStatus(error) {
   return error && Number.isInteger(error.statusCode) ? error.statusCode : 500;
@@ -325,10 +331,36 @@ app.use((req, res, next) => {
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('Permissions-Policy', 'camera=(), geolocation=(), microphone=(self)');
   res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
-  if (req.path.startsWith('/api/')) res.setHeader('Cache-Control', 'no-store');
+  if (req.path.startsWith('/api/') || req.path.startsWith('/health/')) res.setHeader('Cache-Control', 'no-store');
   if (req.secure || req.get('x-forwarded-proto') === 'https') {
     res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   }
+  next();
+});
+
+// Give every request a stable correlation ID and retain bounded, low-cardinality
+// process metrics. No URLs, query strings, credentials, or request bodies are
+// retained in the metrics snapshot.
+app.use((req, res, next) => {
+  const incomingId = String(req.get('x-request-id') || '');
+  const requestId = /^[A-Za-z0-9._:-]{8,128}$/.test(incomingId) ? incomingId : crypto.randomUUID();
+  const startedAt = process.hrtime.bigint();
+  req.requestId = requestId;
+  res.setHeader('X-Request-Id', requestId);
+  requestMetrics.started(req.method);
+  res.once('finish', () => {
+    const durationMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
+    requestMetrics.finished(res.statusCode, durationMs);
+    if (!req.path.startsWith('/health/') || res.statusCode >= 400) {
+      logger.info('http.request', {
+        requestId,
+        method: req.method,
+        path: req.path,
+        statusCode: res.statusCode,
+        durationMs: Math.round(durationMs * 10) / 10,
+      });
+    }
+  });
   next();
 });
 
@@ -336,6 +368,37 @@ app.use((req, res, next) => {
 // sizeable hand-authored assets, so this removes most transfer bytes without a
 // build step or extra copies in memory.
 app.use(compression({ threshold: 1024 }));
+
+function storageReadiness() {
+  try {
+    fs.accessSync(DATA_DIR, fs.constants.R_OK | fs.constants.W_OK);
+    return { ok: true, persistent: STORAGE_IS_PERSISTENT };
+  } catch (error) {
+    return { ok: false, persistent: STORAGE_IS_PERSISTENT, error: error.code || 'STORAGE_UNAVAILABLE' };
+  }
+}
+
+// Kubernetes-, Railway-, and load-balancer-friendly lifecycle probes. Liveness
+// is deliberately cheap; readiness verifies only conditions required to serve
+// safely and does not take the app offline for an optional provider outage.
+app.get('/health/live', (req, res) => {
+  res.status(isShuttingDown ? 503 : 200).json({
+    status: isShuttingDown ? 'shutting_down' : 'live',
+    uptimeSeconds: Math.floor(process.uptime()),
+    bootedAt: BOOTED_AT,
+  });
+});
+
+app.get('/health/ready', (req, res) => {
+  const storage = storageReadiness();
+  const checks = {
+    acceptingTraffic: !isShuttingDown,
+    storage,
+    runtime: { ok: true, mode: APP_MODE, mockIntegrationsAllowed: ALLOW_MOCK_INTEGRATIONS },
+  };
+  const ready = checks.acceptingTraffic && storage.ok;
+  res.status(ready ? 200 : 503).json({ status: ready ? 'ready' : 'not_ready', checks });
+});
 
 // Recording uploads need far more than the default 100kb. Mounted path-first so
 // every other endpoint keeps the small limit.
@@ -475,6 +538,22 @@ if (process.env.GEMINI_API_KEY) {
     ? '[Gemini SDK] No GEMINI_API_KEY found. Demo generation is available outside production.'
     : '[Gemini SDK] No GEMINI_API_KEY found. Live generation is unavailable; production will not fabricate output.');
 }
+
+app.get('/api/diagnostics', requireAuth, (req, res) => {
+  res.json({
+    success: true,
+    runtime: {
+      mode: APP_MODE,
+      mockIntegrationsAllowed: ALLOW_MOCK_INTEGRATIONS,
+      nodeVersion: process.version,
+      bootedAt: BOOTED_AT,
+      uptimeSeconds: Math.floor(process.uptime()),
+      shuttingDown: isShuttingDown,
+    },
+    storage: storageReadiness(),
+    requests: requestMetrics.snapshot(),
+  });
+});
 
 // ----------------------------------------------------
 // Persistent JSON Database Configuration
@@ -5423,22 +5502,44 @@ Return ONLY raw JSON, no markdown fences:
 });
 
 
-app.listen(PORT, () => {
-  console.log(`=======================================================`);
-  console.log(`🚀 SEO Buddy - Total Rank System Dashboard is running!`);
-  console.log(`👉 Access URL: http://localhost:${PORT}`);
-  console.log(`🧭 App mode: ${APP_MODE} (demo integration fallback ${ALLOW_MOCK_INTEGRATIONS ? 'enabled' : 'disabled'})`);
-  console.log(`🤖 Gemini model: ${GEMINI_MODEL}`);
-  console.log(`💾 Data dir: ${DATA_DIR}${process.env.DATA_DIR ? ' (persistent)' : ' (ephemeral — set DATA_DIR to a Railway volume to persist history)'}`);
-  if (ADMIN_PASSWORD) {
-    console.log(`🔒 Admin lock: ON (settings/publish/index/autopilot require the password)`);
-  } else {
-    console.log(`⚠️  SECURITY WARNING: ADMIN_PASSWORD is not set.`);
-    console.log(`⚠️  Settings, publishing, indexing and Gemini-spend endpoints are OPEN.`);
-    console.log(`⚠️  Set ADMIN_PASSWORD in your environment before exposing this publicly.`);
-  }
-  console.log(`=======================================================`);
+const server = app.listen(PORT, () => {
+  logger.info('server.started', {
+    port: Number(PORT),
+    mode: APP_MODE,
+    mockIntegrationsAllowed: ALLOW_MOCK_INTEGRATIONS,
+    geminiModel: GEMINI_MODEL,
+    persistentStorage: STORAGE_IS_PERSISTENT,
+    adminLockEnabled: Boolean(ADMIN_PASSWORD),
+    railwayEnvironment: process.env.RAILWAY_ENVIRONMENT_NAME || null,
+    railwayReplica: process.env.RAILWAY_REPLICA_ID || null,
+  });
+  if (!ADMIN_PASSWORD) logger.warn('security.admin_lock_disabled', { mode: APP_MODE });
   scheduleDailyHealthSnapshots();
   // Fire-and-forget: repair-triggered re-indexing (safe, self-clearing).
   reindexRepairedPosts().catch(e => console.error('[URL Migration] reindex batch error:', e.message));
 });
+
+function gracefulShutdown(signal) {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+  logger.info('server.shutdown_started', { signal });
+  const forceExit = setTimeout(() => {
+    logger.error('server.shutdown_timeout', { signal, timeoutMs: 10000 });
+    server.closeAllConnections?.();
+    process.exit(1);
+  }, 10000);
+  forceExit.unref();
+  server.close(error => {
+    clearTimeout(forceExit);
+    if (error) {
+      logger.error('server.shutdown_failed', { signal, error });
+      process.exit(1);
+    }
+    logger.info('server.shutdown_completed', { signal });
+    process.exit(0);
+  });
+  server.closeIdleConnections?.();
+}
+
+process.once('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.once('SIGINT', () => gracefulShutdown('SIGINT'));

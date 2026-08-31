@@ -95,6 +95,32 @@ test('reading the health score does not write score history', async () => {
   assert.equal(existsSync(healthFile), false);
 });
 
+test('lifecycle probes and protected diagnostics expose truthful process state', async () => {
+  const requestId = 'integration-request-123';
+  const live = await request('/health/live', { auth: false, headers: { 'X-Request-Id': requestId } });
+  const liveBody = await live.json();
+  assert.equal(live.status, 200);
+  assert.equal(liveBody.status, 'live');
+  assert.equal(live.headers.get('x-request-id'), requestId);
+  assert.match(live.headers.get('cache-control') || '', /no-store/);
+
+  const ready = await request('/health/ready', { auth: false });
+  const readyBody = await ready.json();
+  assert.equal(ready.status, 200);
+  assert.equal(readyBody.status, 'ready');
+  assert.equal(readyBody.checks.storage.ok, true);
+  assert.equal(readyBody.checks.storage.persistent, true);
+
+  const unauthorized = await request('/api/diagnostics', { auth: false });
+  assert.equal(unauthorized.status, 401);
+  const diagnostics = await request('/api/diagnostics');
+  const diagnosticBody = await diagnostics.json();
+  assert.equal(diagnostics.status, 200);
+  assert.equal(diagnosticBody.storage.ok, true);
+  assert.equal(diagnosticBody.runtime.shuttingDown, false);
+  assert.ok(diagnosticBody.requests.totals.requests >= 4);
+});
+
 test('production mode never reports demo generation, publishing, indexing, or search data as live success', { timeout: 30000 }, async () => {
   const productionDir = mkdtempSync(join(tmpdir(), 'seo-buddy-production-mode-'));
   const port = await availablePort();

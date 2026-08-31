@@ -9,7 +9,9 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "test": "node --test --test-concurrency=1 test/*.test.mjs"
+    "check": "node --check server.js && node --check public/app.js && node --check scripts/smoke-test.mjs",
+    "test": "node --test --test-concurrency=1 test/*.test.mjs",
+    "smoke": "node scripts/smoke-test.mjs"
   },
   "keywords": [
     "seo",

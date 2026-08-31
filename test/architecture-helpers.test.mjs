@@ -18,6 +18,8 @@ const {
   stabilizeScore,
 } = require('../lib/health-score.js');
 const { mocksAllowed, resolveAppMode, integrationUnavailable } = require('../lib/runtime-mode.js');
+const { sanitize } = require('../lib/logger.js');
+const { createRequestMetrics } = require('../lib/request-metrics.js');
 const { parse: parseDotenv } = require('dotenv');
 const { serializeDotenv } = require('../lib/dotenv-store.js');
 const { writeFileAtomicSync, writeJsonFileSync } = require('../lib/json-file-store.js');
@@ -28,6 +30,36 @@ const {
   negativeCount: tpNegativeCount,
   trustpilotTrend: tpTrend,
 } = require('../lib/trustpilot.js');
+
+test('structured logs redact secrets without losing useful error context', () => {
+  const clean = sanitize({
+    requestId: 'request-123',
+    authorization: 'Bearer do-not-log',
+    nested: { apiKey: 'do-not-log', provider: 'gemini' },
+    error: new Error('provider timeout'),
+  });
+  assert.equal(clean.authorization, '[redacted]');
+  assert.equal(clean.nested.apiKey, '[redacted]');
+  assert.equal(clean.nested.provider, 'gemini');
+  assert.equal(clean.error.message, 'provider timeout');
+});
+
+test('request metrics stay bounded and expose operational totals', () => {
+  const metrics = createRequestMetrics(() => new Date('2026-08-31T12:00:00.000Z'));
+  metrics.started('GET');
+  metrics.started('POST');
+  metrics.finished(200, 42);
+  metrics.finished(503, 2400);
+  assert.deepEqual(metrics.snapshot(), {
+    startedAt: '2026-08-31T12:00:00.000Z',
+    totals: { requests: 2, responses: 2 },
+    methods: { GET: 1, POST: 1 },
+    statusClasses: { '2xx': 1, '3xx': 0, '4xx': 0, '5xx': 1 },
+    latencyBuckets: { under100ms: 1, under500ms: 0, under2s: 0, over2s: 1 },
+    averageDurationMs: 1221,
+    inFlight: 0,
+  });
+});
 
 test('singleFlight coalesces overlap without caching settled results', async () => {
   let calls = 0;

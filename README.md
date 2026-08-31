@@ -116,8 +116,11 @@ Local development boots in **Demo Mode** so you can explore every tab before con
 Requires **Node.js 20 or newer**. Run the isolated route/security suite with:
 
 ```bash
+npm run check
 npm test
 ```
+
+Every push to `main` and every pull request runs both commands in GitHub Actions.
 
 ---
 
@@ -250,8 +253,16 @@ The app auto‑deploys from the GitHub `main` branch.
 
 1. Set the environment variables above in the service's **Variables**.
    Railway is automatically treated as `APP_MODE=production`; setting it explicitly is recommended for clarity.
-2. **Attach a Volume** and set `DATA_DIR` to its mount path (e.g. `/data`). **Important:** container filesystems are wiped on every redeploy, so without a volume your Optimization Score history, audits, published‑content list, autopilot state, Performance snapshots, and settings entered through the UI reset each deploy. On startup the server logs `💾 Data dir: … (persistent)` when a volume is configured.
+2. **Attach a Volume** and set `DATA_DIR` to its mount path (e.g. `/data`). **Important:** container filesystems are wiped on every redeploy, so without a volume your Optimization Score history, audits, published‑content list, autopilot state, Performance snapshots, and settings entered through the UI reset each deploy. The structured `server.started` log records whether persistent storage is enabled.
 3. Set `ADMIN_PASSWORD` and enter the same value in Settings → Admin Password.
+
+`railway.json` makes Railway wait for `/health/ready` before switching traffic to a new deployment and restarts a crashed process on failure. After a deploy, run the same read-only smoke check used during release verification:
+
+```bash
+npm run smoke -- https://your-service.up.railway.app
+```
+
+Set `REQUIRE_LIVE_GSC=1` when the smoke run must also prove Search Console is live. The script never generates, publishes, indexes, or spends AI credits.
 
 Deploying by hand (GitHub web upload): the whole app is one bundle — `server.js` at the repo **root**, and `app.js` / `index.html` / `style.css` under **`public/`**.
 
@@ -279,6 +290,13 @@ Deploying by hand (GitHub web upload): the whole app is one bundle — `server.j
 | GET | `/api/business-profile` | — | Saved business identity + configured flag. |
 | POST | `/api/business-profile` | 🔒 | Save business identity (name/address/phone/socials). |
 | POST | `/api/save-settings` | 🔒 | Persist configuration to the server. |
+
+### Operations
+| Method | Endpoint | Auth | Purpose |
+|---|---|:---:|---|
+| GET | `/health/live` | — | Cheap process liveness probe. Returns `503` while gracefully shutting down. |
+| GET | `/health/ready` | — | Deployment readiness probe: traffic acceptance, writable storage, and runtime mode. |
+| GET | `/api/diagnostics` | 🔒 | Bounded request totals, latency buckets, process uptime, runtime mode, and storage state. |
 
 ### Content
 | Method | Endpoint | Auth | Purpose |
