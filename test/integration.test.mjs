@@ -145,6 +145,50 @@ test('lifecycle probes and protected diagnostics expose truthful process state',
   assert.equal(integrationBody.providers['reviews-site'].configured, true);
 });
 
+test('public contracts expose stable schemas and hardened response boundaries', async () => {
+  const invalidRequestId = await request('/health/live', {
+    auth: false,
+    headers: { 'X-Request-Id': 'bad id with spaces' },
+  });
+  assert.equal(invalidRequestId.status, 200);
+  assert.match(invalidRequestId.headers.get('x-request-id') || '', /^[a-f0-9-]{36}$/i);
+  assert.equal(invalidRequestId.headers.get('x-powered-by'), null);
+  assert.equal(invalidRequestId.headers.get('access-control-allow-origin'), null);
+  assert.equal(invalidRequestId.headers.get('x-content-type-options'), 'nosniff');
+  assert.equal(invalidRequestId.headers.get('x-frame-options'), 'DENY');
+  assert.match(invalidRequestId.headers.get('content-security-policy') || '', /frame-ancestors 'none'/);
+
+  const storage = await request('/api/storage-status', { auth: false });
+  const storageBody = await storage.json();
+  assert.deepEqual(Object.keys(storageBody).sort(), ['backend', 'persistent', 'postgresMirror', 'tenantId']);
+  assert.equal(storageBody.persistent, true);
+  assert.equal(storageBody.tenantId, 'best-day-fitness');
+
+  const deploy = await request('/api/deploy-readiness', { auth: false });
+  const deployBody = await deploy.json();
+  assert.equal(typeof deployBody.ready, 'number');
+  assert.equal(typeof deployBody.total, 'number');
+  assert.equal(Array.isArray(deployBody.checks), true);
+  assert.equal(typeof deployBody.runtime.mode, 'string');
+  assert.equal(typeof deployBody.runtime.mockIntegrationsAllowed, 'boolean');
+
+  const score = await request('/api/health-score', { auth: false });
+  const scoreBody = await score.json();
+  assert.equal(typeof scoreBody.success, 'boolean');
+  assert.equal(typeof scoreBody.scoreVersion, 'number');
+  assert.equal(Array.isArray(scoreBody.pillars), true);
+  assert.equal(Array.isArray(scoreBody.explainability.missingSources), true);
+  assert.equal(typeof scoreBody.confidence.percent, 'number');
+});
+
+test('the global JSON boundary rejects oversized requests before business logic', async () => {
+  const response = await request('/api/business-profile', {
+    method: 'POST',
+    body: { name: 'x'.repeat(110 * 1024) },
+  });
+  assert.equal(response.status, 413);
+});
+
 test('production mode never reports demo generation, publishing, indexing, or search data as live success', { timeout: 30000 }, async () => {
   const productionDir = mkdtempSync(join(tmpdir(), 'seo-buddy-production-mode-'));
   const port = await availablePort();

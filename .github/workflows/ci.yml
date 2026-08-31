@@ -1,5 +1,9 @@
 name: CI
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   pull_request:
   push:
@@ -20,4 +24,5 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
-      - run: npm test
+      - run: npm run test:unit
+      - run: npm run test:contracts
