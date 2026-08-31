@@ -2202,6 +2202,24 @@ document.addEventListener('DOMContentLoaded', () => {
     return '<div class="sb-coverage"><div class="t">How much of your score is real<span>' + pct + '%</span></div><div class="bar">' + bars + '</div><p>' + note + '</p></div>';
   }
 
+  function sbScoreMeta(hs) {
+    if (!hs || hs.overall == null) return '';
+    const samples = hs.smoothing && Number(hs.smoothing.samples || 0);
+    const stableLabel = samples > 1 ? '7-day score' : 'Building 7-day baseline';
+    const live = hs.liveOverall == null ? hs.overall : hs.liveOverall;
+    const confidence = hs.confidence && hs.confidence.level
+      ? hs.confidence.level.charAt(0).toUpperCase() + hs.confidence.level.slice(1) + ' confidence'
+      : '';
+    const updated = hs.freshness && hs.freshness.calculatedAt ? 'Updated ' + tdAgo(hs.freshness.calculatedAt) : '';
+    return '<div class="sb-score-meta">'
+      + '<span><b>' + stableLabel + '</b> ' + hs.overall + '</span>'
+      + '<span><b>Live today</b> ' + live + '</span>'
+      + (confidence ? '<span>' + sumEsc(confidence) + '</span>' : '')
+      + (updated ? '<span>' + sumEsc(updated) + '</span>' : '')
+      + (hs.scoreVersion ? '<span>Formula v' + Number(hs.scoreVersion) + '</span>' : '')
+      + '</div>';
+  }
+
   const SB_WORDS = ['Nothing', 'One', 'Two', 'Three', 'Four', 'Five'];
   function renderHero(hs) {
     const hero = document.getElementById('home-hero'); if (!hero) return;
@@ -2237,7 +2255,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // The single number used to conflate them.
     let cov = document.getElementById('home-coverage');
     if (!cov) { cov = document.createElement('div'); cov.id = 'home-coverage'; el.parentNode.insertBefore(cov, el.nextSibling); }
-    cov.innerHTML = sbCoverage(hs);
+    cov.innerHTML = sbCoverage(hs) + sbScoreMeta(hs);
     el.innerHTML = hs.pillars.map(p => {
       const detCls = p.status === 'warn' ? 'warnt' : (p.status === 'off' ? 'offt' : '');
       // The dot carries the pillar's own hue so the eye links a tile to its arc
@@ -2246,7 +2264,8 @@ document.addEventListener('DOMContentLoaded', () => {
       const dot = p.measured
         ? `<span class="pdot" style="background:var(--${v}-g)"></span>`
         : `<span class="pdot" style="background:transparent;box-shadow:inset 0 0 0 2px var(--unmeasured)"></span>`;
-      return `<div class="home-pillar" data-tab="${HOME_TAB_MAP[p.key] || 'summary-tab'}">${dot}<span class="plbl">${sumEsc(p.label)}</span><div class="pdet ${detCls}">${sumEsc(p.detail)}</div></div>`;
+      const value = p.measured && p.score != null ? `<span class="pval" title="Live pillar score${p.rawScore != null ? ': ' + p.rawScore : ''}">${p.score}</span>` : '';
+      return `<div class="home-pillar" data-tab="${HOME_TAB_MAP[p.key] || 'summary-tab'}">${dot}<span class="plbl">${sumEsc(p.label)}</span>${value}<div class="pdet ${detCls}">${sumEsc(p.detail)}</div></div>`;
     }).join('');
     el.querySelectorAll('.home-pillar').forEach(c => c.addEventListener('click', () => homeGoTab(c.dataset.tab)));
   }
@@ -2312,6 +2331,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // dashboard finally show one number with one visual identity.
     hero.innerHTML = '<div class="td-kick">Your visibility</div>'
       + '<div class="sb-ring" id="td-ring" style="width:216px"></div>'
+      + sbScoreMeta(hs)
       + '<div class="td-line"><b>Everything’s handled.</b> ' + moves.length + ' quick thing' + (moves.length > 1 ? 's' : '') + ' need' + (moves.length > 1 ? '' : 's') + ' your ok below — then you’re done.</div>';
     sbRing(document.getElementById('td-ring'), hs || {});
   }

@@ -20,7 +20,7 @@ Everything in the app rolls up into a single **Optimization Score (0–100)** on
 | **Get listed** | How many of the third‑party sources AI trusts you're listed on. |
 | **Fresh content** | How recently you've published, plus whether content autopilot is on. |
 
-The score is a **weighted average of only the pillars it can actually measure** (a "trust rule" — it never invents a number for a pillar you haven't connected yet), snapshots weekly, and reports a 28‑day change. Under the score, **Your next moves** turns the current gaps into a short, ranked to‑do list — many items are **one‑tap** (e.g. turn on autopilot, post to GBP) right from Home.
+The score is a **weighted average of only the pillars it can actually measure** (a "trust rule" — it never invents a number for a pillar you haven't connected yet). Formula v2 keeps full precision until the final display value, records one complete pillar snapshot per day, and uses a seven-day headline average so normal Search Console movement does not look like a sudden business change. The dashboard also shows the unsmoothed live score, data confidence, freshness, and a version-safe 28-day change. Under the score, **Your next moves** turns the current gaps into a short, ranked to-do list — many items are **one-tap** (e.g. turn on autopilot, post to GBP) right from Home.
 
 ---
 
@@ -380,7 +380,7 @@ State is stored as flat JSON in `DATA_DIR`:
 
 | File | Contents |
 |---|---|
-| `health-score.json` | Weekly Optimization Score snapshots (for the 28‑day delta). |
+| `health-score.json` | Daily, versioned Optimization Score snapshots with pillar inputs, confidence and freshness metadata. |
 | `history.json` | Published‑content history. |
 | `performance.json` | Daily traffic/rank snapshots. |
 | `ai-visibility.json` | Multi‑engine visibility snapshots (score/SoV/sentiment/leaderboard over time), tracked prompts, auto‑weekly schedule. |

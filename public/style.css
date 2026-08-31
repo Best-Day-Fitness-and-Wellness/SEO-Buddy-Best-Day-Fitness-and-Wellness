@@ -1465,6 +1465,7 @@ body.dark .sum-ap-new{color:#ffb3ac;}
 #summary-tab .home-pillar .pdot{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:7px;}
 #summary-tab .pdot.ok{background:var(--color-success);} #summary-tab .pdot.warn{background:var(--color-warning);} #summary-tab .pdot.off{background:var(--text-dark);}
 #summary-tab .home-pillar .plbl{font-size:12.5px;font-weight:600;color:var(--text-main);}
+#summary-tab .home-pillar .pval{float:right;font-size:12px;font-weight:800;color:var(--text-main);font-variant-numeric:tabular-nums;}
 #summary-tab .home-pillar .pdet{font-size:11px;color:var(--text-muted);margin-top:6px;}
 #summary-tab .home-pillar .pdet.warnt{color:var(--color-warning);} #summary-tab .home-pillar .pdet.offt{color:var(--text-dark);}
 #summary-tab .home-moves-wrap{margin:4px 0 18px;}
@@ -2454,6 +2455,15 @@ body.asst-open .sb-dock-wrap { display: none; }
 }
 .sb-ring-chip.up { background: var(--p4-t); color: var(--p4); border-color: var(--p4-g); }
 .sb-ring-chip.dn { background: var(--p2-t); color: var(--p2); border-color: var(--p2-g); }
+.sb-score-meta {
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 12px;
+  margin: 12px auto 18px; max-width: 520px;
+  color: var(--ink-3); font-size: 11.5px; line-height: 1.35;
+}
+.sb-score-meta span { white-space: nowrap; }
+.sb-score-meta b { color: var(--ink-2); font-weight: 700; }
+#summary-tab .sb-score-meta { justify-content: flex-start; margin: 12px 0 0; }
+#today-tab .sb-score-meta { margin-top: 8px; margin-bottom: 18px; }
 /* Chips do not fit inside a small ring — below ~190px they sit under it. */
 .sb-ring.sm .sb-ring-n { font-size: 34px; }
 .sb-ring.sm .sb-ring-chip { display: none; }

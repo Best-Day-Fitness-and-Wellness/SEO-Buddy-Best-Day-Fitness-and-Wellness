@@ -1,7 +1,7 @@
 import test, { after, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -80,6 +80,21 @@ after(() => {
   rmSync(dataDir, { recursive: true, force: true });
 });
 
+test('reading the health score does not write score history', async () => {
+  const healthFile = join(dataDir, 'health-score.json');
+  assert.equal(existsSync(healthFile), false);
+
+  const response = await request('/api/health-score', { auth: false });
+  const score = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(score.scoreVersion, 2);
+  assert.ok(score.smoothing);
+  assert.ok(score.confidence);
+  assert.ok(score.freshness);
+  assert.equal(existsSync(healthFile), false);
+});
+
 test('all read-only dashboard routes respond', { timeout: 30000 }, async () => {
   const paths = [
     '/api/brand-profile', '/api/business-profile', '/api/gsc-data', '/api/history',
@@ -119,6 +134,8 @@ test('static assets compress, cache briefly, and keep PDF code off the critical 
   const source = await (await request('/app.js', { auth: false })).text();
   assert.match(source, /setDataModeFromHealthScore\(hs\)/);
   assert.match(source, /setDataMode\(payload\.source === 'live_gsc'\)/);
+  assert.match(source, /Building 7-day baseline/);
+  assert.match(source, /Live today/);
 });
 
 test('every mutating or credit-spending route is password protected', async () => {

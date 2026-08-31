@@ -9,6 +9,14 @@ const require = createRequire(import.meta.url);
 const { singleFlight } = require('../lib/single-flight.js');
 const { ttlCache } = require('../lib/ttl-cache.js');
 const { upsertDailySnapshot } = require('../lib/daily-snapshot.js');
+const {
+  SCORE_VERSION,
+  migrateSnapshots,
+  scoreDelta,
+  scorePillars,
+  snapshotFromScore,
+  stabilizeScore,
+} = require('../lib/health-score.js');
 const { parse: parseDotenv } = require('dotenv');
 const { serializeDotenv } = require('../lib/dotenv-store.js');
 const { writeFileAtomicSync, writeJsonFileSync } = require('../lib/json-file-store.js');
@@ -101,6 +109,63 @@ test('upsertDailySnapshot skips identical writes and enforces retention', () => 
     { date: '2026-08-19', value: 3 },
   ]);
   assert.deepEqual(original, [{ date: '2026-08-17', value: 1 }, { date: '2026-08-18', value: 2 }]);
+});
+
+test('health score keeps raw precision and rounds only the final weighted score', () => {
+  const score = scorePillars([
+    { key: 'primary', label: 'Primary', weight: 80, measured: true, score: 69.49, inputs: { value: 1 } },
+    { key: 'secondary', label: 'Secondary', weight: 20, measured: true, score: 70.04, inputs: { value: 2 } },
+  ], '2026-08-31T12:00:00.000Z');
+
+  assert.equal(score.scoreVersion, SCORE_VERSION);
+  assert.equal(score.pillars[0].score, 69);
+  assert.equal(score.pillars[0].rawScore, 69.49);
+  assert.equal(score.rawOverall, 69.6);
+  assert.equal(score.liveOverall, 70);
+  assert.equal(score.confidence.level, 'high');
+});
+
+test('health score treats missing data as unknown and lowers confidence for stale sources', () => {
+  const score = scorePillars([
+    { key: 'measured', label: 'Measured', weight: 50, measured: true, score: 80, sourceUpdatedAt: '2026-07-01T00:00:00.000Z' },
+    { key: 'unknown', label: 'Unknown', weight: 50, measured: false, score: null },
+  ], '2026-08-31T12:00:00.000Z');
+
+  assert.equal(score.liveOverall, 80);
+  assert.equal(score.pillars[1].score, null);
+  assert.deepEqual(score.confidence.stalePillars, ['measured']);
+  assert.equal(score.confidence.percent, 40);
+  assert.equal(score.confidence.level, 'low');
+});
+
+test('health score stabilization uses seven same-version daily samples', () => {
+  const history = [69, 70, 71, 72, 73, 74, 99].map((overall, index) => ({
+    date: `2026-08-${String(23 + index).padStart(2, '0')}`,
+    version: index === 6 ? 1 : SCORE_VERSION,
+    overall,
+    liveOverall: overall,
+    rawOverall: overall,
+  }));
+  const current = {
+    date: '2026-08-31', version: SCORE_VERSION, overall: 75,
+    liveOverall: 75, rawOverall: 75,
+  };
+
+  const stable = stabilizeScore(history, current);
+  assert.equal(stable.samples, 7);
+  assert.equal(stable.overall, 72);
+  assert.equal(stable.method, 'daily-average');
+});
+
+test('legacy score history is versioned and never used as a v2 trend baseline', () => {
+  const migrated = migrateSnapshots([{ date: '2026-07-01', overall: 80 }]);
+  const score = scorePillars([{ key: 'one', label: 'One', weight: 100, measured: true, score: 69, inputs: { observed: 69 } }]);
+  const current = snapshotFromScore(score, '2026-08-31T12:00:00.000Z');
+
+  assert.equal(migrated[0].version, 1);
+  assert.equal(stabilizeScore(migrated, current).samples, 1);
+  assert.equal(scoreDelta(migrated, current), null);
+  assert.deepEqual(current.pillars[0].inputs, { observed: 69 });
 });
 
 test('writeJsonFileSync replaces complete JSON and leaves no temporary files', () => {

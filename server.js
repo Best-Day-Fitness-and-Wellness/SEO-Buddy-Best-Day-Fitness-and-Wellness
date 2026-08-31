@@ -22,6 +22,15 @@ const {
 const { serializeDotenv } = require('./lib/dotenv-store');
 const { ttlCache } = require('./lib/ttl-cache');
 const { upsertDailySnapshot } = require('./lib/daily-snapshot');
+const {
+  SCORE_VERSION,
+  clamp: hClamp,
+  migrateSnapshots,
+  scoreDelta,
+  scorePillars,
+  snapshotFromScore,
+  stabilizeScore,
+} = require('./lib/health-score');
 
 // Load UI-saved settings from the same durable directory used by the JSON
 // stores. Host-provided environment variables still win unless a user
@@ -4295,7 +4304,7 @@ async function buildPerfDigest() {
   const p = await computePerformance();
   const cur = p.current, prev = p.previous;
   let score = null;
-  try { const h = await computeHealthScore(); score = h.overall; } catch (e) { /* score optional */ }
+  try { const h = await buildHealthScoreResponse(); score = h.overall; } catch (e) { /* score optional */ }
   const d = {
     generatedAt: new Date().toISOString(),
     source: p.source,
@@ -4387,9 +4396,8 @@ setInterval(() => { maybeRunPerfDigest(false).catch(() => {}); }, 12 * 60 * 60 *
 // ============================================================
 const HEALTH_FILE = path.join(DATA_DIR, 'health-score.json');
 let healthSnapshots = [];
-try { if (fs.existsSync(HEALTH_FILE)) healthSnapshots = JSON.parse(fs.readFileSync(HEALTH_FILE, 'utf8')); } catch (e) { healthSnapshots = []; }
+try { if (fs.existsSync(HEALTH_FILE)) healthSnapshots = migrateSnapshots(JSON.parse(fs.readFileSync(HEALTH_FILE, 'utf8'))); } catch (e) { healthSnapshots = []; }
 function saveHealth() { saveJsonFileSync(HEALTH_FILE, healthSnapshots, 'Health'); }
-function hClamp(n, lo, hi) { return Math.max(lo, Math.min(hi, n)); }
 
 async function computeHealthScore() {
   const pillars = [];
@@ -4403,7 +4411,13 @@ async function computeHealthScore() {
       const pos = p.current.avgPosition || 30;
       const leakScore = 100 - Math.min(leaks * 5, 40);
       const rankScore = hClamp(100 - (pos - 3) * (100 / 27), 0, 100);
-      pillars.push({ key: 'found', label: 'Found on Google', weight: 25, measured: true, score: Math.round(0.6 * leakScore + 0.4 * rankScore), detail: `${leaks} search${leaks === 1 ? '' : 'es'} with no clicks · avg rank ${pos}` });
+      pillars.push({
+        key: 'found', label: 'Found on Google', weight: 25, measured: true,
+        score: 0.6 * leakScore + 0.4 * rankScore,
+        detail: `${leaks} search${leaks === 1 ? '' : 'es'} with no clicks · avg rank ${pos}`,
+        inputs: { leaks, averagePosition: pos },
+        sourceUpdatedAt: snap && snap.date ? `${snap.date}T00:00:00.000Z` : null,
+      });
     } else {
       pillars.push({ key: 'found', label: 'Found on Google', weight: 25, measured: false, score: null, detail: 'Connect Search Console to measure' });
     }
@@ -4416,7 +4430,12 @@ async function computeHealthScore() {
     const mm = localDb.nap.mismatchCount || 0;
     let score = hClamp(100 - mm * 15, 0, 100);
     if (localDb.gbpDraft && localDb.gbpDraft.posted) score = hClamp(score + 8, 0, 100);
-    pillars.push({ key: 'local', label: 'Local listings', weight: 20, measured: true, score, detail: mm ? `${mm} listing${mm > 1 ? 's' : ''} to fix` : 'Consistent everywhere' });
+    pillars.push({
+      key: 'local', label: 'Local listings', weight: 20, measured: true, score,
+      detail: mm ? `${mm} listing${mm > 1 ? 's' : ''} to fix` : 'Consistent everywhere',
+      inputs: { mismatches: mm, gbpPosted: !!(localDb.gbpDraft && localDb.gbpDraft.posted) },
+      sourceUpdatedAt: localDb.lastNapRun || (localDb.gbpDraft && (localDb.gbpDraft.postedAt || localDb.gbpDraft.createdAt)) || null,
+    });
   } else {
     pillars.push({ key: 'local', label: 'Local listings', weight: 20, measured: false, score: null, detail: 'Run a listings check to measure' });
   }
@@ -4424,7 +4443,14 @@ async function computeHealthScore() {
   // 3. AI recommends you (20%) — audit recommend rate
   if (aioAuditsDb && aioAuditsDb.length) {
     const rec = aioAuditsDb.filter(a => a.recommended).length;
-    pillars.push({ key: 'ai', label: 'AI recommends you', weight: 20, measured: true, score: Math.round(rec / aioAuditsDb.length * 100), detail: `Recommended in ${rec} of ${aioAuditsDb.length} check${aioAuditsDb.length > 1 ? 's' : ''}` });
+    const latestAudit = aioAuditsDb[0] || {};
+    pillars.push({
+      key: 'ai', label: 'AI recommends you', weight: 20, measured: true,
+      score: rec / aioAuditsDb.length * 100,
+      detail: `Recommended in ${rec} of ${aioAuditsDb.length} check${aioAuditsDb.length > 1 ? 's' : ''}`,
+      inputs: { recommended: rec, checks: aioAuditsDb.length },
+      sourceUpdatedAt: latestAudit.timestamp || latestAudit.createdAt || latestAudit.date || null,
+    });
   } else {
     pillars.push({ key: 'ai', label: 'AI recommends you', weight: 20, measured: false, score: null, detail: 'Run an AI visibility check to measure' });
   }
@@ -4434,7 +4460,13 @@ async function computeHealthScore() {
     const st = citationsDb.statuses || {};
     const total = citationsDb.targets.length;
     const done = citationsDb.targets.filter(t => t.listed === true || (st[t.domain] && st[t.domain].status === 'live')).length;
-    pillars.push({ key: 'listed', label: 'Get listed', weight: 20, measured: true, score: Math.round(done / total * 100), detail: `On ${done} of ${total} source${total > 1 ? 's' : ''} AI cites` });
+    pillars.push({
+      key: 'listed', label: 'Get listed', weight: 20, measured: true,
+      score: done / total * 100,
+      detail: `On ${done} of ${total} source${total > 1 ? 's' : ''} AI cites`,
+      inputs: { listed: done, total },
+      sourceUpdatedAt: citationsDb.lastScanned || citationsDb.lastRun || null,
+    });
   } else {
     pillars.push({ key: 'listed', label: 'Get listed', weight: 20, measured: false, score: null, detail: 'Scan the sites AI cites to measure' });
   }
@@ -4449,39 +4481,74 @@ async function computeHealthScore() {
       if (posts.length) days = (Date.now() - new Date(posts[0].date + 'T00:00:00Z').getTime()) / 86400000;
       let score = posts.length ? hClamp(100 - Math.max(0, days - 7) * (100 / 38), 0, 100) : 20;
       if (autopilotEnabled) score = hClamp(score + 10, 0, 100);
-      pillars.push({ key: 'fresh', label: 'Fresh content', weight: 15, measured: true, score: Math.round(score), detail: posts.length ? `Last post ${Math.round(days)}d ago${autopilotEnabled ? ' · autopilot on' : ''}` : 'Autopilot on, no posts yet' });
+      pillars.push({
+        key: 'fresh', label: 'Fresh content', weight: 15, measured: true, score,
+        detail: posts.length ? `Last post ${Math.round(days)}d ago${autopilotEnabled ? ' · autopilot on' : ''}` : 'Autopilot on, no posts yet',
+        inputs: { daysSincePost: Number.isFinite(days) ? Math.round(days * 100) / 100 : null, autopilotEnabled, postCount: posts.length },
+        sourceUpdatedAt: posts.length ? (posts[0].publishedAt || `${posts[0].date}T00:00:00.000Z`) : null,
+      });
     }
   }
 
-  pillars.forEach(p => { p.status = !p.measured ? 'off' : (p.score >= 75 ? 'ok' : 'warn'); });
-  const measured = pillars.filter(p => p.measured);
-  const wsum = measured.reduce((s, p) => s + p.weight, 0);
-  const overall = wsum ? Math.round(measured.reduce((s, p) => s + p.score * p.weight, 0) / wsum) : null;
-  return { overall, measuredCount: measured.length, totalPillars: pillars.length, pillars };
+  return scorePillars(pillars);
+}
+
+async function buildHealthScoreResponse(recordedAt = new Date().toISOString()) {
+  const score = await computeHealthScore();
+  const candidate = snapshotFromScore(score, recordedAt);
+  const smoothing = stabilizeScore(healthSnapshots, candidate);
+  const current = candidate ? { ...candidate, overall: smoothing.overall } : null;
+  const preview = current ? upsertDailySnapshot(healthSnapshots, current, 180).snapshots : healthSnapshots;
+  return {
+    ...score,
+    overall: smoothing.overall,
+    liveOverall: score.liveOverall,
+    rawOverall: score.rawOverall,
+    smoothing,
+    delta: scoreDelta(healthSnapshots, current),
+    history: preview.slice(-60),
+  };
+}
+
+let healthSnapshotPromise = null;
+async function recordDailyHealthSnapshot(recordedAt = new Date().toISOString()) {
+  if (healthSnapshotPromise) return healthSnapshotPromise;
+  healthSnapshotPromise = (async () => {
+    const today = recordedAt.slice(0, 10);
+    const existing = healthSnapshots.find(snapshot => snapshot.date === today && snapshot.version === SCORE_VERSION);
+    if (existing) return existing;
+    const score = await computeHealthScore();
+    const candidate = snapshotFromScore(score, recordedAt);
+    if (!candidate) return null;
+    const smoothing = stabilizeScore(healthSnapshots, candidate);
+    const row = { ...candidate, overall: smoothing.overall };
+    const update = upsertDailySnapshot(healthSnapshots, row, 180);
+    healthSnapshots = update.snapshots;
+    if (update.changed) saveHealth();
+    return row;
+  })().finally(() => { healthSnapshotPromise = null; });
+  return healthSnapshotPromise;
+}
+
+function scheduleDailyHealthSnapshots() {
+  const record = () => recordDailyHealthSnapshot().catch(e => console.error('[Health Score] daily snapshot failed:', e.message));
+  const startupTimer = setTimeout(record, 60000);
+  if (startupTimer.unref) startupTimer.unref();
+
+  const now = new Date();
+  const next = new Date(now);
+  next.setUTCHours(24, 5, 0, 0);
+  const dailyTimer = setTimeout(() => {
+    record();
+    const interval = setInterval(record, 24 * 60 * 60 * 1000);
+    if (interval.unref) interval.unref();
+  }, next.getTime() - now.getTime());
+  if (dailyTimer.unref) dailyTimer.unref();
 }
 
 app.get('/api/health-score', async (req, res) => {
   try {
-    const h = await computeHealthScore();
-    const today = new Date().toISOString().split('T')[0];
-    if (h.overall != null) {
-      const row = { date: today, overall: h.overall };
-      const update = upsertDailySnapshot(healthSnapshots, row, 180);
-      healthSnapshots = update.snapshots;
-      if (update.changed) saveHealth();
-    }
-    let delta = null;
-    if (h.overall != null && healthSnapshots.length > 1) {
-      const target = Date.now() - 28 * 86400000;
-      let best = null;
-      for (const s of healthSnapshots) {
-        const t = new Date(s.date + 'T00:00:00Z').getTime();
-        if (t <= target && (!best || t > new Date(best.date + 'T00:00:00Z').getTime())) best = s;
-      }
-      if (!best) best = healthSnapshots[0];
-      if (best && best.date !== today) delta = h.overall - best.overall;
-    }
-    res.json({ success: true, ...h, delta, history: healthSnapshots.slice(-60) });
+    res.json({ success: true, ...(await buildHealthScoreResponse()) });
   } catch (e) {
     console.error('[Health Score] failed:', e.message);
     res.status(500).json({ success: false, error: e.message });
@@ -5312,6 +5379,7 @@ app.listen(PORT, () => {
     console.log(`⚠️  Set ADMIN_PASSWORD in your environment before exposing this publicly.`);
   }
   console.log(`=======================================================`);
+  scheduleDailyHealthSnapshots();
   // Fire-and-forget: repair-triggered re-indexing (safe, self-clearing).
   reindexRepairedPosts().catch(e => console.error('[URL Migration] reindex batch error:', e.message));
 });
