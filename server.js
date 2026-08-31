@@ -35,6 +35,9 @@ const { integrationUnavailable, mocksAllowed, resolveAppMode } = require('./lib/
 const { createLogger } = require('./lib/logger');
 const { createRequestMetrics } = require('./lib/request-metrics');
 const { buildBrowserAssets, renderAssetIndex } = require('./lib/browser-assets');
+const { createAccessControl } = require('./lib/access-control');
+const { createAuditLog } = require('./lib/audit-log');
+const { normalizeSecretInput } = require('./lib/secrets');
 
 // Load UI-saved settings from the same durable directory used by the JSON
 // stores. Host-provided environment variables still win unless a user
@@ -53,6 +56,7 @@ let isShuttingDown = false;
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const BROWSER_ASSETS = buildBrowserAssets(PUBLIC_DIR, [
   { token: 'STYLE_ASSET', file: 'style.css' },
+  { token: 'THEME_ASSET', file: 'modules/theme.js' },
   { token: 'CORE_ASSET', file: 'modules/core.js' },
   { token: 'APP_ASSET', file: 'app.js' },
   { token: 'ASSISTANT_ASSET', file: 'modules/assistant.js' },
@@ -92,6 +96,14 @@ try {
 // (settings, publishing, indexing, autopilot, and any Gemini-spend routes).
 // Leave unset only for trusted local development.
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
+const OPERATOR_PASSWORD = process.env.OPERATOR_PASSWORD || '';
+const accessControl = createAccessControl({ ownerToken: ADMIN_PASSWORD, operatorToken: OPERATOR_PASSWORD });
+const requireAuth = accessControl.requireRole('operator');
+const requireOwner = accessControl.requireRole('owner');
+const auditLog = createAuditLog({
+  filePath: path.join(DATA_DIR, 'audit-log.jsonl'),
+  signingKey: process.env.AUDIT_SIGNING_KEY || '',
+});
 
 // Real Best Day Fitness business info (NAP) for structured data / schema.
 // Single source of truth — used by both the publisher and the schema endpoint.
@@ -341,6 +353,27 @@ app.use((req, res, next) => {
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('Permissions-Policy', 'camera=(), geolocation=(), microphone=(self)');
   res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+  res.setHeader('Origin-Agent-Cluster', '?1');
+  res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
+  const contentSecurityPolicy = [
+    "default-src 'self'",
+    "base-uri 'none'",
+    "object-src 'none'",
+    "frame-ancestors 'none'",
+    "frame-src 'none'",
+    "form-action 'self'",
+    "script-src 'self'",
+    "script-src-attr 'unsafe-inline'",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com data:",
+    "img-src 'self' data: https:",
+    "media-src 'self' blob:",
+    "connect-src 'self'",
+    "worker-src 'self' blob:",
+  ];
+  if (APP_MODE === 'production') contentSecurityPolicy.push('upgrade-insecure-requests');
+  res.setHeader('Content-Security-Policy', contentSecurityPolicy.join('; '));
   if (req.path.startsWith('/api/') || req.path.startsWith('/health/')) res.setHeader('Cache-Control', 'no-store');
   if (req.secure || req.get('x-forwarded-proto') === 'https') {
     res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
@@ -416,6 +449,27 @@ app.get('/health/ready', (req, res) => {
 app.use('/api/transcribe', bodyParser.json({ limit: '34mb' }));
 app.use(bodyParser.json());
 
+// Record every state-changing API request after the response finishes. Audit
+// entries deliberately exclude query strings, headers, and bodies so secrets
+// and generated content never enter the log.
+app.use((req, res, next) => {
+  if (!req.path.startsWith('/api/') || ['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
+  res.once('finish', () => {
+    try {
+      auditLog.record({
+        requestId: req.requestId,
+        actorId: req.auth?.actorId,
+        role: req.auth?.role,
+        action: `${req.method} ${req.path}`,
+        statusCode: res.statusCode,
+      });
+    } catch (error) {
+      logger.error('audit.write_failed', { requestId: req.requestId, error });
+    }
+  });
+  next();
+});
+
 // The HTML is rendered with content-hashed asset URLs at process start. A new
 // deployment therefore gets new URLs while unchanged assets remain safely
 // cacheable for a year; browsers can no longer mix old JS with new server code.
@@ -449,7 +503,7 @@ app.use(express.static(PUBLIC_DIR, {
 // Brand profile routes live below the body parser on purpose — registered above
 // it, req.body is undefined and every save fails with a confusing 400.
 app.get('/api/brand-profile', (req, res) => res.json({ success: true, brand: brandDb, defaults: BRAND_DEFAULT, reviewedAt: brandReviewedAt }));
-app.post('/api/brand-profile', requireAuth, (req, res) => {
+app.post('/api/brand-profile', requireOwner, (req, res) => {
   const incoming = req.body && req.body.brand;
   if (!incoming || typeof incoming !== 'object') return res.status(400).json({ success: false, error: 'No brand profile supplied.' });
   // Merge onto defaults so a partial save can never blank out the whole voice.
@@ -458,7 +512,7 @@ app.post('/api/brand-profile', requireAuth, (req, res) => {
   const persisted = saveBrand();
   res.json({ success: true, brand: brandDb, reviewedAt: brandReviewedAt, persisted, durable: persisted && STORAGE_IS_PERSISTENT });
 });
-app.post('/api/brand-profile/reset', requireAuth, (req, res) => {
+app.post('/api/brand-profile/reset', requireOwner, (req, res) => {
   brandDb = JSON.parse(JSON.stringify(BRAND_DEFAULT));
   brandReviewedAt = null;
   const persisted = saveBrand();
@@ -467,7 +521,7 @@ app.post('/api/brand-profile/reset', requireAuth, (req, res) => {
 
 // Business profile endpoints (registered after body parsing so req.body is available).
 app.get('/api/business-profile', (req, res) => res.json({ success: true, profile: businessProfile() }));
-app.post('/api/business-profile', requireAuth, (req, res) => {
+app.post('/api/business-profile', requireOwner, (req, res) => {
   try { saveBusinessProfileFromBody(req.body || {}); res.json({ success: true, profile: businessProfile() }); }
   catch (e) { console.error('[Business Profile] save failed:', e.message); res.status(500).json({ success: false, error: e.message }); }
 });
@@ -478,37 +532,6 @@ app.post('/api/business-profile', requireAuth, (req, res) => {
 // logs a loud startup warning. Provide the password from the client as either
 // an "Authorization: Bearer <password>" header or an "x-admin-token" header.
 // ----------------------------------------------------
-const authFailures = new Map();
-function requireAuth(req, res, next) {
-  if (!ADMIN_PASSWORD) return next(); // open mode (no password configured)
-  const now = Date.now();
-  const key = req.ip || req.socket.remoteAddress || 'unknown';
-  const prior = authFailures.get(key);
-  const authHeader = req.headers['authorization'] || '';
-  const bearer = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
-  const token = bearer || (req.headers['x-admin-token'] || '').trim();
-  const supplied = Buffer.from(token);
-  const expected = Buffer.from(ADMIN_PASSWORD);
-  if (supplied.length === expected.length && crypto.timingSafeEqual(supplied, expected)) {
-    authFailures.delete(key);
-    return next();
-  }
-  if (prior && prior.resetAt > now && prior.count >= 8) {
-    res.setHeader('Retry-After', String(Math.ceil((prior.resetAt - now) / 1000)));
-    return res.status(429).json({ success: false, error: 'Too many incorrect password attempts. Wait a few minutes, then try again.' });
-  }
-  if (prior && prior.resetAt <= now) authFailures.delete(key);
-  const nextFailure = prior && prior.resetAt > now
-    ? { count: prior.count + 1, resetAt: prior.resetAt }
-    : { count: 1, resetAt: now + 15 * 60 * 1000 };
-  if (authFailures.size > 5000) {
-    for (const [address, entry] of authFailures) if (entry.resetAt <= now) authFailures.delete(address);
-    if (authFailures.size > 10000) authFailures.clear();
-  }
-  authFailures.set(key, nextFailure);
-  return res.status(401).json({ success: false, error: 'Unauthorized. Enter the admin password in Settings to perform this action.' });
-}
-
 // Shared LocalBusiness schema builder (real NAP, single source of truth).
 function buildLocalBusinessSchema(domain) {
   return {
@@ -578,7 +601,17 @@ app.get('/api/diagnostics', requireAuth, (req, res) => {
     },
     storage: storageReadiness(),
     requests: requestMetrics.snapshot(),
+    access: accessControl.configuredRoles(),
+    audit: auditLog.verify(),
   });
+});
+
+app.get('/api/auth/status', (req, res) => {
+  res.json({ success: true, roles: accessControl.configuredRoles(), openMode: !ADMIN_PASSWORD && !OPERATOR_PASSWORD });
+});
+
+app.get('/api/audit-status', requireOwner, (req, res) => {
+  res.json({ success: true, audit: auditLog.verify() });
 });
 
 // ----------------------------------------------------
@@ -1592,7 +1625,7 @@ function startAutopilotScheduler() {
 // ----------------------------------------------------
 
 // 0. Save Configuration Settings
-app.post('/api/save-settings', requireAuth, (req, res) => {
+app.post('/api/save-settings', requireOwner, (req, res) => {
   const { geminiKey, openaiKey, perplexityKey, ghlToken, ghlLocation, ghlBlog, siteUrl, blogPrefix, authorName, authorUrl, gscJson } = req.body || {};
 
   try {
@@ -1603,6 +1636,7 @@ app.post('/api/save-settings', requireAuth, (req, res) => {
       'GHL_ACCESS_TOKEN', 'GHL_LOCATION_ID', 'GHL_BLOG_ID',
       'GSC_SITE_URL', 'GHL_BLOG_PATH_PREFIX', 'GHL_AUTHOR_NAME',
       'GHL_AUTHOR_URL', 'GOOGLE_APPLICATION_CREDENTIALS',
+      'ADMIN_PASSWORD', 'OPERATOR_PASSWORD', 'AUDIT_SIGNING_KEY',
       // Set on the host, not in this form. Without these two lines a Settings
       // save rewrites the .env without them and silently unconfigures
       // Trustpilot — the same way it once ate the Google credentials.
@@ -1611,10 +1645,10 @@ app.post('/api/save-settings', requireAuth, (req, res) => {
     for (const key of preserve) if (process.env[key]) saved[key] = process.env[key];
 
     const replacements = {
-      GEMINI_API_KEY: clean(geminiKey),
-      OPENAI_API_KEY: clean(openaiKey),
-      PERPLEXITY_API_KEY: clean(perplexityKey),
-      GHL_ACCESS_TOKEN: clean(ghlToken),
+      GEMINI_API_KEY: normalizeSecretInput(geminiKey, 'Gemini API key'),
+      OPENAI_API_KEY: normalizeSecretInput(openaiKey, 'OpenAI API key'),
+      PERPLEXITY_API_KEY: normalizeSecretInput(perplexityKey, 'Perplexity API key'),
+      GHL_ACCESS_TOKEN: normalizeSecretInput(ghlToken, 'GoHighLevel access token'),
       GHL_LOCATION_ID: clean(ghlLocation, 500),
       GHL_BLOG_ID: clean(ghlBlog, 500),
       GSC_SITE_URL: clean(siteUrl, 2000),
@@ -1735,7 +1769,7 @@ app.post('/api/save-settings', requireAuth, (req, res) => {
     });
   } catch (err) {
     console.error('[Settings] Failed to save server settings:', err.message);
-    return res.status(500).json({ success: false, error: err.message });
+    return res.status(err.statusCode || 500).json({ success: false, error: err.message });
   }
 });
 
@@ -2830,7 +2864,7 @@ app.get('/api/usage', (req, res) => {
 });
 // Storage status — is DATA_DIR pointed at a persistent volume (survives redeploys) or ephemeral?
 app.get('/api/storage-status', (req, res) => {
-  res.json({ persistent: !!process.env.DATA_DIR, dataDir: DATA_DIR });
+  res.json({ persistent: !!process.env.DATA_DIR });
 });
 
 // Why is Search Console not connected? The readiness board can only say yes or
@@ -2958,7 +2992,7 @@ app.get('/api/gsc-diagnostics', requireAuth, async (req, res) => {
 
   res.json(out);
 });
-app.post('/api/usage/budget', requireAuth, (req, res) => {
+app.post('/api/usage/budget', requireOwner, (req, res) => {
   const v = req.body && req.body.budgetUSD;
   usageDb.budgetUSD = (v === null || v === '' || v === undefined) ? null : Math.max(0, Number(v) || 0);
   saveUsage();
@@ -5536,6 +5570,8 @@ const server = app.listen(PORT, () => {
     geminiModel: GEMINI_MODEL,
     persistentStorage: STORAGE_IS_PERSISTENT,
     adminLockEnabled: Boolean(ADMIN_PASSWORD),
+    operatorLockEnabled: Boolean(OPERATOR_PASSWORD),
+    auditSigningEnabled: Boolean(process.env.AUDIT_SIGNING_KEY),
     railwayEnvironment: process.env.RAILWAY_ENVIRONMENT_NAME || null,
     railwayReplica: process.env.RAILWAY_REPLICA_ID || null,
   });

@@ -21,6 +21,9 @@ const { mocksAllowed, resolveAppMode, integrationUnavailable } = require('../lib
 const { sanitize } = require('../lib/logger.js');
 const { createRequestMetrics } = require('../lib/request-metrics.js');
 const { buildBrowserAssets, renderAssetIndex } = require('../lib/browser-assets.js');
+const { createAccessControl, tokenFingerprint } = require('../lib/access-control.js');
+const { createAuditLog } = require('../lib/audit-log.js');
+const { normalizeSecretInput } = require('../lib/secrets.js');
 const { parse: parseDotenv } = require('dotenv');
 const { serializeDotenv } = require('../lib/dotenv-store.js');
 const { writeFileAtomicSync, writeJsonFileSync } = require('../lib/json-file-store.js');
@@ -75,6 +78,57 @@ test('browser assets use deterministic content hashes and replace every index to
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('access control preserves owner access and limits an operator to operational actions', () => {
+  const access = createAccessControl({ ownerToken: 'owner-secret', operatorToken: 'operator-secret' });
+  const response = () => ({
+    statusCode: 200,
+    body: null,
+    status(code) { this.statusCode = code; return this; },
+    json(body) { this.body = body; return this; },
+    setHeader() {},
+  });
+  const request = token => ({ headers: { authorization: `Bearer ${token}` }, ip: '127.0.0.1', socket: {} });
+
+  let nextCalled = false;
+  access.requireRole('operator')(request('operator-secret'), response(), () => { nextCalled = true; });
+  assert.equal(nextCalled, true);
+
+  const forbidden = response();
+  access.requireRole('owner')(request('operator-secret'), forbidden, () => assert.fail('operator must not become owner'));
+  assert.equal(forbidden.statusCode, 403);
+  assert.equal(forbidden.body.code, 'INSUFFICIENT_ROLE');
+
+  nextCalled = false;
+  const ownerRequest = request('owner-secret');
+  access.requireRole('owner')(ownerRequest, response(), () => { nextCalled = true; });
+  assert.equal(nextCalled, true);
+  assert.equal(ownerRequest.auth.role, 'owner');
+  assert.equal(ownerRequest.auth.actorId, `owner:${tokenFingerprint('owner-secret')}`);
+});
+
+test('audit records are hash-chained, signed when configured, and detect edits', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'seo-buddy-audit-'));
+  const file = join(dir, 'audit.jsonl');
+  try {
+    const audit = createAuditLog({ filePath: file, signingKey: 'stable-audit-key', clock: () => new Date('2026-08-31T12:00:00.000Z') });
+    audit.record({ requestId: 'one', actorId: 'owner:abc', role: 'owner', action: 'POST /api/save-settings', statusCode: 200 });
+    audit.record({ requestId: 'two', actorId: 'operator:def', role: 'operator', action: 'POST /api/autopilot-run-now', statusCode: 503 });
+    assert.deepEqual(audit.verify(), { valid: true, entries: 2, signed: true, head: JSON.parse(readFileSync(file, 'utf8').trim().split(/\r?\n/)[1]).hash });
+
+    const changed = readFileSync(file, 'utf8').replace('POST /api/save-settings', 'POST /api/changed');
+    writeFileAtomicSync(file, changed, { mode: 0o600 });
+    assert.equal(audit.verify().valid, false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('secret inputs reject control characters and never normalize malformed credentials', () => {
+  assert.equal(normalizeSecretInput('  valid-token-123  ', 'API key'), 'valid-token-123');
+  assert.throws(() => normalizeSecretInput('valid\nINJECTED=value', 'API key'), /control characters/);
+  assert.throws(() => normalizeSecretInput('x'.repeat(20), 'API key', 10), /longer than expected/);
 });
 
 test('singleFlight coalesces overlap without caching settled results', async () => {

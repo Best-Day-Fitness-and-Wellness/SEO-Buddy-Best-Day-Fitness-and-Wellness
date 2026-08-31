@@ -11,6 +11,7 @@ const require = createRequire(import.meta.url);
 const { parse: parseDotenv } = require('dotenv');
 
 const ADMIN_PASSWORD = 'integration-test-password';
+const OPERATOR_PASSWORD = 'integration-test-operator-password';
 const dataDir = mkdtempSync(join(tmpdir(), 'seo-buddy-test-'));
 let child;
 let base;
@@ -60,6 +61,7 @@ before(async () => {
       PORT: String(port),
       DATA_DIR: dataDir,
       ADMIN_PASSWORD,
+      OPERATOR_PASSWORD,
       GEMINI_API_KEY: '',
       OPENAI_API_KEY: '',
       PERPLEXITY_API_KEY: '',
@@ -135,6 +137,7 @@ test('production mode never reports demo generation, publishing, indexing, or se
       PORT: String(port),
       DATA_DIR: productionDir,
       ADMIN_PASSWORD,
+      OPERATOR_PASSWORD,
       GEMINI_API_KEY: '',
       GHL_ACCESS_TOKEN: '',
       GHL_LOCATION_ID: '',
@@ -198,7 +201,7 @@ test('all read-only dashboard routes respond', { timeout: 30000 }, async () => {
     '/api/onsite-schema', '/api/listing-kit', '/api/citation-worklist',
     '/api/local-autopilot', '/api/onsite-autopilot', '/api/gmail-status',
     '/api/gbp-status', '/api/performance-digest', '/api/health-score',
-    '/api/next-moves', '/api/autopilot-digest', '/api/deploy-readiness',
+    '/api/next-moves', '/api/autopilot-digest', '/api/deploy-readiness', '/api/auth/status',
     '/api/reviews-stats',
   ];
   for (const path of paths) {
@@ -217,9 +220,12 @@ test('static assets compress, cache briefly, and keep PDF code off the critical 
   assert.match(html, /Checking live data/);
   assert.doesNotMatch(html, />Mock Mode</);
   assert.doesNotMatch(html, /mock-data\.js/);
+  assert.doesNotMatch(html, /<script(?![^>]*\bsrc=)[^>]*>/i, 'production HTML must not require inline script execution');
+  assert.match(index.headers.get('content-security-policy') || '', /script-src 'self'/);
+  assert.doesNotMatch(index.headers.get('content-security-policy') || '', /script-src 'self' 'unsafe-inline'/);
   assert.doesNotMatch(html, /{{[A-Z0-9_]+}}/);
   const hashedAssets = [...html.matchAll(/(?:href|src)="(\/assets\/[^"]+)"/g)].map(match => match[1]);
-  assert.equal(hashedAssets.length, 5, 'stylesheet, core, app, assistant, and reviews must all be versioned');
+  assert.equal(hashedAssets.length, 6, 'stylesheet, theme, core, app, assistant, and reviews must all be versioned');
   for (const asset of hashedAssets) {
     assert.match(asset, /\.[a-f0-9]{12}\.(?:css|js)$/);
     const response = await request(asset, { auth: false, headers: { 'Accept-Encoding': 'gzip' } });
@@ -279,6 +285,24 @@ test('every mutating or credit-spending route is password protected', async () =
   assert.equal(validAfterFailures.status, 200, 'a valid password must not be locked out by bad attempts');
 });
 
+test('operator credentials can run workflows but cannot change owner settings', async () => {
+  const operatorHeaders = { Authorization: `Bearer ${OPERATOR_PASSWORD}`, 'Content-Type': 'application/json' };
+  const add = await request('/api/autopilot-queue/add', {
+    method: 'POST', auth: false, headers: operatorHeaders, body: { topic: 'operator permission test' },
+  });
+  assert.equal(add.status, 200);
+  const remove = await request('/api/autopilot-queue/remove', {
+    method: 'POST', auth: false, headers: operatorHeaders, body: { index: 0 },
+  });
+  assert.equal(remove.status, 200);
+
+  const settings = await request('/api/save-settings', {
+    method: 'POST', auth: false, headers: operatorHeaders, body: { siteUrl: 'https://bestdayfitness.com/' },
+  });
+  assert.equal(settings.status, 403);
+  assert.equal((await settings.json()).code, 'INSUFFICIENT_ROLE');
+});
+
 test('saving an unchanged brand voice marks it reviewed', async () => {
   const reset = await request('/api/brand-profile/reset', { method: 'POST', body: {} });
   assert.equal(reset.status, 200);
@@ -335,6 +359,9 @@ test('settings persist safely without env-line injection', async () => {
   const envFile = readFileSync(join(dataDir, '.env'), 'utf8');
   assert.match(envFile, /^GHL_LOCATION_ID=/m);
   assert.doesNotMatch(envFile, /^INJECTED_KEY=/m);
+  const savedEnvironment = parseDotenv(envFile);
+  assert.equal(savedEnvironment.ADMIN_PASSWORD, ADMIN_PASSWORD);
+  assert.equal(savedEnvironment.OPERATOR_PASSWORD, OPERATOR_PASSWORD);
 
   const invalidJson = await request('/api/save-settings', { method: 'POST', body: { gscJson: '{bad json' } });
   assert.equal(invalidJson.status, 400);
@@ -458,4 +485,18 @@ test('URL tools reject unsafe destinations and schemes', async () => {
 
   const unknownTool = await request('/api/onsite', { method: 'POST', body: { tool: 'not-real' } });
   assert.equal(unknownTool.status, 400);
+});
+
+test('audit status verifies the mutation chain without retaining credentials or request bodies', async () => {
+  const response = await request('/api/audit-status');
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(body.audit.valid, true);
+  assert.ok(body.audit.entries > 10);
+
+  const log = readFileSync(join(dataDir, 'audit-log.jsonl'), 'utf8');
+  assert.match(log, /POST \/api\/save-settings/);
+  assert.match(log, /POST \/api\/autopilot-queue\/add/);
+  assert.doesNotMatch(log, /integration-test-(?:password|operator-password)/);
+  assert.doesNotMatch(log, /operator permission test|INJECTED_KEY|BEGIN PRIVATE KEY/);
 });

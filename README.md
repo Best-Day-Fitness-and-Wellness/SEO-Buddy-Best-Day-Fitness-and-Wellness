@@ -136,6 +136,8 @@ Set these in your host's environment (e.g., Railway → Variables) or, for local
 | `ALLOW_MOCK_INTEGRATIONS` | `true` outside production | Set to `false` to make local development fail closed too. This cannot enable mocks in production. |
 | `DATA_DIR` | app folder | **Where all history/audits/logs/snapshots/score/profile files are stored.** On a container host, point this at a persistent volume (e.g. `/data`) so data survives redeploys. |
 | `ADMIN_PASSWORD` | *(unset)* | When set, locks the sensitive endpoints (see **Security**). Enter the same value in Settings → Admin Password. Leave unset only for trusted local dev. |
+| `OPERATOR_PASSWORD` | *(unset)* | Optional lower-privilege password for running publishing, indexing, audits, and autopilots without permission to change integration secrets, business identity, brand voice, or budgets. |
+| `AUDIT_SIGNING_KEY` | *(unset)* | Optional stable secret used to HMAC-sign the mutation audit chain. Keep it separate from passwords and do not rotate it unless you intentionally start a new verification chain. |
 | `ALLOWED_ORIGIN` | *(same‑origin)* | Optional comma‑separated CORS allowlist. Leave blank for same‑origin only. |
 
 ### Generative AI (Gemini)
@@ -240,8 +242,11 @@ Requires **approved Business Profile API access** from Google. Once granted, aut
 ## Security
 
 - **Always set `ADMIN_PASSWORD` in production.** When set, the sensitive endpoints (any that write data, publish, or spend Gemini) require it; read‑only data views stay open so dashboards load without a password.
+- `ADMIN_PASSWORD` is the **owner** role. An optional `OPERATOR_PASSWORD` can run day-to-day SEO workflows but receives `403` if it tries to change credentials, business identity, brand voice, or the usage budget. Existing owner-password behavior is unchanged.
 - The dashboard sends the password as a Bearer token. It is kept only for the current browser-tab session, not in persistent browser storage.
 - API keys entered in Settings are sent once to the server, cleared from the form after a successful save, and never retained in browser local storage. With `DATA_DIR` configured, the server stores its settings file and Google service-account file on that persistent volume with restricted file permissions.
+- Every state-changing API request is recorded in `audit-log.jsonl` with its request ID, role, action, outcome, and a chained integrity hash. Headers, request bodies, credentials, and generated content are never written. Set `AUDIT_SIGNING_KEY` for HMAC verification.
+- Browser responses enforce a Content Security Policy, same-origin isolation headers, HTTPS upgrades in production, frame blocking, and restricted browser permissions. All executable scripts are same-origin, content-hashed files; the page no longer needs an inline script block.
 - If `ADMIN_PASSWORD` is unset, the server logs a startup warning and those endpoints are open — fine for local dev, not for public hosting.
 - Restrict cross‑origin access with `ALLOWED_ORIGIN` if needed.
 
@@ -297,6 +302,8 @@ Deploying by hand (GitHub web upload): keep `server.js`, `lib/`, `public/`, and 
 | GET | `/health/live` | — | Cheap process liveness probe. Returns `503` while gracefully shutting down. |
 | GET | `/health/ready` | — | Deployment readiness probe: traffic acceptance, writable storage, and runtime mode. |
 | GET | `/api/diagnostics` | 🔒 | Bounded request totals, latency buckets, process uptime, runtime mode, and storage state. |
+| GET | `/api/auth/status` | — | Whether owner/operator roles are configured (never returns credentials). |
+| GET | `/api/audit-status` | 🔒 owner | Verify the audit hash/signature chain and return its entry count. |
 
 ### Content
 | Method | Endpoint | Auth | Purpose |
@@ -415,6 +422,7 @@ State is stored as flat JSON in `DATA_DIR`:
 | `performance-digest.json` | Saved weekly digests + settings. |
 | `business-profile.json` | Business identity (name/address/phone/socials). |
 | `brand-profile.json` | Brand voice: tone, style rules, signature phrases, never‑use list, positioning, keywords, CTA. |
+| `audit-log.jsonl` | Hash-chained mutation audit records (metadata only; never request bodies or secrets). |
 | `.env` | Integration settings saved through the UI (server-side only). |
 | `google-creations.json` | Google service-account credentials saved through the UI (server-side only). |
 

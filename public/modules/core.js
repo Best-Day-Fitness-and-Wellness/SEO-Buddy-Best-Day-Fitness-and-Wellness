@@ -23,6 +23,9 @@
     if (res.status === 401) {
       throw new Error('This action is locked. Enter the admin password in the Settings tab, then try again.');
     }
+    if (res.status === 403) {
+      throw new Error('This action requires the owner password. The operator password cannot change security or integration settings.');
+    }
     return res;
   }
   
