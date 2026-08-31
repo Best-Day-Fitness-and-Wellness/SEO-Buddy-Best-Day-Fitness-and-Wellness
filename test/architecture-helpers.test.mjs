@@ -29,6 +29,7 @@ const { createBackupService } = require('../lib/backup-service.js');
 const { loadMigrations } = require('../lib/postgres-store.js');
 const { createDurableJobQueue } = require('../lib/durable-job-queue.js');
 const { createSwitchableJobQueue } = require('../lib/job-queue.js');
+const { createJobWorker } = require('../lib/job-worker.js');
 const { createPostgresJobQueue, publicJob: publicPostgresJob } = require('../lib/postgres-job-queue.js');
 const { ProviderRuntimeError, createProviderRuntime } = require('../lib/provider-runtime.js');
 const { createPostgresStateBridge, replayPostgresOutbox } = require('../lib/postgres-state-bridge.js');
@@ -340,6 +341,29 @@ test('PostgreSQL job queue maps database rows without exposing payloads', async 
   assert.equal(inserted.created, true);
   assert.equal(inserted.job.id, row.job_id);
   assert.equal(Object.hasOwn(inserted.job, 'payload'), false);
+});
+
+test('job worker executes registered handlers behind the queue interface', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'seo-buddy-job-worker-'));
+  try {
+    const queue = createSwitchableJobQueue(createDurableJobQueue({ filePath: join(root, 'jobs.json') }));
+    await queue.enqueue('health.snapshot', { day: 'today' }, { idempotencyKey: 'health:worker' });
+    const handled = [];
+    const handlers = new Map([['health.snapshot', async payload => { handled.push(payload); return { recorded: true }; }]]);
+    const logger = { info() {}, error() {}, warn() {} };
+    const worker = createJobWorker({ queue, handlers, logger, workerId: 'test-worker', intervalMs: 1000, heartbeatMs: 250 });
+    worker.start();
+    for (let attempt = 0; attempt < 20; attempt++) {
+      if ((await queue.snapshot()).counts.succeeded === 1) break;
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    await worker.stop();
+    assert.deepEqual(handled, [{ day: 'today' }]);
+    assert.equal((await queue.snapshot()).counts.succeeded, 1);
+    assert.equal(worker.status().running, false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('provider runtime retries transient failures and reports bounded integration health', async () => {

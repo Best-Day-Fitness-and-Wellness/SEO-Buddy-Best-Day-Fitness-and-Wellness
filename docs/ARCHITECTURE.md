@@ -185,6 +185,7 @@ so one production replica remains the supported topology.
 | `server.js` | Composition root, HTTP compatibility layer, remaining feature orchestration |
 | `lib/provider-runtime.js` | All outbound reliability, concurrency, caching, and spend policy |
 | `lib/durable-job-queue.js` | Durable job state, leases, idempotency, retries, bounded history |
+| `lib/job-worker.js` | Queue-agnostic claiming, heartbeats, handler execution, and shutdown |
 | `lib/state-repository.js` | Tenant containment and legacy state migration |
 | `lib/json-file-store.js` | Atomic document replacement |
 | `lib/backup-service.js` | Secret-free checksummed backup and restore |
