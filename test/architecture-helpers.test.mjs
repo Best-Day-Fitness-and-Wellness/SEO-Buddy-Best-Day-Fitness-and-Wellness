@@ -27,6 +27,7 @@ const { normalizeSecretInput } = require('../lib/secrets.js');
 const { createFileStateRepository, normalizeTenantId } = require('../lib/state-repository.js');
 const { createBackupService } = require('../lib/backup-service.js');
 const { loadMigrations } = require('../lib/postgres-store.js');
+const { createDurableJobQueue } = require('../lib/durable-job-queue.js');
 const { parse: parseDotenv } = require('dotenv');
 const { serializeDotenv } = require('../lib/dotenv-store.js');
 const { writeFileAtomicSync, writeJsonFileSync } = require('../lib/json-file-store.js');
@@ -180,6 +181,65 @@ test('PostgreSQL migrations are immutable, ordered, and ignore unrelated files',
     const migrations = loadMigrations(root);
     assert.deepEqual(migrations.map(item => item.name), ['001_first.sql', '002_second.sql']);
     assert.ok(migrations.every(item => /^[a-f0-9]{64}$/.test(item.checksum)));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('durable jobs are idempotent, leased, completed, and never expose payloads in snapshots', () => {
+  const root = mkdtempSync(join(tmpdir(), 'seo-buddy-jobs-'));
+  let clock = Date.parse('2026-08-31T12:00:00.000Z');
+  let sequence = 0;
+  try {
+    const queue = createDurableJobQueue({
+      filePath: join(root, 'jobs.json'),
+      now: () => clock,
+      createId: () => `00000000-0000-4000-8000-${String(++sequence).padStart(12, '0')}`,
+    });
+    const first = queue.enqueue('seo.scan', { secret: 'must-not-leak' }, { idempotencyKey: 'scan:2026-08-31' });
+    const duplicate = queue.enqueue('seo.scan', { secret: 'different' }, { idempotencyKey: 'scan:2026-08-31' });
+    assert.equal(first.created, true);
+    assert.equal(duplicate.created, false);
+    assert.equal(duplicate.job.id, first.job.id);
+
+    const claimed = queue.claim('worker-one', { leaseMs: 5000 });
+    assert.equal(claimed.status, 'running');
+    assert.deepEqual(claimed.payload, { secret: 'must-not-leak' });
+    clock += 1000;
+    assert.equal(queue.renewLease(claimed.id, 'wrong-worker', 5000), false);
+    assert.equal(queue.renewLease(claimed.id, 'worker-one', 5000), true);
+    assert.equal(Date.parse(queue.snapshot().recent[0].leaseUntil), clock + 5000);
+    assert.equal(queue.complete(claimed.id, { rows: 3 }), true);
+    const snapshot = queue.snapshot();
+    assert.deepEqual(snapshot.counts, { pending: 0, running: 0, succeeded: 1, failed: 0 });
+    assert.equal('payload' in snapshot.recent[0], false);
+    assert.deepEqual(snapshot.recent[0].result, { rows: 3 });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('durable jobs reclaim expired leases and retry with bounded exponential backoff', () => {
+  const root = mkdtempSync(join(tmpdir(), 'seo-buddy-job-retries-'));
+  let clock = Date.parse('2026-08-31T12:00:00.000Z');
+  try {
+    const queue = createDurableJobQueue({ filePath: join(root, 'jobs.json'), now: () => clock, createId: () => '00000000-0000-4000-8000-000000000001' });
+    queue.enqueue('seo.retry', {}, { idempotencyKey: 'retry:one', maxAttempts: 3 });
+    const first = queue.claim('worker-one', { leaseMs: 1000 });
+    clock += 1001;
+    const reclaimed = queue.claim('worker-two', { leaseMs: 1000 });
+    assert.equal(reclaimed.id, first.id);
+    assert.equal(reclaimed.attempts, 2);
+
+    const retry = queue.fail(reclaimed.id, new Error('temporary provider outage'), { baseDelayMs: 2000 });
+    assert.equal(retry.status, 'pending');
+    assert.equal(Date.parse(retry.runAt), clock + 4000);
+    assert.equal(queue.claim('worker-three'), null);
+    clock += 4000;
+    const finalAttempt = queue.claim('worker-three');
+    const failed = queue.fail(finalAttempt.id, new Error('still unavailable'), { baseDelayMs: 2000 });
+    assert.equal(failed.status, 'failed');
+    assert.equal(failed.lastError, 'still unavailable');
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

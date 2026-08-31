@@ -41,6 +41,7 @@ const { normalizeSecretInput } = require('./lib/secrets');
 const { createFileStateRepository } = require('./lib/state-repository');
 const { createBackupService } = require('./lib/backup-service');
 const { createPostgresStore } = require('./lib/postgres-store');
+const { createDurableJobQueue } = require('./lib/durable-job-queue');
 
 // Load UI-saved secrets from the durable storage root. Tenant state is isolated
 // below this root after configuration is loaded; host-provided variables still
@@ -93,6 +94,93 @@ const DATA_DIR = stateRepository.directory;
 // owner decision say which of the two they just did.
 const STORAGE_IS_PERSISTENT = !!process.env.DATA_DIR;
 const backupService = createBackupService({ repository: stateRepository, backupRoot: path.join(CONFIG_DIR, 'backups') });
+const durableJobQueue = createDurableJobQueue({ filePath: stateRepository.pathFor('jobs.json') });
+const jobHandlers = new Map();
+const JOB_WORKER_ID = `${process.env.RAILWAY_REPLICA_ID || 'local'}:${process.pid}`;
+let jobWorkerTimer = null;
+let jobWorkerDraining = false;
+let jobWorkerStarted = false;
+let activeJobId = null;
+
+function durableJobKey(type, windowMs, timestamp = Date.now()) {
+  return `${type}:${Math.floor(timestamp / windowMs)}`;
+}
+
+function enqueueDurableJob(type, payload, options) {
+  try {
+    const queued = durableJobQueue.enqueue(type, payload, options);
+    if (queued.created) {
+      logger.info('job.enqueued', { jobId: queued.job.id, jobType: queued.job.type, runAt: queued.job.runAt });
+      if (jobWorkerStarted) setImmediate(drainDurableJobs);
+    }
+    return queued;
+  } catch (error) {
+    logger.error('job.enqueue_failed', { jobType: type, error });
+    return { created: false, job: null, error: error.message };
+  }
+}
+
+async function drainDurableJobs() {
+  if (!jobWorkerStarted || jobWorkerDraining || isShuttingDown) return;
+  jobWorkerDraining = true;
+  try {
+    for (let processed = 0; processed < 20 && !isShuttingDown; processed++) {
+      const job = durableJobQueue.claim(JOB_WORKER_ID, { leaseMs: 15 * 60 * 1000 });
+      if (!job) break;
+      const handler = jobHandlers.get(job.type);
+      activeJobId = job.id;
+      logger.info('job.started', { jobId: job.id, jobType: job.type, attempt: job.attempts });
+      const leaseHeartbeat = setInterval(() => {
+        try { durableJobQueue.renewLease(job.id, JOB_WORKER_ID, 15 * 60 * 1000); }
+        catch (error) { logger.error('job.lease_renewal_failed', { jobId: job.id, jobType: job.type, error }); }
+      }, 60 * 1000);
+      leaseHeartbeat.unref?.();
+      try {
+        if (!handler) throw new Error(`No handler registered for job type ${job.type}.`);
+        const result = await handler(job.payload || {});
+        durableJobQueue.complete(job.id, result || { completed: true }, { workerId: JOB_WORKER_ID });
+        logger.info('job.completed', { jobId: job.id, jobType: job.type, attempt: job.attempts });
+      } catch (error) {
+        const failed = durableJobQueue.fail(job.id, error, { workerId: JOB_WORKER_ID });
+        logger.error('job.failed', {
+          jobId: job.id,
+          jobType: job.type,
+          attempt: job.attempts,
+          terminal: failed?.status === 'failed',
+          retryAt: failed?.runAt || null,
+          error,
+        });
+      } finally {
+        clearInterval(leaseHeartbeat);
+        activeJobId = null;
+      }
+    }
+  } catch (error) {
+    logger.error('job.worker_failed', { workerId: JOB_WORKER_ID, error });
+  } finally {
+    jobWorkerDraining = false;
+  }
+}
+
+function startDurableJobWorker() {
+  if (jobWorkerStarted) return;
+  jobWorkerStarted = true;
+  jobWorkerTimer = setInterval(drainDurableJobs, 5000);
+  jobWorkerTimer.unref?.();
+  setImmediate(drainDurableJobs);
+}
+
+function scheduleDurableCheck(type, initialDelayMs, intervalMs) {
+  const enqueue = () => enqueueDurableJob(type, {}, {
+    idempotencyKey: durableJobKey(type, intervalMs),
+    maxAttempts: 5,
+  });
+  const startup = setTimeout(enqueue, initialDelayMs);
+  const recurring = setInterval(enqueue, intervalMs);
+  startup.unref?.();
+  recurring.unref?.();
+  return { startup, recurring };
+}
 let postgresMirror = null;
 const postgresStatus = {
   configured: Boolean(process.env.DATABASE_URL),
@@ -666,6 +754,10 @@ app.post('/api/storage-backups', requireOwner, (req, res) => {
   } catch (error) {
     return res.status(500).json({ success: false, error: error.message });
   }
+});
+
+app.get('/api/job-queue', requireAuth, (req, res) => {
+  res.json({ success: true, tenantId: stateRepository.tenantId, worker: { running: jobWorkerStarted }, ...durableJobQueue.snapshot() });
 });
 
 // ----------------------------------------------------
@@ -1660,14 +1752,15 @@ function startAutopilotScheduler() {
     logAutopilotActivity(`Background Autopilot enabled. Schedule: Run every ${autopilotIntervalHours} hours.`);
     calculateNextRun();
     
-    autopilotInterval = setInterval(async () => {
-      try {
-        await runAutopilotCycle();
-      } catch (err) {
-        console.error('[Scheduler] Autopilot runtime error:', err.message);
-      }
+    autopilotInterval = setInterval(() => {
+      const intervalMs = autopilotIntervalHours * 60 * 60 * 1000;
+      enqueueDurableJob('content.autopilot', {}, {
+        idempotencyKey: durableJobKey('content.autopilot', intervalMs),
+        maxAttempts: 5,
+      });
       calculateNextRun();
     }, autopilotIntervalHours * 60 * 60 * 1000);
+    autopilotInterval.unref?.();
   } else {
     logAutopilotActivity('Background Autopilot scheduler stopped.');
     nextRunTime = null;
@@ -2531,7 +2624,7 @@ function visTrend() {
 // GET current state: engine status, prompts, latest snapshot, deltas, trend.
 // Fire-and-forget a due-check so opening the tab nudges the weekly schedule.
 app.get('/api/ai-visibility', (req, res) => {
-  maybeRunAiVisibility(false).catch(() => {});
+  enqueueDurableJob('ai.visibility', {}, { idempotencyKey: durableJobKey('ai.visibility', 12 * 60 * 60 * 1000), maxAttempts: 5 });
   const snaps = aiVisDb.snapshots;
   const latest = snaps[snaps.length - 1] || null;
   const prev = snaps.length > 1 ? snaps[snaps.length - 2] : null;
@@ -2580,8 +2673,7 @@ app.post('/api/ai-visibility/toggle', requireAuth, (req, res) => {
 });
 
 // Staggered startup catch-up + 12h heartbeat so the trend fills on schedule.
-setTimeout(() => { maybeRunAiVisibility(false).catch(() => {}); }, 90000);
-setInterval(() => { maybeRunAiVisibility(false).catch(() => {}); }, 12 * 60 * 60 * 1000);
+scheduleDurableCheck('ai.visibility', 90000, 12 * 60 * 60 * 1000);
 
 // ============================================================
 // P4a — FACTCHECK / BRAND-ACCURACY MONITOR
@@ -3947,7 +4039,7 @@ async function maybeRunCitationScan(force) {
 // GET the cached worklist (read-only). Fire-and-forget a due-check so opening
 // the tab nudges the weekly schedule, but never block on a live scan.
 app.get('/api/citation-worklist', (req, res) => {
-  maybeRunCitationScan(false).catch(() => {});
+  enqueueDurableJob('citation.scan', {}, { idempotencyKey: durableJobKey('citation.scan', 12 * 60 * 60 * 1000), maxAttempts: 5 });
   res.json(worklistPayload());
 });
 
@@ -3987,8 +4079,7 @@ app.post('/api/citation-autopilot/seen', requireAuth, (req, res) => {
 
 // Background scheduler for the weekly citation auto-scan (staggered from the
 // Local/On-Site autopilots so they don't all fire grounded calls at once).
-setTimeout(() => { maybeRunCitationScan(false).catch(() => {}); }, 60000);
-setInterval(() => { maybeRunCitationScan(false).catch(() => {}); }, 12 * 60 * 60 * 1000);
+scheduleDurableCheck('citation.scan', 60000, 12 * 60 * 60 * 1000);
 
 // POST update one target's status in the tracker (auth).
 app.post('/api/citation-status', requireAuth, (req, res) => {
@@ -4226,7 +4317,7 @@ function localState() {
 // GET state (read-only). Fire-and-forget a due-check so opening the tab nudges
 // the schedule, but never block the response on a live scan.
 app.get('/api/local-autopilot', (req, res) => {
-  maybeRunLocalAutopilot(false).catch(() => {});
+  enqueueDurableJob('local.autopilot', {}, { idempotencyKey: durableJobKey('local.autopilot', 12 * 60 * 60 * 1000), maxAttempts: 5 });
   res.json(localState());
 });
 app.post('/api/local-autopilot/toggle', requireAuth, (req, res) => {
@@ -4269,8 +4360,7 @@ app.post('/api/local-reply', requireAuth, async (req, res) => {
 });
 
 // Background scheduler: catch up shortly after boot, then check twice a day.
-setTimeout(() => { maybeRunLocalAutopilot(false).catch(() => {}); }, 30000);
-setInterval(() => { maybeRunLocalAutopilot(false).catch(() => {}); }, 12 * 60 * 60 * 1000);
+scheduleDurableCheck('local.autopilot', 30000, 12 * 60 * 60 * 1000);
 
 // ============================================================
 // 17. On-Site SEO Autopilot — a weekly content & optimization pipeline:
@@ -4376,7 +4466,7 @@ function onsiteState() {
 }
 
 app.get('/api/onsite-autopilot', (req, res) => {
-  maybeRunOnsiteAutopilot(false).catch(() => {});
+  enqueueDurableJob('onsite.autopilot', {}, { idempotencyKey: durableJobKey('onsite.autopilot', 12 * 60 * 60 * 1000), maxAttempts: 5 });
   res.json(onsiteState());
 });
 app.post('/api/onsite-autopilot/toggle', requireAuth, (req, res) => {
@@ -4397,8 +4487,7 @@ app.post('/api/onsite-autopilot/seen', requireAuth, (req, res) => {
   res.json({ success: true });
 });
 
-setTimeout(() => { maybeRunOnsiteAutopilot(false).catch(() => {}); }, 45000);
-setInterval(() => { maybeRunOnsiteAutopilot(false).catch(() => {}); }, 12 * 60 * 60 * 1000);
+scheduleDurableCheck('onsite.autopilot', 45000, 12 * 60 * 60 * 1000);
 
 // ============================================================
 // 18. OAuth integrations — Gmail direct send + Google Business Profile
@@ -4597,7 +4686,7 @@ function perfDigestState() {
   };
 }
 app.get('/api/performance-digest', (req, res) => {
-  maybeRunPerfDigest(false).catch(() => {});
+  enqueueDurableJob('performance.digest', {}, { idempotencyKey: durableJobKey('performance.digest', 12 * 60 * 60 * 1000), maxAttempts: 5 });
   res.json(perfDigestState());
 });
 app.post('/api/performance-digest/toggle', requireAuth, (req, res) => {
@@ -4627,8 +4716,7 @@ app.post('/api/performance-digest/send', requireAuth, async (req, res) => {
     res.json({ success: true, sent: true, id, to });
   } catch (e) { res.status(502).json({ success: false, error: e.message }); }
 });
-setTimeout(() => { maybeRunPerfDigest(false).catch(() => {}); }, 75000);
-setInterval(() => { maybeRunPerfDigest(false).catch(() => {}); }, 12 * 60 * 60 * 1000);
+scheduleDurableCheck('performance.digest', 75000, 12 * 60 * 60 * 1000);
 
 // ============================================================
 // 20. Optimization (Health) Score — the redesign's headline number.
@@ -4774,16 +4862,19 @@ async function recordDailyHealthSnapshot(recordedAt = new Date().toISOString()) 
 }
 
 function scheduleDailyHealthSnapshots() {
-  const record = () => recordDailyHealthSnapshot().catch(e => console.error('[Health Score] daily snapshot failed:', e.message));
-  const startupTimer = setTimeout(record, 60000);
+  const enqueue = () => enqueueDurableJob('health.snapshot', {}, {
+    idempotencyKey: `health.snapshot:${new Date().toISOString().slice(0, 10)}`,
+    maxAttempts: 5,
+  });
+  const startupTimer = setTimeout(enqueue, 60000);
   if (startupTimer.unref) startupTimer.unref();
 
   const now = new Date();
   const next = new Date(now);
   next.setUTCHours(24, 5, 0, 0);
   const dailyTimer = setTimeout(() => {
-    record();
-    const interval = setInterval(record, 24 * 60 * 60 * 1000);
+    enqueue();
+    const interval = setInterval(enqueue, 24 * 60 * 60 * 1000);
     if (interval.unref) interval.unref();
   }, next.getTime() - now.getTime());
   if (dailyTimer.unref) dailyTimer.unref();
@@ -5023,14 +5114,19 @@ if (autopilotEnabled) {
 // every restart, so on frequent redeploys it could otherwise never fire. On boot,
 // if content autopilot is enabled and overdue (>= its interval since the last
 // successful run), run one cycle. Staggered after the other workers' catch-ups.
-setTimeout(() => {
+const autopilotCatchupTimer = setTimeout(() => {
   if (!autopilotEnabled) return;
   const hoursSince = lastAutopilotRun ? (Date.now() - new Date(lastAutopilotRun).getTime()) / 3.6e6 : Infinity;
   if (hoursSince >= autopilotIntervalHours) {
-    logAutopilotActivity(`Startup catch-up: content autopilot overdue (${lastAutopilotRun ? Math.round(hoursSince) + 'h' : 'never run'}). Running one cycle.`);
-    runAutopilotCycle().catch(err => console.error('[Autopilot] catch-up run failed:', err.message));
+    logAutopilotActivity(`Startup catch-up: content autopilot overdue (${lastAutopilotRun ? Math.round(hoursSince) + 'h' : 'never run'}). Queueing one cycle.`);
+    const intervalMs = autopilotIntervalHours * 60 * 60 * 1000;
+    enqueueDurableJob('content.autopilot', {}, {
+      idempotencyKey: durableJobKey('content.autopilot', intervalMs),
+      maxAttempts: 5,
+    });
   }
 }, 105000);
+autopilotCatchupTimer.unref?.();
 
 // Start the Express Server
 // After boot: re-submit any posts whose URL was just repaired by the migration
@@ -5616,21 +5712,35 @@ Return ONLY raw JSON, no markdown fences:
 });
 
 function scheduleDailyStateBackups() {
-  const run = () => {
-    try {
-      const today = new Date().toISOString().slice(0, 10);
-      if (!backupService.list().some(item => item.valid && String(item.id).startsWith(today))) {
-        const backup = backupService.create();
-        logger.info('storage.backup_created', { tenantId: stateRepository.tenantId, backupId: backup.id, files: backup.files.length });
-      }
-    } catch (error) {
-      logger.error('storage.backup_failed', { tenantId: stateRepository.tenantId, error });
-    }
-  };
-  const startup = setTimeout(run, 2 * 60 * 1000);
-  const daily = setInterval(run, 24 * 60 * 60 * 1000);
+  const enqueue = () => enqueueDurableJob('storage.backup', {}, {
+    idempotencyKey: `storage.backup:${new Date().toISOString().slice(0, 10)}`,
+    maxAttempts: 5,
+  });
+  const startup = setTimeout(enqueue, 2 * 60 * 1000);
+  const daily = setInterval(enqueue, 24 * 60 * 60 * 1000);
   startup.unref?.();
   daily.unref?.();
+}
+
+function registerDurableJobHandlers() {
+  jobHandlers.set('content.autopilot', async () => {
+    if (!autopilotEnabled) return { skipped: 'disabled' };
+    await runAutopilotCycle();
+    return { completed: true };
+  });
+  jobHandlers.set('ai.visibility', async () => { await maybeRunAiVisibility(false); return { checked: true }; });
+  jobHandlers.set('citation.scan', async () => { await maybeRunCitationScan(false); return { checked: true }; });
+  jobHandlers.set('local.autopilot', async () => { await maybeRunLocalAutopilot(false); return { checked: true }; });
+  jobHandlers.set('onsite.autopilot', async () => { await maybeRunOnsiteAutopilot(false); return { checked: true }; });
+  jobHandlers.set('performance.digest', async () => { await maybeRunPerfDigest(false); return { checked: true }; });
+  jobHandlers.set('health.snapshot', async () => { await recordDailyHealthSnapshot(); return { recorded: true }; });
+  jobHandlers.set('storage.backup', async () => {
+    const today = new Date().toISOString().slice(0, 10);
+    if (backupService.list().some(item => item.valid && String(item.id).startsWith(today))) return { skipped: 'already-backed-up' };
+    const backup = backupService.create();
+    logger.info('storage.backup_created', { tenantId: stateRepository.tenantId, backupId: backup.id, files: backup.files.length });
+    return { backupId: backup.id, files: backup.files.length };
+  });
 }
 
 
@@ -5651,6 +5761,8 @@ const server = app.listen(PORT, () => {
     railwayReplica: process.env.RAILWAY_REPLICA_ID || null,
   });
   if (!ADMIN_PASSWORD) logger.warn('security.admin_lock_disabled', { mode: APP_MODE });
+  registerDurableJobHandlers();
+  startDurableJobWorker();
   scheduleDailyHealthSnapshots();
   scheduleDailyStateBackups();
   initializePostgresMirror().catch(error => {
@@ -5665,6 +5777,11 @@ const server = app.listen(PORT, () => {
 function gracefulShutdown(signal) {
   if (isShuttingDown) return;
   isShuttingDown = true;
+  if (jobWorkerTimer) clearInterval(jobWorkerTimer);
+  if (activeJobId) {
+    try { durableJobQueue.fail(activeJobId, new Error('Worker stopped during deployment.'), { baseDelayMs: 1000, workerId: JOB_WORKER_ID }); }
+    catch (error) { logger.warn('job.shutdown_requeue_failed', { jobId: activeJobId, error }); }
+  }
   logger.info('server.shutdown_started', { signal });
   const forceExit = setTimeout(() => {
     logger.error('server.shutdown_timeout', { signal, timeoutMs: 10000 });

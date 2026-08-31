@@ -123,6 +123,15 @@ test('lifecycle probes and protected diagnostics expose truthful process state',
   assert.equal(diagnosticBody.storage.ok, true);
   assert.equal(diagnosticBody.runtime.shuttingDown, false);
   assert.ok(diagnosticBody.requests.totals.requests >= 4);
+
+  const unauthorizedQueue = await request('/api/job-queue', { auth: false });
+  assert.equal(unauthorizedQueue.status, 401);
+  const queue = await request('/api/job-queue');
+  const queueBody = await queue.json();
+  assert.equal(queue.status, 200);
+  assert.equal(queueBody.worker.running, true);
+  assert.deepEqual(Object.keys(queueBody.counts).sort(), ['failed', 'pending', 'running', 'succeeded']);
+  assert.ok(queueBody.recent.every(job => !Object.hasOwn(job, 'payload')));
 });
 
 test('production mode never reports demo generation, publishing, indexing, or search data as live success', { timeout: 30000 }, async () => {

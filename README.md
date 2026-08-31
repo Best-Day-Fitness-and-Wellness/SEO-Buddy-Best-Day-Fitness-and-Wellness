@@ -289,6 +289,10 @@ node scripts/restore-backup.mjs --backup <id> --confirm "RESTORE <id>"
 
 For PostgreSQL, set `DATABASE_URL` and run `npm run db:migrate` for an explicit migration/sync check. Applied migration checksums are immutable; a changed historical migration is rejected rather than silently reapplied.
 
+### Durable background work
+
+Scheduled content, AI visibility, citations, local SEO, on-site SEO, performance digest, health snapshot, and backup checks are persisted in the tenant's `jobs.json` before execution. Jobs use stable idempotency keys, worker leases with heartbeats, and bounded exponential retries. A deployment can interrupt a worker without silently losing the scheduled run; the replacement process reclaims the job. Queue history is bounded and never exposes job payloads through the protected `GET /api/job-queue` operations endpoint.
+
 Deploying by hand (GitHub web upload): keep `server.js`, `lib/`, `public/`, and `scripts/` together. The server reads the browser sources at boot and injects content-hashed URLs into `index.html`; there is no separate frontend build artifact to upload.
 
 ---
