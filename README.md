@@ -111,7 +111,7 @@ npm start
 # open http://localhost:3000
 ```
 
-The dashboard boots in **Mock Mode** so you can explore every tab before connecting live services.
+Local development boots in **Demo Mode** so you can explore every tab before connecting live services. Railway and explicit production environments fail closed: missing or failed integrations are shown as unavailable and never produce fabricated generation, publishing, indexing, or Search Console success.
 
 Requires **Node.js 20 or newer**. Run the isolated route/security suite with:
 
@@ -129,6 +129,8 @@ Set these in your host's environment (e.g., Railway → Variables) or, for local
 | Variable | Default | Description |
 |---|---|---|
 | `PORT` | `3000` | Port the server listens on. |
+| `APP_MODE` | auto-detected | `production`, `development`, `test`, or `demo`. Railway is detected as production automatically. Production never permits mock integration success. |
+| `ALLOW_MOCK_INTEGRATIONS` | `true` outside production | Set to `false` to make local development fail closed too. This cannot enable mocks in production. |
 | `DATA_DIR` | app folder | **Where all history/audits/logs/snapshots/score/profile files are stored.** On a container host, point this at a persistent volume (e.g. `/data`) so data survives redeploys. |
 | `ADMIN_PASSWORD` | *(unset)* | When set, locks the sensitive endpoints (see **Security**). Enter the same value in Settings → Admin Password. Leave unset only for trusted local dev. |
 | `ALLOWED_ORIGIN` | *(same‑origin)* | Optional comma‑separated CORS allowlist. Leave blank for same‑origin only. |
@@ -247,6 +249,7 @@ Requires **approved Business Profile API access** from Google. Once granted, aut
 The app auto‑deploys from the GitHub `main` branch.
 
 1. Set the environment variables above in the service's **Variables**.
+   Railway is automatically treated as `APP_MODE=production`; setting it explicitly is recommended for clarity.
 2. **Attach a Volume** and set `DATA_DIR` to its mount path (e.g. `/data`). **Important:** container filesystems are wiped on every redeploy, so without a volume your Optimization Score history, audits, published‑content list, autopilot state, Performance snapshots, and settings entered through the UI reset each deploy. On startup the server logs `💾 Data dir: … (persistent)` when a volume is configured.
 3. Set `ADMIN_PASSWORD` and enter the same value in Settings → Admin Password.
 

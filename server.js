@@ -31,6 +31,7 @@ const {
   snapshotFromScore,
   stabilizeScore,
 } = require('./lib/health-score');
+const { integrationUnavailable, mocksAllowed, resolveAppMode } = require('./lib/runtime-mode');
 
 // Load UI-saved settings from the same durable directory used by the JSON
 // stores. Host-provided environment variables still win unless a user
@@ -40,6 +41,12 @@ dotenv.config({ path: path.join(CONFIG_DIR, '.env') });
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const APP_MODE = resolveAppMode(process.env);
+const ALLOW_MOCK_INTEGRATIONS = mocksAllowed(APP_MODE, process.env);
+
+function integrationErrorStatus(error) {
+  return error && Number.isInteger(error.statusCode) ? error.statusCode : 500;
+}
 
 // ----------------------------------------------------
 // Core Configuration
@@ -464,7 +471,9 @@ if (process.env.GEMINI_API_KEY) {
     console.error('[Gemini SDK] Initialization failed:', error.message);
   }
 } else {
-  console.log('[Gemini SDK] No GEMINI_API_KEY found in .env. Running in Mock generation mode.');
+  console.log(ALLOW_MOCK_INTEGRATIONS
+    ? '[Gemini SDK] No GEMINI_API_KEY found. Demo generation is available outside production.'
+    : '[Gemini SDK] No GEMINI_API_KEY found. Live generation is unavailable; production will not fabricate output.');
 }
 
 // ----------------------------------------------------
@@ -886,6 +895,7 @@ Follow these structural and formatting guidelines. The AEO rules (answer-first, 
 
 Return the HTML directly. Do not include markdown block markers like \`\`\`html.`;
 
+  let generationError = null;
   if (ai) {
     try {
       const response = await ai.models.generateContent({
@@ -938,10 +948,22 @@ Return the HTML directly. Do not include markdown block markers like \`\`\`html.
       };
     } catch (err) {
       console.error('[Service Helper] Gemini generation failed:', err.message);
+      generationError = err;
     }
   }
 
-  // Mock Fallback
+  if (!ALLOW_MOCK_INTEGRATIONS) {
+    throw integrationUnavailable(
+      'gemini',
+      generationError
+        ? `Gemini could not generate the article: ${generationError.message}`
+        : 'Gemini is not configured. Add a valid GEMINI_API_KEY before generating production content.',
+      generationError
+    );
+  }
+
+  // Explicit development/demo fallback. Production exits above and never
+  // presents fabricated copy as a successful AI generation.
   const safeKeyword = escapeHtml(keyword);
   const safeCaseStudy = escapeHtml(caseStudy || 'We helped a local client recover balance and core stability, eliminating their fear of falling.');
   const safeCtaText = escapeHtml(ctaText || 'Claim Free Consultation');
@@ -1113,6 +1135,12 @@ async function publishGhlHelper(title, content, status, config = {}) {
   resolvedContent += schemaScripts;
 
   if (!accessToken || !locationId || !blogId) {
+    if (!ALLOW_MOCK_INTEGRATIONS) {
+      throw integrationUnavailable(
+        'gohighlevel',
+        'GoHighLevel publishing is not fully configured. GHL_ACCESS_TOKEN, GHL_LOCATION_ID, and GHL_BLOG_ID are required.'
+      );
+    }
     return {
       success: true,
       source: 'mock_ghl',
@@ -1203,6 +1231,13 @@ async function indexUrlHelper(url) {
     };
   }
 
+  if (!ALLOW_MOCK_INTEGRATIONS) {
+    throw integrationUnavailable(
+      'google_indexing',
+      'Google Indexing is not configured. Add valid service-account credentials before requesting production indexing.'
+    );
+  }
+
   return {
     success: true,
     source: 'mock_indexing',
@@ -1275,7 +1310,7 @@ async function runAutopilotCycle() {
   logAutopilotActivity('Looking for searches you appear in but get no clicks from...');
   
   // Get keywords
-  let keywords = MOCK_GSC_DATA;
+  let keywords = ALLOW_MOCK_INTEGRATIONS ? MOCK_GSC_DATA : [];
   const auth = getGoogleAuth();
   const siteUrl = process.env.GSC_SITE_URL;
 
@@ -1302,8 +1337,12 @@ async function runAutopilotCycle() {
         }));
       }
     } catch (err) {
-      logAutopilotActivity(`GSC API Fetch failed, falling back to mock leaks. Error: ${err.message}`);
+      logAutopilotActivity(ALLOW_MOCK_INTEGRATIONS
+        ? `GSC API fetch failed; development demo searches will be used. Error: ${err.message}`
+        : `GSC API fetch failed; no fabricated search opportunities will be used. Error: ${err.message}`);
     }
+  } else if (!ALLOW_MOCK_INTEGRATIONS) {
+    logAutopilotActivity('Search Console is not configured; continuing only with owner-queued or proactive target topics.');
   }
 
   // Pick the target, in priority order:
@@ -1618,8 +1657,8 @@ async function computeGscDashboardData() {
         }
       });
 
-      if (response.data.rows && response.data.rows.length > 0) {
-        const rows = response.data.rows.map(row => {
+      {
+        const rows = (response.data.rows || []).map(row => {
           const impressions = row.impressions || 0;
           const clicks = row.clicks || 0;
           const ctr = row.ctr ? parseFloat((row.ctr * 100).toFixed(2)) : 0;
@@ -1639,10 +1678,20 @@ async function computeGscDashboardData() {
         return { source: 'live_gsc', data: rows };
       }
     } catch (error) {
-      console.error('[GSC API] Failed, falling back to mock. Error:', error.message);
+      console.error('[GSC API] Failed:', error.message);
+      if (!ALLOW_MOCK_INTEGRATIONS) {
+        throw integrationUnavailable('google_search_console', `Search Console data could not be loaded: ${error.message}`, error);
+      }
     }
   }
 
+  if (!ALLOW_MOCK_INTEGRATIONS) {
+    return {
+      source: 'unavailable',
+      error: 'Search Console is not configured. Production mode will not substitute demo search data.',
+      data: [],
+    };
+  }
   return { source: 'mock_data', data: MOCK_GSC_DATA };
 }
 
@@ -1740,7 +1789,7 @@ app.post('/api/generate-article', requireAuth, async (req, res) => {
     const data = await generateArticleHelper(keyword, caseStudy, ctaText, ctaUrl, transcript);
     return res.json(data);
   } catch (err) {
-    return res.status(500).json({ success: false, error: err.message });
+    return res.status(integrationErrorStatus(err)).json({ success: false, code: err.code || 'GENERATION_FAILED', error: err.message });
   }
 });
 
@@ -1778,7 +1827,7 @@ app.post('/api/publish-ghl', requireAuth, async (req, res) => {
 
     return res.json(data);
   } catch (err) {
-    return res.status(500).json({ success: false, error: err.message });
+    return res.status(integrationErrorStatus(err)).json({ success: false, code: err.code || 'PUBLISH_FAILED', error: err.message });
   }
 });
 
@@ -1806,7 +1855,7 @@ app.post('/api/index-url', requireAuth, async (req, res) => {
 
     return res.json(data);
   } catch (err) {
-    return res.status(500).json({ success: false, error: explainIndexError(err.message) });
+    return res.status(integrationErrorStatus(err)).json({ success: false, code: err.code || 'INDEXING_FAILED', error: explainIndexError(err.message) });
   }
 });
 
@@ -3064,7 +3113,7 @@ async function queryGscRange(auth, siteUrl, startDate, endDate) {
 async function computePerformanceSnapshot() {
   const day = 24 * 3600 * 1000;
   const fmt = ms => new Date(ms).toISOString().split('T')[0];
-  const out = { source: 'mock', current: null, previous: null, movers: { gainers: [], losers: [] }, snapshots: perfSnapshots, aioTrend: [], leads: null,
+  const out = { source: ALLOW_MOCK_INTEGRATIONS ? 'mock' : 'unavailable', current: null, previous: null, movers: { gainers: [], losers: [] }, snapshots: perfSnapshots, aioTrend: [], leads: null,
     // Course's two most-trustworthy ("directly observable") AI-visibility metrics.
     brandedSearch: { available: false, reason: 'Connect Search Console to see your branded-search volume.' },
     aiReferral: { available: false, reason: 'Connect Google Analytics (GA4) to track visits coming from ChatGPT, Perplexity, and Claude. These AI referrals tend to convert about 3× higher than typical search visits.' } };
@@ -4501,6 +4550,7 @@ async function buildHealthScoreResponse(recordedAt = new Date().toISOString()) {
   const preview = current ? upsertDailySnapshot(healthSnapshots, current, 180).snapshots : healthSnapshots;
   return {
     ...score,
+    runtime: { mode: APP_MODE, mockIntegrationsAllowed: ALLOW_MOCK_INTEGRATIONS },
     overall: smoothing.overall,
     liveOverall: score.liveOverall,
     rawOverall: score.rawOverall,
@@ -4760,7 +4810,15 @@ app.get('/api/deploy-readiness', (req, res) => {
   const ready = checks.filter(c => c.ok).length;
   const total = checks.length;
   const blockersLeft = checks.filter(c => !c.ok && c.severity === 'block').length;
-  res.json({ success: true, ready, total, blockersLeft, allReady: ready === total, checks });
+  res.json({
+    success: true,
+    ready,
+    total,
+    blockersLeft,
+    allReady: ready === total,
+    runtime: { mode: APP_MODE, mockIntegrationsAllowed: ALLOW_MOCK_INTEGRATIONS },
+    checks,
+  });
 });
 
 // Restore the autopilot schedule if it was enabled before a redeploy.
@@ -5369,6 +5427,7 @@ app.listen(PORT, () => {
   console.log(`=======================================================`);
   console.log(`🚀 SEO Buddy - Total Rank System Dashboard is running!`);
   console.log(`👉 Access URL: http://localhost:${PORT}`);
+  console.log(`🧭 App mode: ${APP_MODE} (demo integration fallback ${ALLOW_MOCK_INTEGRATIONS ? 'enabled' : 'disabled'})`);
   console.log(`🤖 Gemini model: ${GEMINI_MODEL}`);
   console.log(`💾 Data dir: ${DATA_DIR}${process.env.DATA_DIR ? ' (persistent)' : ' (ephemeral — set DATA_DIR to a Railway volume to persist history)'}`);
   if (ADMIN_PASSWORD) {

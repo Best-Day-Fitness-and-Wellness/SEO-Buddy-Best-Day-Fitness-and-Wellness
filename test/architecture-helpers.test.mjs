@@ -17,6 +17,7 @@ const {
   snapshotFromScore,
   stabilizeScore,
 } = require('../lib/health-score.js');
+const { mocksAllowed, resolveAppMode, integrationUnavailable } = require('../lib/runtime-mode.js');
 const { parse: parseDotenv } = require('dotenv');
 const { serializeDotenv } = require('../lib/dotenv-store.js');
 const { writeFileAtomicSync, writeJsonFileSync } = require('../lib/json-file-store.js');
@@ -166,6 +167,22 @@ test('legacy score history is versioned and never used as a v2 trend baseline', 
   assert.equal(stabilizeScore(migrated, current).samples, 1);
   assert.equal(scoreDelta(migrated, current), null);
   assert.deepEqual(current.pillars[0].inputs, { observed: 69 });
+});
+
+test('runtime mode fails closed for Railway and explicit production environments', () => {
+  assert.equal(resolveAppMode({ RAILWAY_PROJECT_ID: 'project' }), 'production');
+  assert.equal(resolveAppMode({ NODE_ENV: 'production' }), 'production');
+  assert.equal(resolveAppMode({ APP_MODE: 'demo', NODE_ENV: 'production' }), 'demo');
+  assert.equal(mocksAllowed('production', { ALLOW_MOCK_INTEGRATIONS: 'true' }), false);
+  assert.equal(mocksAllowed('development', {}), true);
+  assert.throws(() => resolveAppMode({ APP_MODE: 'maybe' }), /APP_MODE/);
+});
+
+test('integration unavailable errors carry a stable production contract', () => {
+  const error = integrationUnavailable('gohighlevel', 'Publishing is not configured.');
+  assert.equal(error.code, 'INTEGRATION_UNAVAILABLE');
+  assert.equal(error.integration, 'gohighlevel');
+  assert.equal(error.statusCode, 503);
 });
 
 test('writeJsonFileSync replaces complete JSON and leaves no temporary files', () => {

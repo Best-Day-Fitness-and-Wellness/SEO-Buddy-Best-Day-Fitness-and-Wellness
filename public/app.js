@@ -27,16 +27,28 @@ document.addEventListener('DOMContentLoaded', () => {
   const modeStatus = document.getElementById('mode-status');
   const modeStatusText = document.getElementById('mode-status-text');
 
-  function setDataMode(isLive) {
+  function setDataMode(mode) {
     if (!modeStatus || !modeStatusText) return;
-    modeStatus.className = 'status-indicator ' + (isLive ? 'live' : 'mock');
-    modeStatusText.innerText = isLive ? 'Live Operations' : 'Demo Search Data';
+    const normalized = mode === true ? 'live' : mode === false ? 'demo' : mode;
+    if (normalized === 'live') {
+      modeStatus.className = 'status-indicator live';
+      modeStatusText.innerText = 'Live Operations';
+    } else if (normalized === 'demo') {
+      modeStatus.className = 'status-indicator mock';
+      modeStatusText.innerText = 'Demo Search Data';
+    } else {
+      modeStatus.className = 'status-indicator unavailable';
+      modeStatusText.innerText = 'Live Data Unavailable';
+    }
   }
 
   function setDataModeFromHealthScore(healthScore) {
     const pillars = healthScore && Array.isArray(healthScore.pillars) ? healthScore.pillars : [];
     const searchPillar = pillars.find(pillar => pillar && pillar.key === 'found');
-    if (searchPillar) setDataMode(searchPillar.measured === true);
+    if (searchPillar) {
+      const demoAllowed = !!(healthScore.runtime && healthScore.runtime.mockIntegrationsAllowed);
+      setDataMode(searchPillar.measured === true ? 'live' : (demoAllowed ? 'demo' : 'unavailable'));
+    }
   }
 
   // GSC Selectors
@@ -436,20 +448,16 @@ document.addEventListener('DOMContentLoaded', () => {
       state.gscData = payload.data || [];
       
       // Update GSC Badge
-      setDataMode(payload.source === 'live_gsc');
+      setDataMode(payload.source === 'live_gsc' ? 'live' : (payload.source === 'mock_data' ? 'demo' : 'unavailable'));
 
       calculateStats();
       renderGSCTable();
     } catch (err) {
       console.error('Error fetching GSC data:', err);
-      // Failsafe: load from mock-data.js if server fails or is offline
-      if (typeof MOCK_GSC_DATA !== 'undefined') {
-        state.gscData = MOCK_GSC_DATA;
-        calculateStats();
-        renderGSCTable();
-      } else {
-        gscTableBody.innerHTML = `<tr><td colspan="7" class="text-center text-rose-500">Failed to connect to backend server.</td></tr>`;
-      }
+      setDataMode('unavailable');
+      state.gscData = [];
+      calculateStats();
+      gscTableBody.innerHTML = `<tr><td colspan="7" class="text-center text-rose-500">Live Search Console data is unavailable. No demo numbers were substituted.</td></tr>`;
     }
   }
 
@@ -3098,9 +3106,12 @@ document.addEventListener('DOMContentLoaded', () => {
     if (gsc.source === 'live_gsc') {
       badge.className = 'sum-badge live';
       badge.innerText = 'Live Search Console data';
-    } else {
+    } else if (gsc.source === 'mock_data') {
       badge.className = 'sum-badge demo';
       badge.innerText = 'Demo search data — connect Search Console for live numbers';
+    } else {
+      badge.className = 'sum-badge demo';
+      badge.innerText = 'Search Console unavailable — no demo data substituted';
     }
 
     // ---- AI VISIBILITY ----
@@ -3246,7 +3257,7 @@ document.addEventListener('DOMContentLoaded', () => {
     fetch('/api/health-score')
       .then(r => r.json())
       .then(setDataModeFromHealthScore)
-      .catch(() => setDataMode(false));
+      .catch(() => setDataMode('unavailable'));
   }
   const sumRefreshBtn = document.getElementById('sum-refresh');
   if (sumRefreshBtn) sumRefreshBtn.addEventListener('click', loadSummary);

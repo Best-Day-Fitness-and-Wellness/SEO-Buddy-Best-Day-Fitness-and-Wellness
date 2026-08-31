@@ -95,6 +95,74 @@ test('reading the health score does not write score history', async () => {
   assert.equal(existsSync(healthFile), false);
 });
 
+test('production mode never reports demo generation, publishing, indexing, or search data as live success', { timeout: 30000 }, async () => {
+  const productionDir = mkdtempSync(join(tmpdir(), 'seo-buddy-production-mode-'));
+  const port = await availablePort();
+  const productionBase = `http://127.0.0.1:${port}`;
+  let productionLogs = '';
+  const production = spawn(process.execPath, ['server.js'], {
+    cwd: new URL('..', import.meta.url),
+    env: {
+      ...process.env,
+      APP_MODE: 'production',
+      NODE_ENV: 'production',
+      PORT: String(port),
+      DATA_DIR: productionDir,
+      ADMIN_PASSWORD,
+      GEMINI_API_KEY: '',
+      GHL_ACCESS_TOKEN: '',
+      GHL_LOCATION_ID: '',
+      GHL_BLOG_ID: '',
+      GOOGLE_APPLICATION_CREDENTIALS: '',
+      GSC_SITE_URL: '',
+      REVIEWS_URL: productionBase,
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  production.stdout.on('data', chunk => { productionLogs += chunk.toString(); });
+  production.stderr.on('data', chunk => { productionLogs += chunk.toString(); });
+
+  try {
+    let ready = false;
+    for (let attempt = 0; attempt < 150 && !ready; attempt++) {
+      if (production.exitCode != null) throw new Error(`Production-mode server exited (${production.exitCode}).\n${productionLogs}`);
+      try { ready = (await fetch(productionBase + '/api/storage-status')).ok; } catch (_) { /* booting */ }
+      if (!ready) await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    assert.equal(ready, true, `production-mode server did not start\n${productionLogs}`);
+
+    const auth = { Authorization: `Bearer ${ADMIN_PASSWORD}`, 'Content-Type': 'application/json' };
+    const gsc = await (await fetch(productionBase + '/api/gsc-data')).json();
+    assert.equal(gsc.source, 'unavailable');
+    assert.deepEqual(gsc.data, []);
+
+    const generation = await fetch(productionBase + '/api/generate-article', {
+      method: 'POST', headers: auth, body: JSON.stringify({ keyword: 'senior mobility' }),
+    });
+    assert.equal(generation.status, 503);
+    assert.equal((await generation.json()).code, 'INTEGRATION_UNAVAILABLE');
+
+    const publish = await fetch(productionBase + '/api/publish-ghl', {
+      method: 'POST', headers: auth, body: JSON.stringify({ title: 'Test article', content: '<p>Safe content</p>', status: 'draft' }),
+    });
+    assert.equal(publish.status, 503);
+    assert.equal((await publish.json()).code, 'INTEGRATION_UNAVAILABLE');
+
+    const indexing = await fetch(productionBase + '/api/index-url', {
+      method: 'POST', headers: auth, body: JSON.stringify({ url: 'https://bestdayfitness.com/test-article' }),
+    });
+    assert.equal(indexing.status, 503);
+    assert.equal((await indexing.json()).code, 'INTEGRATION_UNAVAILABLE');
+  } finally {
+    if (production.exitCode == null) {
+      const stopped = new Promise(resolve => production.once('exit', resolve));
+      production.kill();
+      await Promise.race([stopped, new Promise(resolve => setTimeout(resolve, 1000))]);
+    }
+    rmSync(productionDir, { recursive: true, force: true });
+  }
+});
+
 test('all read-only dashboard routes respond', { timeout: 30000 }, async () => {
   const paths = [
     '/api/brand-profile', '/api/business-profile', '/api/gsc-data', '/api/history',
@@ -122,6 +190,7 @@ test('static assets compress, cache briefly, and keep PDF code off the critical 
   assert.match(html, /status-indicator checking/);
   assert.match(html, /Checking live data/);
   assert.doesNotMatch(html, />Mock Mode</);
+  assert.doesNotMatch(html, /mock-data\.js/);
 
   const appJs = await request('/app.js', {
     auth: false,
@@ -133,7 +202,8 @@ test('static assets compress, cache briefly, and keep PDF code off the critical 
 
   const source = await (await request('/app.js', { auth: false })).text();
   assert.match(source, /setDataModeFromHealthScore\(hs\)/);
-  assert.match(source, /setDataMode\(payload\.source === 'live_gsc'\)/);
+  assert.match(source, /payload\.source === 'live_gsc' \? 'live'/);
+  assert.match(source, /no demo data substituted/i);
   assert.match(source, /Building 7-day baseline/);
   assert.match(source, /Live today/);
 });
