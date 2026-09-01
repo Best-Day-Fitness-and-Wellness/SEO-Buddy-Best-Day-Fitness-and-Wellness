@@ -55,6 +55,7 @@ const { registerUsageRoutes } = require('./lib/usage-routes');
 const { registerGscRoutes } = require('./lib/gsc-routes');
 const { registerAutopilotRoutes } = require('./lib/autopilot-routes');
 const { registerContentRoutes } = require('./lib/content-routes');
+const { registerAiVisibilityRoutes } = require('./lib/ai-visibility-routes');
 
 // Load UI-saved secrets from the durable storage root. Tenant state is isolated
 // below this root after configuration is loaded; host-provided variables still
@@ -2377,55 +2378,37 @@ function visTrend() {
   return { series, metricLines, dates: snaps.map(s => s.date) };
 }
 
-// GET current state: engine status, prompts, latest snapshot, deltas, trend.
-// Fire-and-forget a due-check so opening the tab nudges the weekly schedule.
-app.get('/api/ai-visibility', (req, res) => {
-  enqueueDurableJob('ai.visibility', {}, { idempotencyKey: durableJobKey('ai.visibility', 12 * 60 * 60 * 1000), maxAttempts: 5 });
-  const snaps = aiVisDb.snapshots;
-  const latest = snaps[snaps.length - 1] || null;
-  const prev = snaps.length > 1 ? snaps[snaps.length - 2] : null;
-  const delta = (a, b) => (a == null || b == null) ? null : a - b;
-  const deltas = latest ? {
-    visibility: prev ? delta(latest.visibilityScore, prev.visibilityScore) : null,
-    shareOfVoice: prev ? delta(latest.shareOfVoice, prev.shareOfVoice) : null,
-    sentiment: prev ? delta(latest.sentimentScore, prev.sentimentScore) : null
-  } : null;
-  return res.json({
-    brand: visBrandName(),
-    engines: enginesStatus(),
-    prompts: aiVisDb.prompts,
-    latest, deltas,
-    trend: visTrend(),
-    updatedAt: aiVisDb.updatedAt,
-    anyConfigured: AI_ENGINES.some(e => engineConfigured(e.id)),
-    autoEnabled: !!aiVisDb.autoEnabled,
-    intervalDays: aiVisDb.intervalDays || 7,
-    lastRun: aiVisDb.lastRun,
-    running: aiVisRunning
-  });
-});
-
-// POST run a fresh multi-engine visibility sweep (spends API credits).
-app.post('/api/ai-visibility/run', requireAuth, async (req, res) => {
-  if (aiVisRunning) return res.json({ success: true, busy: true, message: 'A visibility check is already running — hang tight.' });
-  if (usageOverBudget()) return budgetBlock(res);
-  const { engines } = req.body || {};
-  aiVisRunning = true;
-  try {
-    const out = await runAiVisibility(Array.isArray(engines) ? engines : null);
-    if (out.error) return res.status(400).json({ success: false, error: out.error });
-    return res.json({ success: true, snapshot: out.snapshot });
-  } catch (e) {
-    console.error('[AI Visibility run] failed:', e.message);
-    return res.status(502).json({ success: false, error: e.message });
-  } finally { aiVisRunning = false; }
-});
-
-// Toggle the weekly auto-check on/off.
-app.post('/api/ai-visibility/toggle', requireAuth, (req, res) => {
-  aiVisDb.autoEnabled = !!(req.body && req.body.enabled);
-  saveAiVis();
-  res.json({ success: true, enabled: aiVisDb.autoEnabled });
+// AI Visibility HTTP contracts use a state adapter so provider orchestration
+// and persistence remain independently replaceable.
+const aiVisibilityRouteState = {
+  get prompts() { return aiVisDb.prompts; },
+  set prompts(value) { aiVisDb.prompts = value; },
+  get snapshots() { return aiVisDb.snapshots; },
+  get updatedAt() { return aiVisDb.updatedAt; },
+  get autoEnabled() { return aiVisDb.autoEnabled; },
+  set autoEnabled(value) { aiVisDb.autoEnabled = value; },
+  get intervalDays() { return aiVisDb.intervalDays; },
+  get lastRun() { return aiVisDb.lastRun; },
+  get running() { return aiVisRunning; },
+  set running(value) { aiVisRunning = value; },
+};
+registerAiVisibilityRoutes(app, {
+  requireAuth,
+  state: aiVisibilityRouteState,
+  nudgeSchedule: () => enqueueDurableJob('ai.visibility', {}, {
+    idempotencyKey: durableJobKey('ai.visibility', 12 * 60 * 60 * 1000),
+    maxAttempts: 5,
+  }),
+  brandName: visBrandName,
+  enginesStatus,
+  trend: visTrend,
+  anyConfigured: () => AI_ENGINES.some(engine => engineConfigured(engine.id)),
+  runVisibility: runAiVisibility,
+  usageOverBudget,
+  budgetBlock,
+  save: saveAiVis,
+  defaultPrompts: DEFAULT_VIS_PROMPTS,
+  logger: console,
 });
 
 // Staggered startup catch-up + 12h heartbeat so the trend fills on schedule.
@@ -2831,16 +2814,6 @@ app.post('/api/assistant', requireAuth, async (req, res) => {
     console.error('[Assistant] failed:', e.message);
     return res.status(502).json({ success: false, error: e.message });
   }
-});
-
-// POST update the tracked prompt list.
-app.post('/api/ai-visibility/prompts', requireAuth, (req, res) => {
-  const { prompts } = req.body || {};
-  if (!Array.isArray(prompts)) return res.status(400).json({ success: false, error: 'prompts must be an array of strings.' });
-  const clean = prompts.map(p => String(p || '').trim()).filter(Boolean).slice(0, 25);
-  aiVisDb.prompts = clean.length ? clean : DEFAULT_VIS_PROMPTS.slice();
-  saveAiVis();
-  return res.json({ success: true, prompts: aiVisDb.prompts });
 });
 
 // 11. Generate JSON-LD Schema Assets

@@ -36,6 +36,7 @@ const { normalizeBudget, registerUsageRoutes } = require('../lib/usage-routes.js
 const { createGscService, mapPageRows, mapQueryRows, searchDateRange } = require('../lib/gsc-routes.js');
 const { registerAutopilotRoutes } = require('../lib/autopilot-routes.js');
 const { belongsToSearchConsoleProperty, registerContentRoutes } = require('../lib/content-routes.js');
+const { buildVisibilityDeltas, normalizePrompts, registerAiVisibilityRoutes } = require('../lib/ai-visibility-routes.js');
 const { ProviderRuntimeError, createProviderRuntime } = require('../lib/provider-runtime.js');
 const { createPostgresStateBridge, replayPostgresOutbox } = require('../lib/postgres-state-bridge.js');
 const { classifyContactSource, summarizeContactAttribution } = require('../lib/attribution.js');
@@ -676,6 +677,78 @@ test('content routes preserve validation, history, quality, and property contain
   await routes.get('POST /api/index-url')({ body: { url: 'https://example.com/blog/draft' } }, indexed);
   assert.equal(indexed.body.source, 'live_indexing');
   assert.equal(state.history[0].indexed, 'Indexing Requested');
+  assert.equal(saves, 2);
+});
+
+test('AI Visibility routes preserve status, prompt, schedule, and run contracts', async () => {
+  assert.deepEqual(buildVisibilityDeltas(
+    { visibilityScore: 60, shareOfVoice: 30, sentimentScore: null },
+    { visibilityScore: 55, shareOfVoice: 32, sentimentScore: 70 },
+  ), { visibility: 5, shareOfVoice: -2, sentiment: null });
+  assert.deepEqual(normalizePrompts([' one ', '', 'two'], ['default']), ['one', 'two']);
+  assert.deepEqual(normalizePrompts([], ['default']), ['default']);
+  assert.equal(normalizePrompts('invalid', ['default']), null);
+
+  const routes = new Map();
+  const app = {
+    get(path, ...handlers) { routes.set(`GET ${path}`, handlers.at(-1)); },
+    post(path, ...handlers) { routes.set(`POST ${path}`, handlers.at(-1)); },
+  };
+  const state = {
+    prompts: ['senior fitness'],
+    snapshots: [{ date: '2026-08-31', visibilityScore: 50, shareOfVoice: 25, sentimentScore: 80 }],
+    updatedAt: '2026-08-31T12:00:00.000Z',
+    autoEnabled: true,
+    intervalDays: 7,
+    lastRun: '2026-08-31T12:00:00.000Z',
+    running: false,
+  };
+  let nudges = 0;
+  let saves = 0;
+  registerAiVisibilityRoutes(app, {
+    requireAuth: () => {},
+    state,
+    nudgeSchedule: () => { nudges += 1; },
+    brandName: () => 'Best Day Fitness',
+    enginesStatus: () => [{ id: 'google', configured: true }],
+    trend: () => ({ series: [], metricLines: {}, dates: ['2026-08-31'] }),
+    anyConfigured: () => true,
+    runVisibility: async engines => ({ snapshot: { engines, visibilityScore: 75 } }),
+    usageOverBudget: () => false,
+    budgetBlock: res => res.json({ budgetReached: true }),
+    save: () => { saves += 1; },
+    defaultPrompts: ['default prompt'],
+    logger: { error() {} },
+  });
+
+  function response() {
+    return {
+      statusCode: 200,
+      body: null,
+      status(code) { this.statusCode = code; return this; },
+      json(body) { this.body = body; return this; },
+    };
+  }
+
+  const status = response();
+  routes.get('GET /api/ai-visibility')({}, status);
+  assert.equal(nudges, 1);
+  assert.equal(status.body.brand, 'Best Day Fitness');
+  assert.deepEqual(status.body.deltas, { visibility: null, shareOfVoice: null, sentiment: null });
+  assert.equal(status.body.running, false);
+
+  const prompts = response();
+  routes.get('POST /api/ai-visibility/prompts')({ body: { prompts: ['  balance training ', ''] } }, prompts);
+  assert.deepEqual(state.prompts, ['balance training']);
+
+  const toggle = response();
+  routes.get('POST /api/ai-visibility/toggle')({ body: { enabled: false } }, toggle);
+  assert.equal(state.autoEnabled, false);
+
+  const run = response();
+  await routes.get('POST /api/ai-visibility/run')({ body: { engines: ['google'] } }, run);
+  assert.deepEqual(run.body, { success: true, snapshot: { engines: ['google'], visibilityScore: 75 } });
+  assert.equal(state.running, false);
   assert.equal(saves, 2);
 });
 
