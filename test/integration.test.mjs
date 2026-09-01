@@ -301,6 +301,7 @@ test('static assets compress, cache briefly, and keep PDF code off the critical 
   const performanceAsset = html.match(/data-performance-asset="(\/assets\/performance\.[a-f0-9]{12}\.js)"/)?.[1];
   const siteOptimizationAsset = html.match(/data-site-optimization-asset="(\/assets\/site-optimization\.[a-f0-9]{12}\.js)"/)?.[1];
   const aiVisibilityAsset = html.match(/data-ai-visibility-asset="(\/assets\/ai-visibility\.[a-f0-9]{12}\.js)"/)?.[1];
+  const brandProfileAsset = html.match(/data-brand-profile-asset="(\/assets\/brand-profile\.[a-f0-9]{12}\.js)"/)?.[1];
   assert.ok(reviewsAsset, 'reviews must have a versioned lazy asset');
   assert.ok(recordedContentAsset, 'recorded content must have a versioned lazy asset');
   assert.ok(pdfReportAsset, 'PDF reporting must have a versioned lazy asset');
@@ -309,6 +310,7 @@ test('static assets compress, cache briefly, and keep PDF code off the critical 
   assert.ok(performanceAsset, 'Progress must have a versioned lazy asset');
   assert.ok(siteOptimizationAsset, 'Site Optimization must have a versioned lazy asset');
   assert.ok(aiVisibilityAsset, 'AI Visibility must have a versioned lazy asset');
+  assert.ok(brandProfileAsset, 'Brand Voice must have a versioned lazy asset');
   assert.equal(hashedAssets.includes(reviewsAsset), false, 'reviews must not execute on the initial path');
   assert.equal(hashedAssets.includes(recordedContentAsset), false, 'recorded content must not execute on the initial path');
   assert.equal(hashedAssets.includes(pdfReportAsset), false, 'PDF reporting must not execute on the initial path');
@@ -317,13 +319,14 @@ test('static assets compress, cache briefly, and keep PDF code off the critical 
   assert.equal(hashedAssets.includes(performanceAsset), false, 'Progress must not execute on the initial path');
   assert.equal(hashedAssets.includes(siteOptimizationAsset), false, 'Site Optimization must not execute on the initial path');
   assert.equal(hashedAssets.includes(aiVisibilityAsset), false, 'AI Visibility must not execute on the initial path');
+  assert.equal(hashedAssets.includes(brandProfileAsset), false, 'Brand Voice must not execute on the initial path');
   for (const asset of hashedAssets) {
     assert.match(asset, /\.[a-f0-9]{12}\.(?:css|js)$/);
     const response = await request(asset, { auth: false, headers: { 'Accept-Encoding': 'gzip' } });
     assert.equal(response.status, 200, `${asset} must be served`);
     assert.match(response.headers.get('cache-control') || '', /max-age=31536000, immutable/);
   }
-  for (const asset of [reviewsAsset, recordedContentAsset, pdfReportAsset, citationAsset, localPresenceAsset, performanceAsset, siteOptimizationAsset, aiVisibilityAsset]) {
+  for (const asset of [reviewsAsset, recordedContentAsset, pdfReportAsset, citationAsset, localPresenceAsset, performanceAsset, siteOptimizationAsset, aiVisibilityAsset, brandProfileAsset]) {
     const response = await request(asset, { auth: false, headers: { 'Accept-Encoding': 'gzip' } });
     assert.equal(response.status, 200, `${asset} must be served lazily`);
     assert.match(response.headers.get('cache-control') || '', /max-age=31536000, immutable/);
@@ -352,6 +355,7 @@ test('static assets compress, cache briefly, and keep PDF code off the critical 
   assert.doesNotMatch(source, /PERFORMANCE \(measurement \/ ROI\)|function perfLineChart/);
   assert.doesNotMatch(source, /ON-SITE & TECHNICAL SEO|function osPost/);
   assert.doesNotMatch(source, /AI SEARCH AUDIT & SCHEMA ASSET ENGINE|MULTI-ENGINE AI VISIBILITY DASHBOARD/);
+  assert.doesNotMatch(source, /const BP_FIELDS|function bpCollect/);
   assert.match(source, /ensureReviewsFeature/);
   assert.match(source, /ensureRecordedContentFeature/);
   assert.match(source, /ensurePdfReportFeature/);
@@ -360,6 +364,8 @@ test('static assets compress, cache briefly, and keep PDF code off the critical 
   assert.match(source, /ensurePerformanceFeature/);
   assert.match(source, /ensureSiteOptimizationFeature/);
   assert.match(source, /ensureAiVisibilityFeature/);
+  assert.match(source, /ensureBrandProfileFeature/);
+  assert.match(source, /btn-goto-brand/);
   assert.match(source, /fetch\('\/api\/performance'\)\.catch/);
 
   const coreSource = await (await request('/modules/core.js', { auth: false })).text();
@@ -372,6 +378,7 @@ test('static assets compress, cache briefly, and keep PDF code off the critical 
   const performanceSource = await (await request('/modules/performance.js', { auth: false })).text();
   const siteOptimizationSource = await (await request('/modules/site-optimization.js', { auth: false })).text();
   const aiVisibilitySource = await (await request('/modules/ai-visibility.js', { auth: false })).text();
+  const brandProfileSource = await (await request('/modules/brand-profile.js', { auth: false })).text();
   assert.match(coreSource, /global\.SeoBuddyCore/);
   assert.match(assistantSource, /SEO BUDDY ASSISTANT/);
   assert.match(reviewsSource, /REVIEWS SITE/);
@@ -406,6 +413,12 @@ test('static assets compress, cache briefly, and keep PDF code off the critical 
   assert.match(aiVisibilitySource, /\/api\/ai-factcheck/);
   assert.match(aiVisibilitySource, /\/api\/ai-crawlers/);
   assert.match(aiVisibilitySource, /\/api\/reddit-threads/);
+  assert.match(brandProfileSource, /global\.loadBrandProfile/);
+  assert.match(brandProfileSource, /\/api\/brand-profile/);
+  assert.match(brandProfileSource, /\/api\/brand-profile\/reset/);
+  assert.match(brandProfileSource, /seo:readiness-changed/);
+  assert.doesNotMatch(brandProfileSource, /btn-goto-brand/);
+  assert.doesNotMatch(brandProfileSource, /bpLoad\(\);/);
 });
 
 test('every mutating or credit-spending route is password protected', async () => {

@@ -98,14 +98,15 @@ and checklist interactions, `performance.js` owns Progress rendering, charts, an
 weekly-digest controls, `site-optimization.js` owns on-site autopilot, keyword,
 AEO, title/meta, internal-link, and schema interactions, `ai-visibility.js` owns
 grounded audits, multi-engine visibility, FactCheck, crawler, Reddit, and schema
-interactions, `pdf-report.js` owns report assembly and PDF-library loading,
+interactions, `brand-profile.js` owns the Brand Voice editor and readiness event,
+`pdf-report.js` owns report assembly and PDF-library loading,
 and `theme.js` owns theme behavior. `public/app.js` remains the main feature coordinator.
 
 The browser loads only the visible dashboard work initially. Feature loaders
 use same-origin APIs and render escaped values. PDF reporting, Reviews, recorded
-content, Citations, Local Presence, Progress, Site Optimization, and AI Visibility
-load on demand; the PDF vendor libraries remain behind
-the report module's second-stage loader.
+content, Citations, Local Presence, Progress, Site Optimization, AI Visibility,
+and Brand Voice load on demand; the PDF vendor libraries remain behind the
+report module's second-stage loader.
 Content-hashed assets prevent a deployment from combining new HTML with stale
 JavaScript.
 
