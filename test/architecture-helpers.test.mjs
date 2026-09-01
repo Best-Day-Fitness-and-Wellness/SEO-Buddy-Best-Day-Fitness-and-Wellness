@@ -34,6 +34,7 @@ const { createPostgresJobQueue, publicJob: publicPostgresJob } = require('../lib
 const { registerProfileRoutes } = require('../lib/profile-routes.js');
 const { normalizeBudget, registerUsageRoutes } = require('../lib/usage-routes.js');
 const { createGscService, mapPageRows, mapQueryRows, searchDateRange } = require('../lib/gsc-routes.js');
+const { registerAutopilotRoutes } = require('../lib/autopilot-routes.js');
 const { ProviderRuntimeError, createProviderRuntime } = require('../lib/provider-runtime.js');
 const { createPostgresStateBridge, replayPostgresOutbox } = require('../lib/postgres-state-bridge.js');
 const { classifyContactSource, summarizeContactAttribution } = require('../lib/attribution.js');
@@ -528,6 +529,80 @@ test('Search Console service preserves query shaping, sorting, and live contract
   assert.equal(diagnostics.verdict, 'connected');
   assert.equal(diagnostics.serviceAccountEmail, null);
   assert.equal(Object.hasOwn(diagnostics, 'private_key'), false);
+});
+
+test('autopilot routes preserve schedule, queue, target, and run contracts', async () => {
+  const routes = new Map();
+  const app = {
+    get(path, ...handlers) { routes.set(`GET ${path}`, handlers.at(-1)); },
+    post(path, ...handlers) { routes.set(`POST ${path}`, handlers.at(-1)); },
+  };
+  const state = {
+    enabled: true,
+    intervalHours: 24,
+    nextRunTime: '2026-09-02T12:00:00.000Z',
+    queue: [],
+    targets: ['senior fitness'],
+    targetIndex: 1,
+    logs: ['ready'],
+  };
+  let saves = 0;
+  let schedulerStarts = 0;
+  registerAutopilotRoutes(app, {
+    requireAuth: () => {},
+    state,
+    startScheduler: () => { schedulerStarts += 1; state.nextRunTime = null; },
+    saveConfig: () => { saves += 1; },
+    runCycle: async () => ({ title: 'Balance guide', indexWarning: false }),
+    explainIndexError: message => `explained: ${message}`,
+    now: () => '2026-09-01T12:00:00.000Z',
+  });
+
+  function response() {
+    return {
+      statusCode: 200,
+      body: null,
+      status(code) { this.statusCode = code; return this; },
+      json(body) { this.body = body; return this; },
+    };
+  }
+
+  const status = response();
+  routes.get('GET /api/autopilot-status')({}, status);
+  assert.deepEqual(status.body, {
+    enabled: true,
+    intervalHours: 24,
+    nextRunTime: '2026-09-02T12:00:00.000Z',
+    queue: [],
+    targets: ['senior fitness'],
+    logs: ['ready'],
+  });
+
+  const toggled = response();
+  routes.get('POST /api/autopilot-toggle')({ body: { enabled: false, intervalHours: '12' } }, toggled);
+  assert.equal(state.enabled, false);
+  assert.equal(state.intervalHours, 12);
+  assert.equal(schedulerStarts, 1);
+  assert.equal(toggled.body.message, 'Autopilot schedule updated successfully.');
+
+  const queued = response();
+  routes.get('POST /api/autopilot-queue/add')({ body: { topic: '  mobility training  ' } }, queued);
+  assert.deepEqual(state.queue, [{ topic: 'mobility training', addedAt: '2026-09-01T12:00:00.000Z' }]);
+
+  const duplicate = response();
+  routes.get('POST /api/autopilot-targets/add')({ body: { keyword: 'SENIOR FITNESS' } }, duplicate);
+  assert.equal(duplicate.body.note, 'Already a target.');
+
+  const removed = response();
+  routes.get('POST /api/autopilot-targets/remove')({ body: { index: 0 } }, removed);
+  assert.deepEqual(state.targets, []);
+  assert.equal(state.targetIndex, 0);
+
+  const run = response();
+  await routes.get('POST /api/autopilot-run-now')({ body: {} }, run);
+  assert.equal(run.body.ran, true);
+  assert.equal(run.body.message, 'Autopilot completed a run successfully!');
+  assert.equal(saves, 3);
 });
 
 test('provider runtime retries transient failures and reports bounded integration health', async () => {

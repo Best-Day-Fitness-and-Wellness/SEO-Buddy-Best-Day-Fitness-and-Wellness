@@ -198,6 +198,7 @@ so one production replica remains the supported topology.
 | `lib/profile-routes.js` | Brand and business profile HTTP contracts |
 | `lib/usage-routes.js` | AI usage reporting and owner budget HTTP contracts |
 | `lib/gsc-routes.js` | Search Console queries, caching, page opportunities, and safe diagnostics |
+| `lib/autopilot-routes.js` | Content autopilot schedule, queue, target, and manual-run HTTP contracts |
 | `public/modules/*` | Browser cross-cutting feature modules |
 | `scripts/*` | Smoke verification, backup, restore, database migration |
 
@@ -222,10 +223,10 @@ so one production replica remains the supported topology.
 
 ## Remaining constraints and next refactors
 
-1. **`server.js` is still the main monolith.** Operations, profile, usage, and
-   Search Console routes are extracted; continue one route family at a time into
-   services, integrations, and repository interfaces. Keep contract tests around
-   the existing HTTP boundary before every extraction.
+1. **`server.js` is still the main monolith.** Operations, profile, usage,
+   Search Console, and content autopilot routes are extracted; continue one route
+   family at a time into services, integrations, and repository interfaces. Keep
+   contract tests around the existing HTTP boundary before every extraction.
 2. **Feature state is still process-local during a run.** PostgreSQL mode makes
    the database the startup recovery authority, but one production replica is
    still the supported topology. Move mutations to transactional repository

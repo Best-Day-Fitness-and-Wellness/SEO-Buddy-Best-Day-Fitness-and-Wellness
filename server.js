@@ -53,6 +53,7 @@ const { registerOperationsRoutes } = require('./lib/operations-routes');
 const { registerProfileRoutes } = require('./lib/profile-routes');
 const { registerUsageRoutes } = require('./lib/usage-routes');
 const { registerGscRoutes } = require('./lib/gsc-routes');
+const { registerAutopilotRoutes } = require('./lib/autopilot-routes');
 
 // Load UI-saved secrets from the durable storage root. Tenant state is isolated
 // below this root after configuration is loaded; host-provided variables still
@@ -2062,96 +2063,27 @@ app.get('/api/history', (req, res) => {
   return res.json(historyDb);
 });
 
-// 6. Get Autopilot Status
-app.get('/api/autopilot-status', (req, res) => {
-  return res.json({
-    enabled: autopilotEnabled,
-    intervalHours: autopilotIntervalHours,
-    nextRunTime: nextRunTime,
-    queue: autopilotQueue,
-    targets: autopilotTargets,
-    logs: autopilotLogs
-  });
-});
-
-// 7. Toggle Autopilot Agent
-app.post('/api/autopilot-toggle', requireAuth, (req, res) => {
-  const { enabled, intervalHours } = req.body;
-
-  autopilotEnabled = !!enabled;
-  if (intervalHours) autopilotIntervalHours = parseFloat(intervalHours);
-
-  startAutopilotScheduler();
-  saveAutopilotConfig();
-
-  return res.json({
-    success: true,
-    enabled: autopilotEnabled,
-    intervalHours: autopilotIntervalHours,
-    nextRunTime: nextRunTime,
-    message: `Autopilot schedule updated successfully.`
-  });
-});
-
-// 7b. Content topic queue — autopilot covers these before finding gaps.
-app.post('/api/autopilot-queue/add', requireAuth, (req, res) => {
-  const topic = String((req.body && req.body.topic) || '').trim();
-  if (!topic) return res.status(400).json({ success: false, error: 'Enter a topic or keyword.' });
-  if (topic.length > 120) return res.status(400).json({ success: false, error: 'Keep topics under 120 characters.' });
-  if (autopilotQueue.length >= 50) return res.status(400).json({ success: false, error: 'Queue is full (50). Remove some first.' });
-  autopilotQueue.push({ topic, addedAt: new Date().toISOString() });
-  saveAutopilotConfig();
-  res.json({ success: true, queue: autopilotQueue });
-});
-app.post('/api/autopilot-queue/remove', requireAuth, (req, res) => {
-  const idx = (req.body && typeof req.body.index === 'number') ? req.body.index : -1;
-  if (idx >= 0 && idx < autopilotQueue.length) autopilotQueue.splice(idx, 1);
-  saveAutopilotConfig();
-  res.json({ success: true, queue: autopilotQueue });
-});
-
-// 7c. Proactive target keywords — core money terms the autopilot pursues on
-// rotation even with zero current impressions (breaks into new searches).
-app.get('/api/autopilot-targets', (req, res) => {
-  res.json({ success: true, targets: autopilotTargets });
-});
-app.post('/api/autopilot-targets/add', requireAuth, (req, res) => {
-  const kw = String((req.body && req.body.keyword) || '').trim();
-  if (!kw) return res.status(400).json({ success: false, error: 'Enter a target keyword.' });
-  if (kw.length > 120) return res.status(400).json({ success: false, error: 'Keep keywords under 120 characters.' });
-  if (autopilotTargets.length >= 50) return res.status(400).json({ success: false, error: 'Target list is full (50). Remove some first.' });
-  if (autopilotTargets.some(t => t.toLowerCase() === kw.toLowerCase())) return res.json({ success: true, targets: autopilotTargets, note: 'Already a target.' });
-  autopilotTargets.push(kw);
-  saveAutopilotConfig();
-  res.json({ success: true, targets: autopilotTargets });
-});
-app.post('/api/autopilot-targets/remove', requireAuth, (req, res) => {
-  const idx = (req.body && typeof req.body.index === 'number') ? req.body.index : -1;
-  if (idx >= 0 && idx < autopilotTargets.length) {
-    autopilotTargets.splice(idx, 1);
-    if (autopilotTargetIndex >= autopilotTargets.length) autopilotTargetIndex = 0;
-    saveAutopilotConfig();
-  }
-  res.json({ success: true, targets: autopilotTargets });
-});
-
-// 8. Trigger Autopilot run immediately (Manual Override)
-app.post('/api/autopilot-run-now', requireAuth, async (req, res) => {
-  try {
-    const entry = await runAutopilotCycle();
-    return res.json({
-      success: true,
-      ran: !!entry,
-      entry,
-      message: entry
-        ? (entry.indexWarning
-            ? 'Autopilot published the article. Google Indexing was refused (service account needs Owner permission in Search Console) — see the activity log.'
-            : 'Autopilot completed a run successfully!')
-        : 'Autopilot checked GSC, but found no new content leaks.'
-    });
-  } catch (err) {
-    return res.status(500).json({ success: false, error: explainIndexError(err.message) });
-  }
+// Autopilot HTTP contracts use an adapter over the existing scheduler state.
+// This keeps behavior stable now and creates a seam for transactional state later.
+const autopilotRouteState = {
+  get enabled() { return autopilotEnabled; },
+  set enabled(value) { autopilotEnabled = value; },
+  get intervalHours() { return autopilotIntervalHours; },
+  set intervalHours(value) { autopilotIntervalHours = value; },
+  get nextRunTime() { return nextRunTime; },
+  get queue() { return autopilotQueue; },
+  get targets() { return autopilotTargets; },
+  get targetIndex() { return autopilotTargetIndex; },
+  set targetIndex(value) { autopilotTargetIndex = value; },
+  get logs() { return autopilotLogs; },
+};
+registerAutopilotRoutes(app, {
+  requireAuth,
+  state: autopilotRouteState,
+  startScheduler: startAutopilotScheduler,
+  saveConfig: saveAutopilotConfig,
+  runCycle: runAutopilotCycle,
+  explainIndexError,
 });
 
 // 9. Run AI Search (AIO) Audit
