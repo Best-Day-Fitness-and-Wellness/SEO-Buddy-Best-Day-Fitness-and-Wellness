@@ -61,6 +61,7 @@ const { registerScheduledFeatureRoutes } = require('./lib/scheduled-feature-rout
 const { createGoogleDelivery } = require('./lib/google-delivery');
 const { registerDeliveryRoutes } = require('./lib/delivery-routes');
 const { LISTING_TYPES, registerCitationRoutes } = require('./lib/citation-routes');
+const { buildCanonicalNap, mapNapListings, registerLocalSeoRoutes } = require('./lib/local-seo-routes');
 
 // Load UI-saved secrets from the durable storage root. Tenant state is isolated
 // below this root after configuration is loaded; host-provided variables still
@@ -2917,79 +2918,6 @@ app.post('/api/citation-targets', requireAuth, async (req, res) => {
   }
 });
 
-// 13. Local SEO — NAP (Name/Address/Phone) consistency audit
-app.post('/api/nap-audit', requireAuth, async (req, res) => {
-  const geminiKey = process.env.GEMINI_API_KEY;
-  const canonical = {
-    name: BUSINESS.name,
-    address: `${BUSINESS.streetAddress}, ${BUSINESS.addressLocality}, ${BUSINESS.addressRegion} ${BUSINESS.postalCode}`,
-    phone: BUSINESS.telephone
-  };
-  if (!geminiKey) {
-    return res.json({ success: true, unavailable: true, message: 'Add your Gemini API key in Settings to run a NAP audit (uses live Google Search grounding).', canonical, listings: [] });
-  }
-  const digits = s => String(s || '').replace(/\D/g, '');
-  const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-  const canonPhone = digits(canonical.phone);
-
-  try {
-    const prompt = `Find the current online business listings for "${BUSINESS.name}" located in ${BUSINESS.addressLocality}, ${BUSINESS.addressRegion}. For each major platform where it appears (for example Google Business Profile, Yelp, Facebook, Apple Maps, Bing Places, BBB, and local fitness directories), report the EXACT business name, full street address, and phone number shown there, based on current web information. Reply with ONLY raw JSON, no markdown fences: {"listings":[{"platform":"","name":"","address":"","phone":""}]}. If a field isn't shown on a platform, use an empty string.`;
-    const r = await geminiGenerate({ model: GEMINI_MODEL, contents: prompt, config: { tools: [{ googleSearch: {} }] } });
-    let raw = (r.text || '').trim().replace(/^```json/i, '').replace(/^```/, '').replace(/```$/, '').trim();
-    const m = raw.match(/\{[\s\S]*\}/);
-    if (m) raw = m[0];
-    let parsed = { listings: [] };
-    try { parsed = JSON.parse(raw); } catch (e) { parsed = { listings: [] }; }
-
-    const listings = (parsed.listings || []).map(l => ({
-      platform: l.platform || '',
-      name: l.name || '',
-      address: l.address || '',
-      phone: l.phone || '',
-      nameMatch: l.name ? (norm(l.name).includes(norm(BUSINESS.name)) || norm(BUSINESS.name).includes(norm(l.name))) : null,
-      phoneMatch: l.phone ? (digits(l.phone).slice(-10) === canonPhone.slice(-10)) : null,
-      addrMatch: l.address ? norm(l.address).includes(norm(BUSINESS.streetAddress)) : null
-    }));
-
-    return res.json({ success: true, canonical, listings });
-  } catch (err) {
-    console.error('[NAP Audit] failed:', err.message);
-    return res.status(502).json({ success: false, error: err.message });
-  }
-});
-
-// 14. Local SEO — content generation (review responses/requests, GBP posts)
-app.post('/api/local-generate', requireAuth, async (req, res) => {
-  const { kind, review, rating, clientName, reviewLink, topic, postType } = req.body || {};
-  const geminiKey = process.env.GEMINI_API_KEY;
-  if (!geminiKey) {
-    return res.json({ success: true, unavailable: true, message: 'Add your Gemini API key in Settings to generate local content.', text: '' });
-  }
-
-  const brand = brandPrompt(true);
-
-  let prompt;
-  if (kind === 'review-response') {
-    if (!review) return res.status(400).json({ error: 'Paste the review to respond to.' });
-    prompt = `${brand}\nWrite a warm, personal, professional reply from the business to this Google review${rating ? ` (${rating} stars)` : ''}:\n"""${review}"""\nRules: reference something specific they mentioned; keep it 2–4 sentences; sound human, never templated; if it's negative, be gracious, take responsibility, and invite them to connect offline. Return only the reply text.`;
-  } else if (kind === 'review-request') {
-    prompt = `${brand}\nWrite a short, friendly message asking a happy client${clientName ? ` named ${clientName}` : ''} to leave a Google review. Warm and low‑pressure, 2–3 sentences, thank them for training with us, and include this review link: ${reviewLink || '[YOUR GOOGLE REVIEW LINK]'}. Return only the message text.`;
-  } else if (kind === 'gbp-post') {
-    if (!topic) return res.status(400).json({ error: 'Enter a topic for the post.' });
-    prompt = `${brand}\nWrite a Google Business Profile post of type "${postType || 'update'}" about: "${topic}". Under 1500 characters, engaging and locally relevant to St. Petersburg, with a clear call to action at the end (book a consultation / call us / visit). Return only the post text.`;
-  } else {
-    return res.status(400).json({ error: 'Unknown generation kind.' });
-  }
-
-  try {
-    const r = await geminiGenerate({ model: GEMINI_MODEL, contents: prompt });
-    return res.json({ success: true, text: (r.text || '').trim() });
-  } catch (err) {
-    console.error('[Local Generate] failed:', err.message);
-    return res.status(502).json({ success: false, error: err.message });
-  }
-});
-
 // 15. Performance — period-over-period trends, durable snapshots, and leads
 const PERF_FILE = path.join(DATA_DIR, 'performance.json');
 let perfSnapshots = [];
@@ -3723,20 +3651,12 @@ function saveLocal() {
 
 async function localNapScan() {
   const geminiKey = process.env.GEMINI_API_KEY;
-  const canonical = { name: BUSINESS.name, address: `${BUSINESS.streetAddress}, ${BUSINESS.addressLocality}, ${BUSINESS.addressRegion} ${BUSINESS.postalCode}`, phone: BUSINESS.telephone };
+  const canonical = buildCanonicalNap(BUSINESS);
   if (!geminiKey) return null;
-  const digits = s => String(s || '').replace(/\D/g, '');
-  const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-  const canonPhone = digits(canonical.phone);
   const prompt = `Find the current online business listings for "${BUSINESS.name}" located in ${BUSINESS.addressLocality}, ${BUSINESS.addressRegion}. For each major platform (Google Business Profile, Yelp, Facebook, Apple Maps, Bing Places, BBB, local fitness directories), report the EXACT business name, full street address, and phone number shown there, based on current web information. Reply with ONLY raw JSON, no markdown fences: {"listings":[{"platform":"","name":"","address":"","phone":""}]}. Empty string if a field isn't shown.`;
   const r = await geminiGenerate({ model: GEMINI_MODEL, contents: prompt, config: { tools: [{ googleSearch: {} }] } });
   const parsed = parseGeminiJson(r.text) || { listings: [] };
-  const listings = (parsed.listings || []).map(l => ({
-    platform: l.platform || '', name: l.name || '', address: l.address || '', phone: l.phone || '',
-    nameMatch: l.name ? (norm(l.name).includes(norm(BUSINESS.name)) || norm(BUSINESS.name).includes(norm(l.name))) : null,
-    phoneMatch: l.phone ? (digits(l.phone).slice(-10) === canonPhone.slice(-10)) : null,
-    addrMatch: l.address ? norm(l.address).includes(norm(BUSINESS.streetAddress)) : null
-  }));
+  const listings = mapNapListings(parsed.listings, BUSINESS, canonical);
   const mismatchCount = listings.filter(l => l.phoneMatch === false || l.addrMatch === false || l.nameMatch === false).length;
   return { canonical, listings, mismatchCount, checkedAt: new Date().toISOString() };
 }
@@ -3838,25 +3758,16 @@ function localState() {
   };
 }
 
-// Draft a reply to a pasted review AND save it to history.
-app.post('/api/local-reply', requireAuth, async (req, res) => {
-  const { review, rating } = req.body || {};
-  if (!review) return res.status(400).json({ success: false, error: 'Paste the review to respond to.' });
-  const geminiKey = process.env.GEMINI_API_KEY;
-  if (!geminiKey) return res.json({ success: true, unavailable: true, message: 'Add your Gemini API key in Settings to draft replies.' });
-  try {
-    const brand = brandPrompt(true);
-    const prompt = `${brand}\nWrite a warm, personal, professional reply from the business to this Google review${rating ? ` (${rating} stars)` : ''}:\n"""${review}"""\nRules: reference something specific they mentioned; keep it 2–4 sentences; sound human, never templated; if it's negative, be gracious, take responsibility, and invite them to connect offline. Return only the reply text.`;
-    const r = await geminiGenerate({ model: GEMINI_MODEL, contents: prompt });
-    const reply = (r.text || '').trim();
-    localDb.replyHistory.unshift({ review: String(review).slice(0, 500), rating: rating || '', reply, createdAt: new Date().toISOString() });
-    localDb.replyHistory = localDb.replyHistory.slice(0, 20);
-    saveLocal();
-    res.json({ success: true, reply });
-  } catch (err) {
-    console.error('[Local Reply] failed:', err.message);
-    res.status(502).json({ success: false, error: err.message });
-  }
+registerLocalSeoRoutes(app, {
+  requireAuth,
+  hasGeminiKey: () => !!process.env.GEMINI_API_KEY,
+  business: BUSINESS,
+  brandPrompt,
+  geminiGenerate,
+  model: GEMINI_MODEL,
+  localState: localDb,
+  saveLocal,
+  logger: console,
 });
 
 // Background scheduler: catch up shortly after boot, then check twice a day.

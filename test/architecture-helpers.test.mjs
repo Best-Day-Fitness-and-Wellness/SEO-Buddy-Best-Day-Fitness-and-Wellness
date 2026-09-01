@@ -42,6 +42,7 @@ const { registerScheduledFeatureRoutes } = require('../lib/scheduled-feature-rou
 const { createGoogleDelivery } = require('../lib/google-delivery.js');
 const { EMAIL_PATTERN, registerDeliveryRoutes } = require('../lib/delivery-routes.js');
 const { CITATION_STATUSES, LISTING_TYPES, normalizeCitationQueries, registerCitationRoutes } = require('../lib/citation-routes.js');
+const { buildCanonicalNap, buildReviewReplyPrompt, mapNapListings, registerLocalSeoRoutes } = require('../lib/local-seo-routes.js');
 const { ProviderRuntimeError, createProviderRuntime } = require('../lib/provider-runtime.js');
 const { createPostgresStateBridge, replayPostgresOutbox } = require('../lib/postgres-state-bridge.js');
 const { classifyContactSource, summarizeContactAttribution } = require('../lib/attribution.js');
@@ -1163,6 +1164,149 @@ test('delivery routes preserve setup, validation, send, draft, and digest contra
     ['[Gmail send] failed:', 'mailbox unavailable'],
     ['[GBP post] failed:', 'GBP unavailable'],
   ]);
+});
+
+test('local SEO routes preserve NAP, generation, validation, and reply-history contracts', async () => {
+  const business = {
+    name: 'Best Day Fitness',
+    streetAddress: '123 Main St',
+    addressLocality: 'St. Petersburg',
+    addressRegion: 'FL',
+    postalCode: '33701',
+    telephone: '+1 (727) 555-0100',
+  };
+  const canonical = buildCanonicalNap(business);
+  assert.deepEqual(canonical, {
+    name: 'Best Day Fitness',
+    address: '123 Main St, St. Petersburg, FL 33701',
+    phone: '+1 (727) 555-0100',
+  });
+  assert.deepEqual(mapNapListings([
+    { platform: 'Google', name: 'Best Day Fitness LLC', address: '123 Main Street, St Petersburg, FL', phone: '727-555-0100' },
+    { platform: 'Yelp', name: 'Different Gym', address: '999 Other Ave', phone: '727-555-9999' },
+    { platform: 'Apple Maps' },
+  ], business, canonical), [
+    {
+      platform: 'Google', name: 'Best Day Fitness LLC', address: '123 Main Street, St Petersburg, FL', phone: '727-555-0100',
+      nameMatch: true, phoneMatch: true, addrMatch: true,
+    },
+    {
+      platform: 'Yelp', name: 'Different Gym', address: '999 Other Ave', phone: '727-555-9999',
+      nameMatch: false, phoneMatch: false, addrMatch: false,
+    },
+    {
+      platform: 'Apple Maps', name: '', address: '', phone: '',
+      nameMatch: null, phoneMatch: null, addrMatch: null,
+    },
+  ]);
+
+  const routes = new Map();
+  const app = {
+    post(path, ...handlers) { routes.set(`POST ${path}`, handlers); },
+  };
+  const requireAuth = () => {};
+  let hasKey = false;
+  let geminiResult = { text: ' Generated copy ' };
+  let geminiError = null;
+  let saves = 0;
+  const requests = [];
+  const errors = [];
+  const localState = {
+    replyHistory: Array.from({ length: 20 }, (_, index) => ({ review: `old-${index}` })),
+  };
+
+  registerLocalSeoRoutes(app, {
+    requireAuth,
+    hasGeminiKey: () => hasKey,
+    business,
+    brandPrompt: () => 'Best Day Fitness brand',
+    geminiGenerate: async request => {
+      requests.push(request);
+      if (geminiError) throw geminiError;
+      return geminiResult;
+    },
+    model: 'gemini-test',
+    localState,
+    saveLocal: () => { saves += 1; },
+    now: () => '2026-09-01T12:00:00.000Z',
+    logger: { error(...args) { errors.push(args); } },
+  });
+
+  const response = () => ({
+    statusCode: 200,
+    body: null,
+    status(code) { this.statusCode = code; return this; },
+    json(body) { this.body = body; return this; },
+  });
+  const handler = path => routes.get(`POST ${path}`).at(-1);
+  for (const path of ['/api/nap-audit', '/api/local-generate', '/api/local-reply']) {
+    assert.equal(routes.get(`POST ${path}`)[0], requireAuth);
+  }
+
+  const napUnavailable = response();
+  await handler('/api/nap-audit')({ body: {} }, napUnavailable);
+  assert.deepEqual(napUnavailable.body, {
+    success: true,
+    unavailable: true,
+    message: 'Add your Gemini API key in Settings to run a NAP audit (uses live Google Search grounding).',
+    canonical,
+    listings: [],
+  });
+  const generateUnavailable = response();
+  await handler('/api/local-generate')({ body: { kind: 'unknown' } }, generateUnavailable);
+  assert.equal(generateUnavailable.body.unavailable, true, 'credential check must stay ahead of generation validation');
+  const replyInvalid = response();
+  await handler('/api/local-reply')({ body: {} }, replyInvalid);
+  assert.equal(replyInvalid.statusCode, 400, 'reply validation must stay ahead of its credential check');
+  const replyUnavailable = response();
+  await handler('/api/local-reply')({ body: { review: 'Great coaching' } }, replyUnavailable);
+  assert.equal(replyUnavailable.body.unavailable, true);
+
+  hasKey = true;
+  geminiResult = {
+    text: '```json\n{"listings":[{"platform":"Google","name":"Best Day Fitness","address":"123 Main St","phone":"7275550100"}]}\n```',
+  };
+  const nap = response();
+  await handler('/api/nap-audit')({ body: {} }, nap);
+  assert.equal(nap.body.listings[0].nameMatch, true);
+  assert.equal(nap.body.listings[0].phoneMatch, true);
+  assert.deepEqual(requests.at(-1).config, { tools: [{ googleSearch: {} }] });
+
+  const missingReview = response();
+  await handler('/api/local-generate')({ body: { kind: 'review-response' } }, missingReview);
+  assert.deepEqual([missingReview.statusCode, missingReview.body], [400, { error: 'Paste the review to respond to.' }]);
+  const missingTopic = response();
+  await handler('/api/local-generate')({ body: { kind: 'gbp-post' } }, missingTopic);
+  assert.deepEqual([missingTopic.statusCode, missingTopic.body], [400, { error: 'Enter a topic for the post.' }]);
+  const unknownKind = response();
+  await handler('/api/local-generate')({ body: { kind: 'unknown' } }, unknownKind);
+  assert.deepEqual([unknownKind.statusCode, unknownKind.body], [400, { error: 'Unknown generation kind.' }]);
+
+  geminiResult = { text: ' Thank you for the thoughtful review. ' };
+  const generated = response();
+  await handler('/api/local-generate')({ body: { kind: 'review-response', review: 'Great coaching', rating: 5 } }, generated);
+  assert.deepEqual(generated.body, { success: true, text: 'Thank you for the thoughtful review.' });
+  assert.equal(requests.at(-1).contents, buildReviewReplyPrompt('Best Day Fitness brand', 'Great coaching', 5));
+
+  const longReview = 'x'.repeat(600);
+  const replied = response();
+  await handler('/api/local-reply')({ body: { review: longReview, rating: 4 } }, replied);
+  assert.deepEqual(replied.body, { success: true, reply: 'Thank you for the thoughtful review.' });
+  assert.equal(localState.replyHistory.length, 20);
+  assert.deepEqual(localState.replyHistory[0], {
+    review: 'x'.repeat(500),
+    rating: 4,
+    reply: 'Thank you for the thoughtful review.',
+    createdAt: '2026-09-01T12:00:00.000Z',
+  });
+  assert.equal(saves, 1);
+
+  geminiError = new Error('generation unavailable');
+  const failed = response();
+  await handler('/api/local-generate')({ body: { kind: 'review-request' } }, failed);
+  assert.equal(failed.statusCode, 502);
+  assert.deepEqual(failed.body, { success: false, error: 'generation unavailable' });
+  assert.deepEqual(errors.at(-1), ['[Local Generate] failed:', 'generation unavailable']);
 });
 
 test('citation routes preserve scan, tracker, listing, and pitch contracts', async () => {
