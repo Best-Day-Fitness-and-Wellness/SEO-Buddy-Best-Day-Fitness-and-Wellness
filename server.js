@@ -20,7 +20,6 @@ const {
   trustpilotTrend: tpTrend,
 } = require('./lib/trustpilot');
 const { serializeDotenv } = require('./lib/dotenv-store');
-const { ttlCache } = require('./lib/ttl-cache');
 const { upsertDailySnapshot } = require('./lib/daily-snapshot');
 const {
   SCORE_VERSION,
@@ -47,7 +46,6 @@ const { createSwitchableJobQueue } = require('./lib/job-queue');
 const { createPostgresJobQueue } = require('./lib/postgres-job-queue');
 const { createJobWorker } = require('./lib/job-worker');
 const { ProviderRuntimeError, createProviderRuntime } = require('./lib/provider-runtime');
-const { summarizeContactAttribution } = require('./lib/attribution');
 const { assessArticleQuality } = require('./lib/content-quality');
 const { registerOperationsRoutes } = require('./lib/operations-routes');
 const { registerProfileRoutes } = require('./lib/profile-routes');
@@ -62,6 +60,7 @@ const { createGoogleDelivery } = require('./lib/google-delivery');
 const { registerDeliveryRoutes } = require('./lib/delivery-routes');
 const { LISTING_TYPES, registerCitationRoutes } = require('./lib/citation-routes');
 const { buildCanonicalNap, mapNapListings, registerLocalSeoRoutes } = require('./lib/local-seo-routes');
+const { createPerformanceService, registerPerformanceRoutes } = require('./lib/performance-routes');
 
 // Load UI-saved secrets from the durable storage root. Tenant state is isolated
 // below this root after configuration is loaded; host-provided variables still
@@ -2928,153 +2927,25 @@ function savePerf() {
   saveJsonFileSync(PERF_FILE, perfSnapshots, 'Performance');
 }
 
-async function queryGscRange(auth, siteUrl, startDate, endDate) {
-  const webmasters = google.webmasters({ version: 'v3', auth });
-  const resp = await searchConsoleQuery(webmasters, {
-    siteUrl,
-    requestBody: { startDate, endDate, dimensions: ['query'], rowLimit: 250 }
-  });
-  const rows = resp.data.rows || [];
-  let impressions = 0, clicks = 0, posWeighted = 0;
-  const byQuery = {};
-  rows.forEach(r => {
-    const q = r.keys ? r.keys[0] : '';
-    impressions += r.impressions || 0;
-    clicks += r.clicks || 0;
-    posWeighted += (r.position || 0) * (r.impressions || 0);
-    if (q) byQuery[q] = { impressions: r.impressions || 0, clicks: r.clicks || 0, position: r.position || 0 };
-  });
-  return { impressions, clicks, avgPosition: impressions ? posWeighted / impressions : 0, ctr: impressions ? clicks / impressions : 0, byQuery };
-}
-
-async function computePerformanceSnapshot() {
-  const day = 24 * 3600 * 1000;
-  const fmt = ms => new Date(ms).toISOString().split('T')[0];
-  const out = { source: ALLOW_MOCK_INTEGRATIONS ? 'mock' : 'unavailable', current: null, previous: null, movers: { gainers: [], losers: [] }, snapshots: perfSnapshots, aioTrend: [], leads: null,
-    // Course's two most-trustworthy ("directly observable") AI-visibility metrics.
-    brandedSearch: { available: false, reason: 'Connect Search Console to see your branded-search volume.' },
-    aiReferral: { available: false, reason: 'Connect Google Analytics (GA4) to track visits coming from ChatGPT, Perplexity, and Claude. These AI referrals tend to convert about 3× higher than typical search visits.' } };
-
-  const auth = getGoogleAuth();
-  const siteUrl = process.env.GSC_SITE_URL;
-
-  // GSC data lags ~2–3 days, so end the "current" window a few days back.
-  const endCur = Date.now() - 3 * day;
-  const startCur = endCur - 27 * day;
-  const endPrev = startCur - 1 * day;
-  const startPrev = endPrev - 27 * day;
-
-  if (auth && siteUrl) {
-    try {
-      const cur = await queryGscRange(auth, siteUrl, fmt(startCur), fmt(endCur));
-      const prev = await queryGscRange(auth, siteUrl, fmt(startPrev), fmt(endPrev));
-      out.source = 'live_gsc';
-      out.current = { impressions: cur.impressions, clicks: cur.clicks, avgPosition: +cur.avgPosition.toFixed(1), ctr: +(cur.ctr * 100).toFixed(2) };
-      out.previous = { impressions: prev.impressions, clicks: prev.clicks, avgPosition: +prev.avgPosition.toFixed(1), ctr: +(prev.ctr * 100).toFixed(2) };
-
-      const moves = [];
-      Object.keys(cur.byQuery).forEach(q => {
-        const c = cur.byQuery[q], p = prev.byQuery[q];
-        if (p && p.position && c.position) {
-          // positive posChange = rank improved (position number went down)
-          moves.push({ query: q, posChange: +(p.position - c.position).toFixed(1), position: +c.position.toFixed(1), clicks: c.clicks });
-        }
-      });
-      out.movers.gainers = moves.filter(m => m.posChange > 0.3).sort((a, b) => b.posChange - a.posChange).slice(0, 5);
-      out.movers.losers = moves.filter(m => m.posChange < -0.3).sort((a, b) => a.posChange - b.posChange).slice(0, 5);
-
-      // Branded search — a "directly observable" AI-visibility signal: when AI systems
-      // mention your brand, more people search for you by name. Real data from GSC.
-      const brandTerms = ['best day', 'bestdayfitness', 'best-day'];
-      const isBranded = q => { const s = (q || '').toLowerCase(); return brandTerms.some(t => s.includes(t)); };
-      const brandSum = byQuery => {
-        let impressions = 0, clicks = 0;
-        Object.keys(byQuery).forEach(q => { if (isBranded(q)) { impressions += byQuery[q].impressions || 0; clicks += byQuery[q].clicks || 0; } });
-        return { impressions, clicks };
-      };
-      const brCur = brandSum(cur.byQuery), brPrev = brandSum(prev.byQuery);
-      out.brandedSearch = { available: true, current: brCur, previous: brPrev };
-
-      // Daily snapshot (idempotent per day) — durable trend history.
-      const today = fmt(Date.now());
-      const recRate = aioAuditsDb.length ? Math.round(aioAuditsDb.filter(a => a.recommended).length / aioAuditsDb.length * 100) : null;
-      const snap = {
-        date: today,
-        impressions: cur.impressions,
-        clicks: cur.clicks,
-        avgPosition: +cur.avgPosition.toFixed(1),
-        leaks: Object.values(cur.byQuery).filter(x => x.clicks === 0 && x.impressions > 10).length,
-        brandedImpressions: brCur.impressions,
-        recommendedRate: recRate
-      };
-      const update = upsertDailySnapshot(perfSnapshots, snap, 180);
-      perfSnapshots = update.snapshots;
-      if (update.changed) savePerf();
-      out.snapshots = perfSnapshots;
-    } catch (e) {
-      console.error('[Performance] GSC failed:', e.message);
-    }
-  }
-
-  // AI visibility trend from audit history (bucketed by day).
-  try {
-    const byDay = {};
-    aioAuditsDb.forEach(a => {
-      const d = (a.timestamp || '').split('T')[0];
-      if (!d) return;
-      if (!byDay[d]) byDay[d] = { n: 0, rec: 0 };
-      byDay[d].n++; if (a.recommended) byDay[d].rec++;
-    });
-    out.aioTrend = Object.keys(byDay).sort().map(d => ({ date: d, rate: Math.round(byDay[d].rec / byDay[d].n * 100), n: byDay[d].n }));
-  } catch (e) { /* ignore */ }
-
-  // GHL leads (best-effort, directional). Separate windows ending now.
-  const ghlToken = process.env.GHL_ACCESS_TOKEN;
-  const ghlLoc = process.env.GHL_LOCATION_ID;
-  const lCurStart = Date.now() - 28 * day, lPrevStart = Date.now() - 56 * day, lPrevEnd = Date.now() - 28 * day;
-  if (ghlToken && ghlLoc) {
-    try {
-      const r = await providerRuntime.fetch('gohighlevel', `https://services.leadconnectorhq.com/contacts/?locationId=${encodeURIComponent(ghlLoc)}&limit=100`, {
-        headers: { 'Authorization': `Bearer ${ghlToken}`, 'Version': '2021-07-28' }
-      }, { retries: 1 });
-      const d = await r.json();
-      const contacts = d.contacts || [];
-      const attribution = summarizeContactAttribution(contacts, {
-        currentStart: lCurStart,
-        currentEnd: Date.now(),
-        previousStart: lPrevStart,
-        previousEnd: lPrevEnd,
-      });
-      out.leads = {
-        available: true,
-        current: attribution.currentTotal,
-        previous: attribution.previousTotal,
-        approx: contacts.length >= 100,
-        attribution,
-      };
-    } catch (e) {
-      out.leads = { available: false, reason: 'Could not reach GoHighLevel: ' + e.message };
-    }
-  } else {
-    out.leads = { available: false, reason: 'GoHighLevel token/location not configured in Settings.' };
-  }
-
-  return out;
-}
-
-// Results and Health are loaded together in the browser, and Health also needs
-// the performance snapshot. A short TTL absorbs navigation/polling bursts and
-// protects Search Console and GoHighLevel quotas; stale data remains available
-// briefly if an upstream dependency has a transient failure.
-const computePerformance = ttlCache(computePerformanceSnapshot, {
-  ttlMs: 60 * 1000,
-  staleIfErrorMs: 5 * 60 * 1000,
+const performanceService = createPerformanceService({
+  allowMockIntegrations: ALLOW_MOCK_INTEGRATIONS,
+  getGoogleAuth,
+  getSiteUrl: () => process.env.GSC_SITE_URL,
+  createWebmasters: auth => google.webmasters({ version: 'v3', auth }),
+  searchConsoleQuery,
+  getSnapshots: () => perfSnapshots,
+  replaceSnapshots: (snapshots, changed) => {
+    perfSnapshots = snapshots;
+    if (changed) savePerf();
+  },
+  getAioAudits: () => aioAuditsDb,
+  getGhlConfig: () => ({ token: process.env.GHL_ACCESS_TOKEN, locationId: process.env.GHL_LOCATION_ID }),
+  providerFetch: (...args) => providerRuntime.fetch(...args),
+  logger: console,
 });
+const computePerformance = performanceService.getPerformance;
 
-app.get('/api/performance', async (req, res) => {
-  try { res.json(await computePerformance()); }
-  catch (e) { res.status(500).json({ success: false, error: e.message }); }
-});
+registerPerformanceRoutes(app, { getPerformance: computePerformance });
 
 // 16. On-Site & Technical SEO tools
 function parseGeminiJson(text) {

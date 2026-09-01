@@ -43,6 +43,7 @@ const { createGoogleDelivery } = require('../lib/google-delivery.js');
 const { EMAIL_PATTERN, registerDeliveryRoutes } = require('../lib/delivery-routes.js');
 const { CITATION_STATUSES, LISTING_TYPES, normalizeCitationQueries, registerCitationRoutes } = require('../lib/citation-routes.js');
 const { buildCanonicalNap, buildReviewReplyPrompt, mapNapListings, registerLocalSeoRoutes } = require('../lib/local-seo-routes.js');
+const { aggregateGscRows, createPerformanceService, registerPerformanceRoutes } = require('../lib/performance-routes.js');
 const { ProviderRuntimeError, createProviderRuntime } = require('../lib/provider-runtime.js');
 const { createPostgresStateBridge, replayPostgresOutbox } = require('../lib/postgres-state-bridge.js');
 const { classifyContactSource, summarizeContactAttribution } = require('../lib/attribution.js');
@@ -1307,6 +1308,161 @@ test('local SEO routes preserve NAP, generation, validation, and reply-history c
   assert.equal(failed.statusCode, 502);
   assert.deepEqual(failed.body, { success: false, error: 'generation unavailable' });
   assert.deepEqual(errors.at(-1), ['[Local Generate] failed:', 'generation unavailable']);
+});
+
+test('performance service preserves aggregation, trends, persistence, attribution, and route contracts', async () => {
+  assert.deepEqual(aggregateGscRows([
+    { keys: ['one'], impressions: 100, clicks: 10, position: 4 },
+    { keys: ['two'], impressions: 50, clicks: 0, position: 8 },
+    { impressions: 0, clicks: 0, position: 20 },
+  ]), {
+    impressions: 150,
+    clicks: 10,
+    avgPosition: 800 / 150,
+    ctr: 10 / 150,
+    byQuery: {
+      one: { impressions: 100, clicks: 10, position: 4 },
+      two: { impressions: 50, clicks: 0, position: 8 },
+    },
+  });
+
+  const fixedNow = Date.parse('2026-09-01T12:00:00.000Z');
+  let snapshots = [];
+  let saves = 0;
+  const gscRequests = [];
+  const providerRequests = [];
+  const gscRows = [
+    [
+      { keys: ['best day fitness'], impressions: 100, clicks: 10, position: 4 },
+      { keys: ['senior fitness'], impressions: 50, clicks: 0, position: 8 },
+      { keys: ['mobility coaching'], impressions: 20, clicks: 2, position: 5 },
+    ],
+    [
+      { keys: ['best day fitness'], impressions: 80, clicks: 5, position: 7 },
+      { keys: ['senior fitness'], impressions: 40, clicks: 1, position: 5 },
+      { keys: ['mobility coaching'], impressions: 10, clicks: 1, position: 8 },
+    ],
+  ];
+  const contacts = [
+    { dateAdded: '2026-08-20T12:00:00Z', source: 'Google Organic Search' },
+    { dateAdded: '2026-08-21T12:00:00Z', tags: ['ChatGPT referral'] },
+    { dateAdded: '2026-07-20T12:00:00Z', source: 'Facebook' },
+  ];
+  const errors = [];
+  const service = createPerformanceService({
+    allowMockIntegrations: false,
+    getGoogleAuth: () => ({ credential: true }),
+    getSiteUrl: () => 'sc-domain:bestdayfitness.com',
+    createWebmasters: auth => ({ auth }),
+    searchConsoleQuery: async (webmasters, request) => {
+      gscRequests.push({ webmasters, request });
+      return { data: { rows: gscRows[gscRequests.length - 1] } };
+    },
+    getSnapshots: () => snapshots,
+    replaceSnapshots: (next, changed) => {
+      snapshots = next;
+      if (changed) saves += 1;
+    },
+    getAioAudits: () => [
+      { timestamp: '2026-08-30T12:00:00Z', recommended: true },
+      { timestamp: '2026-08-30T16:00:00Z', recommended: false },
+      { timestamp: '2026-08-31T12:00:00Z', recommended: true },
+    ],
+    getGhlConfig: () => ({ token: 'secret-token', locationId: 'location 1' }),
+    providerFetch: async (...args) => {
+      providerRequests.push(args);
+      return { json: async () => ({ contacts }) };
+    },
+    now: () => fixedNow,
+    logger: { error(...args) { errors.push(args); } },
+  });
+
+  const result = await service.computePerformanceSnapshot();
+  assert.equal(result.source, 'live_gsc');
+  assert.deepEqual(result.current, { impressions: 170, clicks: 12, avgPosition: 5.3, ctr: 7.06 });
+  assert.deepEqual(result.previous, { impressions: 130, clicks: 7, avgPosition: 6.5, ctr: 5.38 });
+  assert.deepEqual(result.movers.gainers.map(move => move.query), ['best day fitness', 'mobility coaching']);
+  assert.deepEqual(result.movers.losers.map(move => move.query), ['senior fitness']);
+  assert.deepEqual(result.brandedSearch, {
+    available: true,
+    current: { impressions: 100, clicks: 10 },
+    previous: { impressions: 80, clicks: 5 },
+  });
+  assert.deepEqual(result.aioTrend, [
+    { date: '2026-08-30', rate: 50, n: 2 },
+    { date: '2026-08-31', rate: 100, n: 1 },
+  ]);
+  assert.equal(result.leads.current, 2);
+  assert.equal(result.leads.previous, 1);
+  assert.equal(result.leads.attribution.explicitlySearchAttributed, 2);
+  assert.equal(result.aiReferral.available, false);
+  assert.equal(snapshots.length, 1);
+  assert.deepEqual(snapshots[0], {
+    date: '2026-09-01',
+    impressions: 170,
+    clicks: 12,
+    avgPosition: 5.3,
+    leaks: 1,
+    brandedImpressions: 100,
+    recommendedRate: 67,
+  });
+  assert.equal(saves, 1);
+  assert.equal(gscRequests.length, 2);
+  assert.deepEqual(gscRequests[0].request.requestBody.dimensions, ['query']);
+  assert.equal(gscRequests[0].request.requestBody.rowLimit, 250);
+  assert.equal(providerRequests[0][0], 'gohighlevel');
+  assert.match(providerRequests[0][1], /locationId=location%201&limit=100$/);
+  assert.deepEqual(providerRequests[0][2].headers, {
+    Authorization: 'Bearer secret-token',
+    Version: '2021-07-28',
+  });
+  assert.deepEqual(providerRequests[0][3], { retries: 1 });
+  assert.deepEqual(errors, []);
+
+  const unavailable = createPerformanceService({
+    allowMockIntegrations: false,
+    getGoogleAuth: () => null,
+    getSiteUrl: () => null,
+    createWebmasters: () => { throw new Error('must not be called'); },
+    searchConsoleQuery: () => { throw new Error('must not be called'); },
+    getSnapshots: () => [],
+    replaceSnapshots: () => {},
+    getAioAudits: () => [],
+    getGhlConfig: () => ({ token: '', locationId: '' }),
+    providerFetch: () => { throw new Error('must not be called'); },
+    now: () => fixedNow,
+  });
+  const unavailableResult = await unavailable.computePerformanceSnapshot();
+  assert.equal(unavailableResult.source, 'unavailable');
+  assert.deepEqual(unavailableResult.leads, {
+    available: false,
+    reason: 'GoHighLevel token/location not configured in Settings.',
+  });
+
+  const routes = new Map();
+  const app = { get(path, ...handlers) { routes.set(`GET ${path}`, handlers); } };
+  let routeError = null;
+  registerPerformanceRoutes(app, {
+    getPerformance: async () => {
+      if (routeError) throw routeError;
+      return { source: 'live_gsc' };
+    },
+  });
+  const response = () => ({
+    statusCode: 200,
+    body: null,
+    status(code) { this.statusCode = code; return this; },
+    json(body) { this.body = body; return this; },
+  });
+  const route = routes.get('GET /api/performance').at(-1);
+  const success = response();
+  await route({}, success);
+  assert.deepEqual(success.body, { source: 'live_gsc' });
+  routeError = new Error('performance unavailable');
+  const failed = response();
+  await route({}, failed);
+  assert.equal(failed.statusCode, 500);
+  assert.deepEqual(failed.body, { success: false, error: 'performance unavailable' });
 });
 
 test('citation routes preserve scan, tracker, listing, and pitch contracts', async () => {
