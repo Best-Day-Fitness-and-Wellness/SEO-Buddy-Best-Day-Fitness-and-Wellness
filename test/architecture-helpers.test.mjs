@@ -31,6 +31,7 @@ const { createDurableJobQueue } = require('../lib/durable-job-queue.js');
 const { createSwitchableJobQueue } = require('../lib/job-queue.js');
 const { createJobWorker } = require('../lib/job-worker.js');
 const { createPostgresJobQueue, publicJob: publicPostgresJob } = require('../lib/postgres-job-queue.js');
+const { registerProfileRoutes } = require('../lib/profile-routes.js');
 const { ProviderRuntimeError, createProviderRuntime } = require('../lib/provider-runtime.js');
 const { createPostgresStateBridge, replayPostgresOutbox } = require('../lib/postgres-state-bridge.js');
 const { classifyContactSource, summarizeContactAttribution } = require('../lib/attribution.js');
@@ -364,6 +365,66 @@ test('job worker executes registered handlers behind the queue interface', async
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('profile routes preserve brand and business response contracts', () => {
+  const routes = new Map();
+  const app = {
+    get(path, ...handlers) { routes.set(`GET ${path}`, handlers.at(-1)); },
+    post(path, ...handlers) { routes.set(`POST ${path}`, handlers.at(-1)); },
+  };
+  const brandDefaults = { tagline: 'Default', tone: 'Friendly' };
+  const brandState = { profile: { ...brandDefaults }, reviewedAt: null };
+  let business = { name: 'Best Day Fitness' };
+  let saves = 0;
+  const requireOwner = () => {};
+  registerProfileRoutes(app, {
+    requireOwner,
+    brandDefaults,
+    brandState,
+    saveBrand: () => { saves += 1; return true; },
+    storageReadiness: () => ({ persistent: true }),
+    businessProfile: () => business,
+    saveBusinessProfile: body => { business = { ...business, ...body }; },
+    now: () => '2026-09-01T12:00:00.000Z',
+  });
+
+  function response() {
+    return {
+      statusCode: 200,
+      body: null,
+      status(code) { this.statusCode = code; return this; },
+      json(body) { this.body = body; return this; },
+    };
+  }
+
+  const invalid = response();
+  routes.get('POST /api/brand-profile')({ body: {} }, invalid);
+  assert.equal(invalid.statusCode, 400);
+  assert.deepEqual(invalid.body, { success: false, error: 'No brand profile supplied.' });
+
+  const saved = response();
+  routes.get('POST /api/brand-profile')({ body: { brand: { tagline: 'Updated' } } }, saved);
+  assert.deepEqual(saved.body, {
+    success: true,
+    brand: { tagline: 'Updated', tone: 'Friendly' },
+    reviewedAt: '2026-09-01T12:00:00.000Z',
+    persisted: true,
+    durable: true,
+  });
+
+  const reset = response();
+  routes.get('POST /api/brand-profile/reset')({ body: {} }, reset);
+  assert.deepEqual(reset.body.brand, brandDefaults);
+  assert.equal(reset.body.reviewedAt, null);
+  assert.equal(saves, 2);
+
+  const updatedBusiness = response();
+  routes.get('POST /api/business-profile')({ body: { city: 'St. Petersburg' } }, updatedBusiness);
+  assert.deepEqual(updatedBusiness.body, {
+    success: true,
+    profile: { name: 'Best Day Fitness', city: 'St. Petersburg' },
+  });
 });
 
 test('provider runtime retries transient failures and reports bounded integration health', async () => {

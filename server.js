@@ -50,6 +50,7 @@ const { ProviderRuntimeError, createProviderRuntime } = require('./lib/provider-
 const { summarizeContactAttribution } = require('./lib/attribution');
 const { assessArticleQuality } = require('./lib/content-quality');
 const { registerOperationsRoutes } = require('./lib/operations-routes');
+const { registerProfileRoutes } = require('./lib/profile-routes');
 
 // Load UI-saved secrets from the durable storage root. Tenant state is isolated
 // below this root after configuration is loaded; host-provided variables still
@@ -652,30 +653,21 @@ app.use(express.static(PUBLIC_DIR, {
   },
 }));
 
-// Brand profile routes live below the body parser on purpose — registered above
-// it, req.body is undefined and every save fails with a confusing 400.
-app.get('/api/brand-profile', (req, res) => res.json({ success: true, brand: brandDb, defaults: BRAND_DEFAULT, reviewedAt: brandReviewedAt }));
-app.post('/api/brand-profile', requireOwner, (req, res) => {
-  const incoming = req.body && req.body.brand;
-  if (!incoming || typeof incoming !== 'object') return res.status(400).json({ success: false, error: 'No brand profile supplied.' });
-  // Merge onto defaults so a partial save can never blank out the whole voice.
-  brandDb = { ...BRAND_DEFAULT, ...brandDb, ...incoming };
-  brandReviewedAt = new Date().toISOString();
-  const persisted = saveBrand();
-  res.json({ success: true, brand: brandDb, reviewedAt: brandReviewedAt, persisted, durable: persisted && storageReadiness().persistent });
-});
-app.post('/api/brand-profile/reset', requireOwner, (req, res) => {
-  brandDb = JSON.parse(JSON.stringify(BRAND_DEFAULT));
-  brandReviewedAt = null;
-  const persisted = saveBrand();
-  res.json({ success: true, brand: brandDb, reviewedAt: brandReviewedAt, persisted, durable: persisted && storageReadiness().persistent });
-});
-
-// Business profile endpoints (registered after body parsing so req.body is available).
-app.get('/api/business-profile', (req, res) => res.json({ success: true, profile: businessProfile() }));
-app.post('/api/business-profile', requireOwner, (req, res) => {
-  try { saveBusinessProfileFromBody(req.body || {}); res.json({ success: true, profile: businessProfile() }); }
-  catch (e) { console.error('[Business Profile] save failed:', e.message); res.status(500).json({ success: false, error: e.message }); }
+// Profile routes live below the body parser on purpose — registered above it,
+// req.body is undefined and every save fails with a confusing 400.
+registerProfileRoutes(app, {
+  requireOwner,
+  brandDefaults: BRAND_DEFAULT,
+  brandState: {
+    get profile() { return brandDb; },
+    set profile(value) { brandDb = value; },
+    get reviewedAt() { return brandReviewedAt; },
+    set reviewedAt(value) { brandReviewedAt = value; },
+  },
+  saveBrand,
+  storageReadiness,
+  businessProfile,
+  saveBusinessProfile: saveBusinessProfileFromBody,
 });
 
 // ----------------------------------------------------
