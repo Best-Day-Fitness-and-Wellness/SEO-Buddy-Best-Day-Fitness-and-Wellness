@@ -37,6 +37,7 @@ const { createGscService, mapPageRows, mapQueryRows, searchDateRange } = require
 const { registerAutopilotRoutes } = require('../lib/autopilot-routes.js');
 const { belongsToSearchConsoleProperty, registerContentRoutes } = require('../lib/content-routes.js');
 const { buildVisibilityDeltas, normalizePrompts, registerAiVisibilityRoutes } = require('../lib/ai-visibility-routes.js');
+const { registerAiAuditRoutes } = require('../lib/ai-audit-routes.js');
 const { ProviderRuntimeError, createProviderRuntime } = require('../lib/provider-runtime.js');
 const { createPostgresStateBridge, replayPostgresOutbox } = require('../lib/postgres-state-bridge.js');
 const { classifyContactSource, summarizeContactAttribution } = require('../lib/attribution.js');
@@ -750,6 +751,106 @@ test('AI Visibility routes preserve status, prompt, schedule, and run contracts'
   assert.deepEqual(run.body, { success: true, snapshot: { engines: ['google'], visibilityScore: 75 } });
   assert.equal(state.running, false);
   assert.equal(saves, 2);
+});
+
+test('AI audit routes preserve status, concurrency, budget, and error contracts', async () => {
+  const routes = new Map();
+  const app = {
+    get(path, ...handlers) { routes.set(`GET ${path}`, handlers.at(-1)); },
+    post(path, ...handlers) { routes.set(`POST ${path}`, handlers.at(-1)); },
+  };
+  const factState = { running: false };
+  const crawlerState = { running: false };
+  let overBudget = false;
+  let factResult = { snapshot: { claims: 3 } };
+  let factSawRunning = false;
+  let crawlerSawRunning = false;
+  const errors = [];
+
+  registerAiAuditRoutes(app, {
+    requireAuth: () => {},
+    usageOverBudget: () => overBudget,
+    budgetBlock: res => res.status(429).json({ success: false, budgetReached: true }),
+    logger: { error(...args) { errors.push(args); } },
+    audits: [
+      {
+        path: '/api/ai-factcheck',
+        state: factState,
+        status: () => ({ latest: { claims: 2 }, running: factState.running, engines: ['gemini'] }),
+        run: async () => {
+          factSawRunning = factState.running;
+          if (factResult instanceof Error) throw factResult;
+          return factResult;
+        },
+        useBudget: true,
+        rejectOutputError: true,
+        logLabel: 'FactCheck',
+      },
+      {
+        path: '/api/ai-crawlers',
+        state: crawlerState,
+        status: () => ({ latest: null, running: crawlerState.running, site: 'example.com' }),
+        run: async () => {
+          crawlerSawRunning = crawlerState.running;
+          return { snapshot: { allowed: true } };
+        },
+        logLabel: 'AI Crawlers',
+      },
+    ],
+  });
+
+  function response() {
+    return {
+      statusCode: 200,
+      body: null,
+      status(code) { this.statusCode = code; return this; },
+      json(body) { this.body = body; return this; },
+    };
+  }
+
+  const status = response();
+  routes.get('GET /api/ai-factcheck')({}, status);
+  assert.deepEqual(status.body, { latest: { claims: 2 }, running: false, engines: ['gemini'] });
+
+  factState.running = true;
+  const busy = response();
+  await routes.get('POST /api/ai-factcheck/run')({}, busy);
+  assert.deepEqual(busy.body, { success: true, busy: true });
+  factState.running = false;
+
+  overBudget = true;
+  const blocked = response();
+  await routes.get('POST /api/ai-factcheck/run')({}, blocked);
+  assert.equal(blocked.statusCode, 429);
+  assert.deepEqual(blocked.body, { success: false, budgetReached: true });
+
+  const crawler = response();
+  await routes.get('POST /api/ai-crawlers/run')({}, crawler);
+  assert.deepEqual(crawler.body, { success: true, snapshot: { allowed: true } });
+  assert.equal(crawlerSawRunning, true);
+  assert.equal(crawlerState.running, false);
+
+  overBudget = false;
+  const succeeded = response();
+  await routes.get('POST /api/ai-factcheck/run')({}, succeeded);
+  assert.deepEqual(succeeded.body, { success: true, snapshot: { claims: 3 } });
+  assert.equal(factSawRunning, true);
+  assert.equal(factState.running, false);
+
+  factResult = { error: 'provider rejected request' };
+  const rejected = response();
+  await routes.get('POST /api/ai-factcheck/run')({}, rejected);
+  assert.equal(rejected.statusCode, 400);
+  assert.deepEqual(rejected.body, { success: false, error: 'provider rejected request' });
+  assert.equal(factState.running, false);
+
+  factResult = new Error('provider unavailable');
+  const failed = response();
+  await routes.get('POST /api/ai-factcheck/run')({}, failed);
+  assert.equal(failed.statusCode, 502);
+  assert.deepEqual(failed.body, { success: false, error: 'provider unavailable' });
+  assert.deepEqual(errors, [['[FactCheck run] failed:', 'provider unavailable']]);
+  assert.equal(factState.running, false);
 });
 
 test('provider runtime retries transient failures and reports bounded integration health', async () => {

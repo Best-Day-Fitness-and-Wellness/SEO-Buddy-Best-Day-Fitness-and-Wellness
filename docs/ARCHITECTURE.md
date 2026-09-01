@@ -201,6 +201,7 @@ so one production replica remains the supported topology.
 | `lib/autopilot-routes.js` | Content autopilot schedule, queue, target, and manual-run HTTP contracts |
 | `lib/content-routes.js` | Manual article generation, publishing, indexing, and history HTTP contracts |
 | `lib/ai-visibility-routes.js` | AI Visibility status, tracked prompts, schedule, and manual-run HTTP contracts |
+| `lib/ai-audit-routes.js` | Shared FactCheck, crawler-access, and Reddit status/run HTTP orchestration |
 | `public/modules/*` | Browser cross-cutting feature modules |
 | `scripts/*` | Smoke verification, backup, restore, database migration |
 
@@ -226,8 +227,8 @@ so one production replica remains the supported topology.
 ## Remaining constraints and next refactors
 
 1. **`server.js` is still the main monolith.** Operations, profile, usage,
-   Search Console, content autopilot, manual article lifecycle, and AI Visibility
-   control routes are extracted; continue one route family at a time into
+   Search Console, content autopilot, manual article lifecycle, AI Visibility,
+   and AI audit control routes are extracted; continue one route family at a time into
    services, integrations, and repository interfaces. Keep contract tests around
    the existing HTTP boundary before every extraction.
 2. **Feature state is still process-local during a run.** PostgreSQL mode makes

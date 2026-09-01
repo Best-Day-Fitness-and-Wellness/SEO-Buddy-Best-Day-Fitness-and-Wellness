@@ -56,6 +56,7 @@ const { registerGscRoutes } = require('./lib/gsc-routes');
 const { registerAutopilotRoutes } = require('./lib/autopilot-routes');
 const { registerContentRoutes } = require('./lib/content-routes');
 const { registerAiVisibilityRoutes } = require('./lib/ai-visibility-routes');
+const { registerAiAuditRoutes } = require('./lib/ai-audit-routes');
 
 // Load UI-saved secrets from the durable storage root. Tenant state is isolated
 // below this root after configuration is loaded; host-provided variables still
@@ -2486,21 +2487,6 @@ async function runFactCheck() {
   return { snapshot };
 }
 
-app.get('/api/ai-factcheck', (req, res) => {
-  res.json({ latest: factCheckDb.latest, updatedAt: factCheckDb.updatedAt, engines: enginesStatus(), anyConfigured: AI_ENGINES.some(e => engineConfigured(e.id)), running: factCheckRunning });
-});
-app.post('/api/ai-factcheck/run', requireAuth, async (req, res) => {
-  if (factCheckRunning) return res.json({ success: true, busy: true });
-  if (usageOverBudget()) return budgetBlock(res);
-  factCheckRunning = true;
-  try {
-    const out = await runFactCheck();
-    if (out.error) return res.status(400).json({ success: false, error: out.error });
-    res.json({ success: true, snapshot: out.snapshot });
-  } catch (e) { console.error('[FactCheck run] failed:', e.message); res.status(502).json({ success: false, error: e.message }); }
-  finally { factCheckRunning = false; }
-});
-
 // ============================================================
 // P4b — AI CRAWLER ACCESS AUDIT
 // AI crawlers are server-side bots (they don't run JS), and GHL doesn't expose
@@ -2576,17 +2562,6 @@ async function runCrawlerAudit() {
   crawlersDb.latest = snapshot; crawlersDb.updatedAt = snapshot.ranAt; saveCrawlers();
   return { snapshot };
 }
-app.get('/api/ai-crawlers', (req, res) => {
-  res.json({ latest: crawlersDb.latest, updatedAt: crawlersDb.updatedAt, running: crawlersRunning, site: siteDomain() });
-});
-app.post('/api/ai-crawlers/run', requireAuth, async (req, res) => {
-  if (crawlersRunning) return res.json({ success: true, busy: true });
-  crawlersRunning = true;
-  try { const out = await runCrawlerAudit(); res.json({ success: true, snapshot: out.snapshot }); }
-  catch (e) { console.error('[AI Crawlers run] failed:', e.message); res.status(502).json({ success: false, error: e.message }); }
-  finally { crawlersRunning = false; }
-});
-
 // ============================================================
 // P4c — REDDIT VISIBILITY ENGINE
 // AI answer engines cite Reddit heavily. This finds real, high-intent Reddit
@@ -2633,19 +2608,65 @@ Return ONLY raw JSON, no markdown: {"threads":[{"title":"the thread title","subr
     return { snapshot };
   } catch (e) { return { error: e.message }; }
 }
-app.get('/api/reddit-threads', (req, res) => {
-  res.json({ latest: redditDb.latest, updatedAt: redditDb.updatedAt, running: redditRunning, anyConfigured: !!process.env.GEMINI_API_KEY });
-});
-app.post('/api/reddit-threads/run', requireAuth, async (req, res) => {
-  if (redditRunning) return res.json({ success: true, busy: true });
-  if (usageOverBudget()) return budgetBlock(res);
-  redditRunning = true;
-  try {
-    const out = await runRedditScan();
-    if (out.error) return res.status(400).json({ success: false, error: out.error });
-    res.json({ success: true, snapshot: out.snapshot });
-  } catch (e) { console.error('[Reddit run] failed:', e.message); res.status(502).json({ success: false, error: e.message }); }
-  finally { redditRunning = false; }
+// These three read/run features share one concurrency, budget, and error
+// boundary while retaining their distinct status payloads.
+registerAiAuditRoutes(app, {
+  requireAuth,
+  usageOverBudget,
+  budgetBlock,
+  logger: console,
+  audits: [
+    {
+      path: '/api/ai-factcheck',
+      state: {
+        get running() { return factCheckRunning; },
+        set running(value) { factCheckRunning = value; },
+      },
+      status: () => ({
+        latest: factCheckDb.latest,
+        updatedAt: factCheckDb.updatedAt,
+        engines: enginesStatus(),
+        anyConfigured: AI_ENGINES.some(engine => engineConfigured(engine.id)),
+        running: factCheckRunning,
+      }),
+      run: runFactCheck,
+      useBudget: true,
+      rejectOutputError: true,
+      logLabel: 'FactCheck',
+    },
+    {
+      path: '/api/ai-crawlers',
+      state: {
+        get running() { return crawlersRunning; },
+        set running(value) { crawlersRunning = value; },
+      },
+      status: () => ({
+        latest: crawlersDb.latest,
+        updatedAt: crawlersDb.updatedAt,
+        running: crawlersRunning,
+        site: siteDomain(),
+      }),
+      run: runCrawlerAudit,
+      logLabel: 'AI Crawlers',
+    },
+    {
+      path: '/api/reddit-threads',
+      state: {
+        get running() { return redditRunning; },
+        set running(value) { redditRunning = value; },
+      },
+      status: () => ({
+        latest: redditDb.latest,
+        updatedAt: redditDb.updatedAt,
+        running: redditRunning,
+        anyConfigured: !!process.env.GEMINI_API_KEY,
+      }),
+      run: runRedditScan,
+      useBudget: true,
+      rejectOutputError: true,
+      logLabel: 'Reddit',
+    },
+  ],
 });
 
 // ============================================================
