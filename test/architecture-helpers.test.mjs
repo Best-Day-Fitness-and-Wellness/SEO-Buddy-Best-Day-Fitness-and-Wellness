@@ -39,6 +39,8 @@ const { belongsToSearchConsoleProperty, registerContentRoutes } = require('../li
 const { buildVisibilityDeltas, normalizePrompts, registerAiVisibilityRoutes } = require('../lib/ai-visibility-routes.js');
 const { registerAiAuditRoutes } = require('../lib/ai-audit-routes.js');
 const { registerScheduledFeatureRoutes } = require('../lib/scheduled-feature-routes.js');
+const { createGoogleDelivery } = require('../lib/google-delivery.js');
+const { EMAIL_PATTERN, registerDeliveryRoutes } = require('../lib/delivery-routes.js');
 const { ProviderRuntimeError, createProviderRuntime } = require('../lib/provider-runtime.js');
 const { createPostgresStateBridge, replayPostgresOutbox } = require('../lib/postgres-state-bridge.js');
 const { classifyContactSource, summarizeContactAttribution } = require('../lib/attribution.js');
@@ -953,6 +955,213 @@ test('scheduled feature routes preserve nudge, toggle, availability, run, and se
   assert.deepEqual(digestRun.body, { success: true, started: true });
   assert.equal(digestStarts, 1);
   assert.equal(saves, 3);
+});
+
+test('Google delivery adapter owns OAuth, Gmail encoding, and Business Profile publishing', async () => {
+  const oauthClients = [];
+  const gmailMessages = [];
+  const providerCalls = [];
+  const fetchCalls = [];
+  class OAuth2 {
+    constructor(id, secret, redirect) {
+      this.id = id;
+      this.secret = secret;
+      this.redirect = redirect;
+      oauthClients.push(this);
+    }
+    setCredentials(credentials) { this.credentials = credentials; }
+    async getAccessToken() { return { token: 'gbp-access-token' }; }
+  }
+  const google = {
+    auth: { OAuth2 },
+    gmail: ({ version, auth }) => ({
+      version,
+      auth,
+      users: { messages: { send: async request => { gmailMessages.push(request); return { data: { id: 'gmail-123' } }; } } },
+    }),
+  };
+  const providerRuntime = {
+    async run(provider, operation, options) {
+      providerCalls.push({ provider, options });
+      return operation();
+    },
+    async fetch(provider, url, options, policy) {
+      fetchCalls.push({ provider, url, options, policy });
+      return { ok: true, status: 200, json: async () => ({ name: 'posts/1', searchUrl: 'https://google.test/post/1' }) };
+    },
+  };
+  const env = {};
+  const delivery = createGoogleDelivery({ google, providerRuntime, env, siteDomain: () => 'https://example.com' });
+  assert.equal(delivery.gmailClient(), null);
+  assert.equal(delivery.gbpConfigured(), false);
+  assert.deepEqual(await delivery.postGbpLocalPost('Draft'), { posted: false, needsSetup: true });
+
+  Object.assign(env, {
+    GMAIL_CLIENT_ID: 'gmail-client',
+    GMAIL_CLIENT_SECRET: 'gmail-secret',
+    GMAIL_REFRESH_TOKEN: 'gmail-refresh',
+    GMAIL_SENDER: 'owner@example.com',
+    GBP_REFRESH_TOKEN: 'gbp-refresh',
+    GBP_ACCOUNT_ID: 'account-1',
+    GBP_LOCATION_ID: 'location-1',
+  });
+  assert.ok(delivery.gmailClient());
+  assert.equal(delivery.gbpConfigured(), true);
+  assert.equal(await delivery.sendGmail(' editor@example.com ', 'A subject', 'A body'), 'gmail-123');
+  assert.deepEqual(providerCalls, [{ provider: 'gmail', options: { policy: { retries: 0, timeoutMs: 30000 } } }]);
+  const encoded = gmailMessages[0].requestBody.raw.replace(/-/g, '+').replace(/_/g, '/');
+  const message = Buffer.from(encoded, 'base64').toString('utf8');
+  assert.match(message, /To: editor@example\.com\r\nFrom: owner@example\.com\r\nSubject: A subject/);
+  assert.match(message, /\r\n\r\nA body$/);
+
+  assert.deepEqual(await delivery.postGbpLocalPost('Weekly update'), {
+    posted: true,
+    name: 'posts/1',
+    searchUrl: 'https://google.test/post/1',
+  });
+  assert.equal(fetchCalls[0].provider, 'google-business-profile');
+  assert.equal(fetchCalls[0].url, 'https://mybusiness.googleapis.com/v4/accounts/account-1/locations/location-1/localPosts');
+  assert.equal(fetchCalls[0].options.headers.Authorization, 'Bearer gbp-access-token');
+  assert.deepEqual(JSON.parse(fetchCalls[0].options.body), {
+    languageCode: 'en-US',
+    summary: 'Weekly update',
+    topicType: 'STANDARD',
+    callToAction: { actionType: 'LEARN_MORE', url: 'https://example.com' },
+  });
+  assert.deepEqual(fetchCalls[0].policy, { retries: 0 });
+  assert.ok(oauthClients.every(client => client.redirect === 'https://developers.google.com/oauthplayground'));
+});
+
+test('delivery routes preserve setup, validation, send, draft, and digest contracts', async () => {
+  assert.equal(EMAIL_PATTERN.test('valid@example.com'), true);
+  assert.equal(EMAIL_PATTERN.test('invalid'), false);
+  const routes = new Map();
+  const app = {
+    get(path, ...handlers) { routes.set(`GET ${path}`, handlers); },
+    post(path, ...handlers) { routes.set(`POST ${path}`, handlers); },
+  };
+  const requireAuth = () => {};
+  let gmailConnected = false;
+  let gbpConnected = false;
+  let gbpDraft = null;
+  let digest = null;
+  let recipient = '';
+  let sendResult = 'message-1';
+  let gbpResult = { posted: true, name: 'posts/1' };
+  let marked = 0;
+  let savedDigest = null;
+  const sent = [];
+  const errors = [];
+
+  registerDeliveryRoutes(app, {
+    requireAuth,
+    gmailClient: () => gmailConnected ? ({}) : null,
+    gmailSender: () => 'owner@example.com',
+    sendGmail: async (...args) => {
+      sent.push(args);
+      if (sendResult instanceof Error) throw sendResult;
+      return sendResult;
+    },
+    gbpConfigured: () => gbpConnected,
+    postGbpLocalPost: async () => {
+      if (gbpResult instanceof Error) throw gbpResult;
+      if (typeof gbpResult === 'function') return gbpResult();
+      return gbpResult;
+    },
+    getGbpDraft: () => gbpDraft,
+    markGbpDraftPosted: () => { marked += 1; },
+    defaultDigestRecipient: () => recipient,
+    getDigest: () => digest,
+    saveNewDigest: value => { savedDigest = value; digest = { ...value, isNew: true }; },
+    buildDigest: async () => ({ text: 'Fresh digest' }),
+    logger: { error(...args) { errors.push(args); } },
+  });
+
+  function response() {
+    return {
+      statusCode: 200,
+      body: null,
+      status(code) { this.statusCode = code; return this; },
+      json(body) { this.body = body; return this; },
+    };
+  }
+  const handler = (method, path) => routes.get(`${method} ${path}`).at(-1);
+  for (const path of ['/api/send-pitch', '/api/gbp-post', '/api/gbp-mark-posted', '/api/performance-digest/send']) {
+    assert.equal(routes.get(`POST ${path}`)[0], requireAuth);
+  }
+
+  const gmailStatus = response();
+  handler('GET', '/api/gmail-status')({}, gmailStatus);
+  assert.deepEqual(gmailStatus.body, { configured: false, from: 'owner@example.com' });
+  const gbpStatus = response();
+  handler('GET', '/api/gbp-status')({}, gbpStatus);
+  assert.deepEqual(gbpStatus.body, { configured: false });
+
+  const pitchSetup = response();
+  await handler('POST', '/api/send-pitch')({ body: { to: 'invalid' } }, pitchSetup);
+  assert.equal(pitchSetup.body.needsSetup, true);
+  gmailConnected = true;
+  const pitchInvalid = response();
+  await handler('POST', '/api/send-pitch')({ body: { to: 'invalid' } }, pitchInvalid);
+  assert.equal(pitchInvalid.statusCode, 400);
+  const pitchSent = response();
+  await handler('POST', '/api/send-pitch')({ body: { to: 'editor@example.com', subject: 'Pitch', body: 'Hello' } }, pitchSent);
+  assert.deepEqual(pitchSent.body, { success: true, sent: true, id: 'message-1' });
+  sendResult = new Error('mailbox unavailable');
+  const pitchFailed = response();
+  await handler('POST', '/api/send-pitch')({ body: { to: 'editor@example.com' } }, pitchFailed);
+  assert.equal(pitchFailed.statusCode, 502);
+  assert.equal(pitchFailed.body.error, 'Gmail send failed: mailbox unavailable');
+
+  const gbpMissing = response();
+  await handler('POST', '/api/gbp-post')({ body: {} }, gbpMissing);
+  assert.equal(gbpMissing.statusCode, 400);
+  gbpDraft = { text: 'Draft post' };
+  const gbpSetup = response();
+  await handler('POST', '/api/gbp-post')({ body: {} }, gbpSetup);
+  assert.equal(gbpSetup.body.needsSetup, true);
+  gbpConnected = true;
+  const gbpPosted = response();
+  await handler('POST', '/api/gbp-post')({ body: {} }, gbpPosted);
+  assert.deepEqual(gbpPosted.body, { success: true, posted: true, name: 'posts/1' });
+  assert.equal(marked, 1);
+  gbpDraft = { text: 'Draft post' };
+  gbpResult = () => {
+    gbpDraft = { text: 'Newer draft' };
+    return { posted: true, name: 'posts/2' };
+  };
+  const superseded = response();
+  await handler('POST', '/api/gbp-post')({ body: {} }, superseded);
+  assert.equal(marked, 1, 'a superseded draft must not be marked as posted');
+  gbpResult = new Error('GBP unavailable');
+  const gbpFailed = response();
+  await handler('POST', '/api/gbp-post')({ body: { text: 'Another post' } }, gbpFailed);
+  assert.equal(gbpFailed.statusCode, 502);
+  assert.equal(gbpFailed.body.error, 'GBP post failed: GBP unavailable');
+  gbpDraft = null;
+  const noDraft = response();
+  handler('POST', '/api/gbp-mark-posted')({ body: {} }, noDraft);
+  assert.deepEqual(noDraft.body, { success: true, note: 'No current post to mark.' });
+
+  gmailConnected = false;
+  const digestSetup = response();
+  await handler('POST', '/api/performance-digest/send')({ body: {} }, digestSetup);
+  assert.equal(digestSetup.body.needsSetup, true);
+  gmailConnected = true;
+  const digestInvalid = response();
+  await handler('POST', '/api/performance-digest/send')({ body: {} }, digestInvalid);
+  assert.equal(digestInvalid.statusCode, 400);
+  recipient = 'owner@example.com';
+  sendResult = 'digest-message';
+  const digestSent = response();
+  await handler('POST', '/api/performance-digest/send')({ body: {} }, digestSent);
+  assert.deepEqual(savedDigest, { text: 'Fresh digest' });
+  assert.deepEqual(digestSent.body, { success: true, sent: true, id: 'digest-message', to: 'owner@example.com' });
+  assert.deepEqual(sent.at(-1), ['owner@example.com', 'Your weekly SEO performance — Best Day Fitness', 'Fresh digest']);
+  assert.deepEqual(errors, [
+    ['[Gmail send] failed:', 'mailbox unavailable'],
+    ['[GBP post] failed:', 'GBP unavailable'],
+  ]);
 });
 
 test('provider runtime retries transient failures and reports bounded integration health', async () => {

@@ -58,6 +58,8 @@ const { registerContentRoutes } = require('./lib/content-routes');
 const { registerAiVisibilityRoutes } = require('./lib/ai-visibility-routes');
 const { registerAiAuditRoutes } = require('./lib/ai-audit-routes');
 const { registerScheduledFeatureRoutes } = require('./lib/scheduled-feature-routes');
+const { createGoogleDelivery } = require('./lib/google-delivery');
+const { registerDeliveryRoutes } = require('./lib/delivery-routes');
 
 // Load UI-saved secrets from the durable storage root. Tenant state is isolated
 // below this root after configuration is loaded; host-provided variables still
@@ -4061,114 +4063,8 @@ scheduleDurableCheck('onsite.autopilot', 45000, 12 * 60 * 60 * 1000);
 // set, the endpoints report needsSetup and the UI falls back to the
 // existing compose-link / paste flow. Nothing breaks when unconfigured.
 // ============================================================
-function gmailClient() {
-  const id = process.env.GMAIL_CLIENT_ID, secret = process.env.GMAIL_CLIENT_SECRET, refresh = process.env.GMAIL_REFRESH_TOKEN;
-  if (!id || !secret || !refresh) return null;
-  const o = new google.auth.OAuth2(id, secret, 'https://developers.google.com/oauthplayground');
-  o.setCredentials({ refresh_token: refresh });
-  return google.gmail({ version: 'v1', auth: o });
-}
-
-app.get('/api/gmail-status', (req, res) => {
-  res.json({ configured: !!gmailClient(), from: process.env.GMAIL_SENDER || '' });
-});
-
-// Shared Gmail sender (used by pitch send + the performance digest email).
-async function sendGmail(to, subject, body) {
-  const gmail = gmailClient();
-  if (!gmail) throw new Error('Gmail is not connected.');
-  const headers = [
-    `To: ${String(to).trim()}`,
-    process.env.GMAIL_SENDER ? `From: ${process.env.GMAIL_SENDER}` : null,
-    `Subject: ${subject || ''}`,
-    'MIME-Version: 1.0',
-    'Content-Type: text/plain; charset=UTF-8'
-  ].filter(Boolean).join('\r\n');
-  const raw = Buffer.from(`${headers}\r\n\r\n${body || ''}`).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  const r = await providerRuntime.run('gmail', () => gmail.users.messages.send({ userId: 'me', requestBody: { raw } }), {
-    policy: { retries: 0, timeoutMs: 30000 },
-  });
-  return r.data && r.data.id;
-}
-
-// Send a pitch email directly through the owner's Gmail (silent send).
-app.post('/api/send-pitch', requireAuth, async (req, res) => {
-  const { to, subject, body } = req.body || {};
-  if (!gmailClient()) return res.json({ success: true, needsSetup: true, message: 'Gmail direct-send isn’t connected yet — use the compose window. Add GMAIL_CLIENT_ID / GMAIL_CLIENT_SECRET / GMAIL_REFRESH_TOKEN in Railway to enable one-click send.' });
-  if (!to || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(to).trim())) {
-    return res.status(400).json({ success: false, error: 'Enter a valid recipient email address to send.' });
-  }
-  try {
-    const id = await sendGmail(to, subject, body);
-    return res.json({ success: true, sent: true, id });
-  } catch (err) {
-    console.error('[Gmail send] failed:', err.message);
-    return res.status(502).json({ success: false, error: `Gmail send failed: ${err.message}` });
-  }
-});
-
-// --- Google Business Profile auto-post (requires APPROVED Business Profile
-// API access — apply via Google's form; can take days/weeks). Pre-built so
-// it flips on the moment access + GBP_* env vars are in place. ---
-function gbpAuth() {
-  const id = process.env.GBP_CLIENT_ID || process.env.GMAIL_CLIENT_ID;
-  const secret = process.env.GBP_CLIENT_SECRET || process.env.GMAIL_CLIENT_SECRET;
-  const refresh = process.env.GBP_REFRESH_TOKEN;
-  if (!id || !secret || !refresh) return null;
-  const o = new google.auth.OAuth2(id, secret, 'https://developers.google.com/oauthplayground');
-  o.setCredentials({ refresh_token: refresh });
-  return o;
-}
-function gbpConfigured() {
-  return !!(gbpAuth() && process.env.GBP_ACCOUNT_ID && process.env.GBP_LOCATION_ID);
-}
-async function postGbpLocalPost(text) {
-  const auth = gbpAuth();
-  if (!auth || !process.env.GBP_ACCOUNT_ID || !process.env.GBP_LOCATION_ID) return { posted: false, needsSetup: true };
-  const tokenObj = await auth.getAccessToken();
-  const token = (tokenObj && tokenObj.token) || tokenObj;
-  const url = `https://mybusiness.googleapis.com/v4/accounts/${process.env.GBP_ACCOUNT_ID}/locations/${process.env.GBP_LOCATION_ID}/localPosts`;
-  const resp = await providerRuntime.fetch('google-business-profile', url, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      languageCode: 'en-US',
-      summary: String(text || '').slice(0, 1500),
-      topicType: 'STANDARD',
-      callToAction: { actionType: 'LEARN_MORE', url: siteDomain() }
-    })
-  }, { retries: 0 });
-  const data = await resp.json().catch(() => ({}));
-  if (!resp.ok) throw new Error(data.error && data.error.message ? data.error.message : `GBP API HTTP ${resp.status}`);
-  return { posted: true, name: data.name, searchUrl: data.searchUrl };
-}
-
-app.get('/api/gbp-status', (req, res) => {
-  res.json({ configured: gbpConfigured() });
-});
-app.post('/api/gbp-post', requireAuth, async (req, res) => {
-  const text = (req.body && req.body.text) || (localDb.gbpDraft && localDb.gbpDraft.text);
-  if (!text) return res.status(400).json({ success: false, error: 'No post text to publish.' });
-  if (!gbpConfigured()) return res.json({ success: true, needsSetup: true, message: 'Google Business Profile posting isn’t connected. It needs approved Business Profile API access plus the GBP_* env vars.' });
-  try {
-    const result = await postGbpLocalPost(text);
-    if (localDb.gbpDraft && localDb.gbpDraft.text === text) { localDb.gbpDraft.posted = true; localDb.gbpDraft.postedAt = new Date().toISOString(); saveLocal(); }
-    return res.json({ success: true, ...result });
-  } catch (err) {
-    console.error('[GBP post] failed:', err.message);
-    return res.status(502).json({ success: false, error: `GBP post failed: ${err.message}` });
-  }
-});
-// Manual confirmation: the owner posted this week's GBP post to Google themselves
-// (the usual path, since direct posting needs approved GBP API access). This clears
-// the "post it" nudge and gives the same score credit as an auto-post.
-app.post('/api/gbp-mark-posted', requireAuth, (req, res) => {
-  if (!localDb.gbpDraft) return res.json({ success: true, note: 'No current post to mark.' });
-  localDb.gbpDraft.posted = true;
-  localDb.gbpDraft.postedAt = new Date().toISOString();
-  saveLocal();
-  return res.json({ success: true });
-});
+const googleDelivery = createGoogleDelivery({ google, providerRuntime, siteDomain, env: process.env });
+const { gmailClient, sendGmail, gbpConfigured, postGbpLocalPost } = googleDelivery;
 
 // ============================================================
 // 19. Performance weekly digest — a scheduled snapshot of search performance
@@ -4253,16 +4149,28 @@ function perfDigestState() {
     emailTo: process.env.DIGEST_EMAIL || process.env.GMAIL_SENDER || ''
   };
 }
-app.post('/api/performance-digest/send', requireAuth, async (req, res) => {
-  const to = ((req.body && req.body.to) || process.env.DIGEST_EMAIL || process.env.GMAIL_SENDER || '').trim();
-  if (!gmailClient()) return res.json({ success: true, needsSetup: true, message: 'Connect Gmail (see the OAuth setup guide) to email the digest.' });
-  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) return res.status(400).json({ success: false, error: 'No recipient email. Set GMAIL_SENDER or DIGEST_EMAIL in Railway, or enter one.' });
-  try {
-    let d = perfDigestDb.digest;
-    if (!d) { d = await buildPerfDigest(); perfDigestDb.digest = { ...d, isNew: true }; perfDigestDb.lastRun = new Date().toISOString(); savePerfDigest(); }
-    const id = await sendGmail(to, 'Your weekly SEO performance — Best Day Fitness', d.text);
-    res.json({ success: true, sent: true, id, to });
-  } catch (e) { res.status(502).json({ success: false, error: e.message }); }
+registerDeliveryRoutes(app, {
+  requireAuth,
+  gmailClient,
+  gmailSender: () => process.env.GMAIL_SENDER || '',
+  sendGmail,
+  gbpConfigured,
+  postGbpLocalPost,
+  getGbpDraft: () => localDb.gbpDraft,
+  markGbpDraftPosted: () => {
+    localDb.gbpDraft.posted = true;
+    localDb.gbpDraft.postedAt = new Date().toISOString();
+    saveLocal();
+  },
+  defaultDigestRecipient: () => process.env.DIGEST_EMAIL || process.env.GMAIL_SENDER || '',
+  getDigest: () => perfDigestDb.digest,
+  saveNewDigest: digest => {
+    perfDigestDb.digest = { ...digest, isNew: true };
+    perfDigestDb.lastRun = new Date().toISOString();
+    savePerfDigest();
+  },
+  buildDigest: buildPerfDigest,
+  logger: console,
 });
 
 // These scheduled features share the same state/toggle/run/seen HTTP shape.
