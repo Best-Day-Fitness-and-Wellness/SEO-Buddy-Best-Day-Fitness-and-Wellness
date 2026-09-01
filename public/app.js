@@ -2405,28 +2405,25 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // ---------------------------------------------------------------------------
-  // Card artwork. Style A: rounded volumes, radial gradients, soft drop shadows.
+  // Card artwork. Direction A: refined editorial illustration.
   //
-  // Every gradient and filter needs an id, and a card can appear in two tabs at
-  // once (Today's hero and Explore's gallery are both in the DOM). Duplicate ids
-  // in one document silently make the SECOND element reference the FIRST one's
-  // gradient, so each drawing is a function of a unique suffix rather than a
-  // string constant.
+  // Every card uses the same small visual vocabulary: warm paper, navy outlines,
+  // teal fields, one restrained coral accent, dot texture and a short shadow.
+  // Classes carry the palette so the drawings stay themeable and the markup
+  // describes shapes instead of repeating colour values eleven times.
+  //
+  // Filters and patterns still need unique ids because the same card can appear
+  // in Today and Explore at once. Duplicate SVG ids silently cross-wire defs.
   // ---------------------------------------------------------------------------
   let SB_ART_N = 0;
 
-  // Shared plumbing: a tinted wash, a drop shadow, and a two-stop gradient.
-  function sbArtDefs(u, from, to, shadow) {
+  function sbArtDefs(u) {
     return '<defs>'
-      + '<radialGradient id="g' + u + '" cx=".34" cy=".28" r=".85">'
-      +   '<stop offset="0" stop-color="' + from + '"/><stop offset="1" stop-color="' + to + '"/>'
-      + '</radialGradient>'
-      + '<linearGradient id="s' + u + '" x1="0" y1="0" x2="1" y2="1">'
-      +   '<stop offset="0" stop-color="#fff" stop-opacity=".85"/>'
-      +   '<stop offset="1" stop-color="#fff" stop-opacity=".25"/>'
-      + '</linearGradient>'
-      + '<filter id="f' + u + '" x="-35%" y="-35%" width="170%" height="170%">'
-      +   '<feDropShadow dx="0" dy="7" stdDeviation="8" flood-color="' + shadow + '" flood-opacity=".24"/>'
+      + '<pattern id="d' + u + '" width="9" height="9" patternUnits="userSpaceOnUse">'
+      +   '<circle cx="2" cy="2" r="1.2" class="gfx-ink" opacity=".16"/>'
+      + '</pattern>'
+      + '<filter id="f' + u + '" x="-25%" y="-25%" width="150%" height="160%">'
+      +   '<feDropShadow dx="0" dy="5" stdDeviation="4" flood-color="#17324d" flood-opacity=".16"/>'
       + '</filter></defs>';
   }
   // `slice` fills the panel and crops the overflow — right for a 288px card whose
@@ -2436,220 +2433,184 @@ document.addEventListener('DOMContentLoaded', () => {
   // show at the sides instead.
   let SB_ART_FIT = 'slice';
   function sbArtOpen(u) {
-    return '<svg viewBox="0 0 320 150" preserveAspectRatio="xMidYMid ' + SB_ART_FIT + '" aria-hidden="true">';
+    return '<svg class="sb-editorial-art" viewBox="0 0 320 150" preserveAspectRatio="xMidYMid '
+      + SB_ART_FIT + '" aria-hidden="true">';
+  }
+
+  function sbArtBackdrop(u, flip) {
+    return '<path d="M' + (flip ? '-16 126 Q62 60 132 112 T336 74 V166 H-16Z' : '-16 84 Q70 42 142 98 T336 58 V166 H-16Z')
+      + '" class="gfx-paper" opacity=".72"/>'
+      + '<circle cx="' + (flip ? 268 : 52) + '" cy="' + (flip ? 34 : 122) + '" r="54" class="gfx-soft" opacity=".7"/>'
+      + '<rect x="' + (flip ? 34 : 238) + '" y="' + (flip ? 20 : 88)
+      + '" width="58" height="42" rx="4" fill="url(#d' + u + ')"/>';
+  }
+
+  function sbArtCheck(x, y) {
+    return '<g transform="translate(' + x + ',' + y + ')" filter="url(#fSTATUS)">'
+      + '<circle r="18" class="gfx-coral"/>'
+      + '<path d="M-8 0 l6 6 11 -13" class="gfx-check"/></g>';
   }
 
   const SB_ART = {
-    // ---- the Gemini key ----
+    // ---- Gemini key ---------------------------------------------------
     gemini: function (u) {
-      return sbArtOpen(u) + sbArtDefs(u, '#ffe9a8', '#f5b800', '#8a6200')
-        + '<circle cx="258" cy="26" r="62" fill="#f5b800" opacity=".13"/>'
-        + '<circle cx="52" cy="134" r="50" fill="#f5b800" opacity=".10"/>'
-        + '<g filter="url(#f' + u + ')" transform="translate(160,76) rotate(-30)">'
-        +   '<circle cx="-42" cy="0" r="29" fill="url(#g' + u + ')"/>'
-        +   '<circle cx="-42" cy="0" r="12.5" fill="#fcf3d6"/>'
-        +   '<rect x="-15" y="-9" width="74" height="18" rx="9" fill="url(#g' + u + ')"/>'
-        +   '<rect x="30" y="6" width="11" height="20" rx="5.5" fill="url(#g' + u + ')"/>'
-        +   '<rect x="47" y="6" width="11" height="15" rx="5.5" fill="url(#g' + u + ')"/>'
-        +   '<ellipse cx="-42" cy="-14" rx="18" ry="7" fill="url(#s' + u + ')" opacity=".55"/>'
+      return sbArtOpen(u) + sbArtDefs(u) + sbArtBackdrop(u, false)
+        + '<g filter="url(#f' + u + ')" transform="translate(156,76) rotate(-28)" class="gfx-outline">'
+        +   '<circle cx="-42" cy="0" r="29" class="gfx-teal"/>'
+        +   '<circle cx="-42" cy="0" r="12" class="gfx-paper"/>'
+        +   '<rect x="-14" y="-10" width="84" height="20" rx="6" class="gfx-teal"/>'
+        +   '<path d="M38 9v20 M56 9v15"/>'
         + '</g>'
-        + '<g fill="#8a6200" opacity=".42">'
-        +   '<path d="M252 100 l3.5 9 9 3.5 -9 3.5 -3.5 9 -3.5 -9 -9 -3.5 9 -3.5z"/>'
-        +   '<path d="M74 34 l2.5 6.5 6.5 2.5 -6.5 2.5 -2.5 6.5 -2.5 -6.5 -6.5 -2.5 6.5 -2.5z"/>'
+        + '<g class="gfx-coral">'
+        +   '<path d="M250 92 l4 10 10 4 -10 4 -4 10 -4 -10 -10 -4 10 -4z"/>'
+        +   '<circle cx="78" cy="34" r="5"/>'
         + '</g></svg>';
     },
-    // ---- autopilot: a page that writes and sends itself ----
+    // ---- a page that writes and sends itself --------------------------
     autopilot: function (u) {
-      return sbArtOpen(u) + sbArtDefs(u, '#ffd75e', '#f5b800', '#8a6200')
-        + '<circle cx="264" cy="118" r="54" fill="#f5b800" opacity=".13"/>'
-        + '<g filter="url(#f' + u + ')">'
-        +   '<rect x="72" y="20" width="104" height="112" rx="13" fill="#fff"/>'
-        +   '<path d="M72 33 a13 13 0 0 1 13 -13 h78 a13 13 0 0 1 13 13 v13 h-104z" fill="url(#g' + u + ')"/>'
+      return sbArtOpen(u) + sbArtDefs(u) + sbArtBackdrop(u, true)
+        + '<g filter="url(#f' + u + ')" class="gfx-outline">'
+        +   '<rect x="68" y="18" width="112" height="116" rx="10" class="gfx-paper"/>'
+        +   '<path d="M68 30a12 12 0 0 1 12-12h88a12 12 0 0 1 12 12v16H68z" class="gfx-teal"/>'
         + '</g>'
-        + '<g fill="#8a6200" opacity=".26">'
-        +   '<rect x="88" y="62" width="72" height="7" rx="3.5"/>'
-        +   '<rect x="88" y="78" width="58" height="7" rx="3.5"/>'
-        +   '<rect x="88" y="94" width="40" height="7" rx="3.5"/>'
+        + '<g class="gfx-ink" opacity=".28">'
+        +   '<rect x="86" y="62" width="76" height="6" rx="3"/>'
+        +   '<rect x="86" y="78" width="58" height="6" rx="3"/>'
+        +   '<rect x="86" y="94" width="42" height="6" rx="3"/>'
         + '</g>'
-        + '<g filter="url(#f' + u + ')">'
-        +   '<path d="M196 84 L262 52 L238 116 L226 94 z" fill="url(#g' + u + ')"/>'
-        +   '<path d="M196 84 L262 52 L226 94 z" fill="#fff" opacity=".35"/>'
+        + '<g filter="url(#f' + u + ')" class="gfx-outline">'
+        +   '<path d="M194 84 L270 48 L240 122 L226 96 Z" class="gfx-coral"/>'
+        +   '<path d="M194 84 L270 48 L226 96 Z" class="gfx-paper"/>'
         + '</g></svg>';
     },
-    // ---- local listings: a pin over a street grid ----
+    // ---- local listings: a pin over a street grid ---------------------
     local: function (u) {
-      return sbArtOpen(u) + sbArtDefs(u, '#ffc266', '#ff9900', '#a65b00')
-        + '<circle cx="44" cy="116" r="52" fill="#ff9900" opacity=".12"/>'
-        + '<g stroke="#a65b00" stroke-width="2.4" opacity=".2" stroke-linecap="round">'
-        +   '<path d="M22 106 h276"/><path d="M22 126 h276"/>'
-        +   '<path d="M110 20 v112"/><path d="M212 20 v112"/>'
+      return sbArtOpen(u) + sbArtDefs(u) + sbArtBackdrop(u, false)
+        + '<g class="gfx-grid">'
+        +   '<path d="M20 106h280M20 128h280M108 18v116M214 18v116"/>'
         + '</g>'
-        + '<ellipse cx="160" cy="124" rx="24" ry="6" fill="#a65b00" opacity=".18"/>'
-        + '<g filter="url(#f' + u + ')" transform="translate(160,62)">'
-        +   '<path d="M0 54 C0 54 31 22 31 -2 A31 31 0 1 0 -31 -2 C-31 22 0 54 0 54 Z" fill="url(#g' + u + ')"/>'
-        +   '<circle cx="0" cy="-2" r="12.5" fill="#fff5e6"/>'
-        +   '<ellipse cx="-10" cy="-16" rx="11" ry="5" fill="url(#s' + u + ')" opacity=".5"/>'
+        + '<ellipse cx="160" cy="126" rx="26" ry="6" class="gfx-ink" opacity=".14"/>'
+        + '<g filter="url(#f' + u + ')" transform="translate(160,62)" class="gfx-outline">'
+        +   '<path d="M0 58S34 23 34-3A34 34 0 1 0-34-3C-34 23 0 58 0 58Z" class="gfx-coral"/>'
+        +   '<circle cx="0" cy="-3" r="13" class="gfx-paper"/>'
         + '</g></svg>';
     },
-    // ---- AI recommends you: a bubble that answers ----
+    // ---- AI recommends you: an answered recommendation ----------------
     ai: function (u) {
-      return sbArtOpen(u) + sbArtDefs(u, '#5ce4ff', '#00c4e8', '#00708f')
-        + '<circle cx="266" cy="118" r="50" fill="#00c4e8" opacity=".12"/>'
-        + '<g filter="url(#f' + u + ')">'
-        +   '<path d="M46 26 h150 a17 17 0 0 1 17 17 v44 a17 17 0 0 1 -17 17 h-86 l-25 21 v-21 h-39'
-        +     ' a17 17 0 0 1 -17 -17 v-44 a17 17 0 0 1 17 -17 z" fill="url(#g' + u + ')"/>'
-        +   '<ellipse cx="96" cy="42" rx="36" ry="9" fill="#fff" opacity=".3"/>'
+      return sbArtOpen(u) + sbArtDefs(u) + sbArtBackdrop(u, true)
+        + '<g filter="url(#f' + u + ')" class="gfx-outline">'
+        +   '<path d="M42 24h156a16 16 0 0 1 16 16v48a16 16 0 0 1-16 16h-88l-26 22v-22H42a16 16 0 0 1-16-16V40a16 16 0 0 1 16-16Z" class="gfx-paper"/>'
+        +   '<path d="M42 24h40v80H42a16 16 0 0 1-16-16V40a16 16 0 0 1 16-16Z" class="gfx-teal"/>'
         + '</g>'
-        + '<g fill="#fff">'
-        +   '<rect x="66" y="54" width="82" height="8" rx="4" opacity=".95"/>'
-        +   '<rect x="66" y="70" width="112" height="8" rx="4" opacity=".68"/>'
-        +   '<rect x="66" y="86" width="58" height="8" rx="4" opacity=".48"/>'
+        + '<g class="gfx-ink" opacity=".34">'
+        +   '<rect x="102" y="47" width="76" height="7" rx="3.5"/>'
+        +   '<rect x="102" y="65" width="94" height="7" rx="3.5"/>'
+        +   '<rect x="102" y="83" width="58" height="7" rx="3.5"/>'
         + '</g>'
-        + '<g fill="#00708f">'
-        +   '<path d="M250 32 l4.5 11 11 4.5 -11 4.5 -4.5 11 -4.5 -11 -11 -4.5 11 -4.5z"/>'
-        +   '<path d="M222 14 l2.5 6.5 6.5 2.5 -6.5 2.5 -2.5 6.5 -2.5 -6.5 -6.5 -2.5 6.5 -2.5z" opacity=".55"/>'
-        + '</g></svg>';
-    },
-    // ---- get listed: a stack of directories, one ticked ----
-    listed: function (u) {
-      return sbArtOpen(u) + sbArtDefs(u, '#3ddcb8', '#05b48f', '#05745f')
-        + '<circle cx="46" cy="28" r="48" fill="#05b48f" opacity=".12"/>'
-        + '<g filter="url(#f' + u + ')">'
-        +   '<rect x="72" y="88" width="164" height="32" rx="11" fill="url(#g' + u + ')" opacity=".45"/>'
-        +   '<rect x="64" y="58" width="164" height="32" rx="11" fill="url(#g' + u + ')" opacity=".72"/>'
-        +   '<rect x="56" y="28" width="164" height="32" rx="11" fill="url(#g' + u + ')"/>'
-        +   '<ellipse cx="106" cy="38" rx="38" ry="7" fill="#fff" opacity=".28"/>'
-        + '</g>'
-        + '<g fill="#fff" opacity=".95">'
-        +   '<circle cx="78" cy="44" r="6.5"/><rect x="94" y="40" width="72" height="8" rx="4"/>'
-        + '</g>'
-        + '<g stroke="#05745f" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round">'
-        +   '<path d="M244 104 l8 8 16 -18"/>'
-        + '</g></svg>';
-    },
-    // ---- Search Console: bars and a climbing line ----
-    // The first pass drew the arrow as an L-shaped corner bracket with a hollow
-    // circle at the tip, which read as a lollipop rather than an arrowhead. The
-    // second drew a proper head but ran the curve straight across the face of
-    // the bars, which looked like a mistake. Painting order fixes that: ground,
-    // then curve, then bars on top, so the line passes BEHIND them and emerges
-    // on the right. The head is drawn last, clear of everything.
-    gsc: function (u) {
-      return sbArtOpen(u)
-        + '<defs><linearGradient id="g' + u + '" x1="0" y1="1" x2="0" y2="0">'
-        +   '<stop offset="0" stop-color="#22229b"/><stop offset="1" stop-color="#4a4ad6"/></linearGradient>'
-        + '<filter id="f' + u + '" x="-35%" y="-35%" width="170%" height="170%">'
-        +   '<feDropShadow dx="0" dy="6" stdDeviation="7" flood-color="#000075" flood-opacity=".18"/>'
-        + '</filter></defs>'
-        + '<circle cx="278" cy="128" r="46" fill="#22229b" opacity=".08"/>'
-        + '<path d="M62 130 h156" stroke="#22229b" stroke-width="3" stroke-linecap="round"'
-        +   ' opacity=".16" fill="none"/>'
-        + '<path d="M60 108 C 104 100, 138 74, 176 54 S 216 33, 236 26"'
-        +   ' fill="none" stroke="#000075" stroke-width="4.5" stroke-linecap="round"/>'
-        + '<g filter="url(#f' + u + ')">'
-        +   '<rect x="72" y="82" width="30" height="42" rx="9" fill="url(#g' + u + ')" opacity=".55"/>'
-        +   '<rect x="112" y="60" width="30" height="64" rx="9" fill="url(#g' + u + ')" opacity=".78"/>'
-        +   '<rect x="152" y="38" width="30" height="86" rx="9" fill="url(#g' + u + ')"/>'
-        + '</g>'
-        + '<path d="M254 20 L240 32 L236 18 Z" fill="#000075"/>'
+        + sbArtCheck(238, 46).replace('fSTATUS', 'f' + u)
         + '</svg>';
     },
-    // ---- connect your website: a globe and a chain link ----
-    // The link was two parallel orange capsules, which read as two loose bars
-    // rather than a connection. Now the standard interlocking-link glyph: two
-    // rounded capsules on the same diagonal with a bar bridging them.
+    // ---- get listed: a stack of directories, one ticked ---------------
+    listed: function (u) {
+      return sbArtOpen(u) + sbArtDefs(u) + sbArtBackdrop(u, false)
+        + '<g filter="url(#f' + u + ')" class="gfx-outline">'
+        +   '<rect x="74" y="90" width="164" height="32" rx="7" class="gfx-sand"/>'
+        +   '<rect x="64" y="60" width="164" height="32" rx="7" class="gfx-paper"/>'
+        +   '<rect x="54" y="30" width="164" height="32" rx="7" class="gfx-teal"/>'
+        + '</g>'
+        + '<g class="gfx-paper"><circle cx="76" cy="46" r="6"/><rect x="92" y="42" width="72" height="8" rx="4"/></g>'
+        + '<g class="gfx-ink" opacity=".28">'
+        +   '<circle cx="86" cy="76" r="5"/><rect x="100" y="72" width="80" height="7" rx="3.5"/>'
+        + '</g>'
+        + sbArtCheck(250, 104).replace('fSTATUS', 'f' + u)
+        + '</svg>';
+    },
+    // ---- Search Console: editorial bars and a climbing signal ----------
+    gsc: function (u) {
+      return sbArtOpen(u) + sbArtDefs(u) + sbArtBackdrop(u, true)
+        + '<path d="M54 128h184" class="gfx-grid"/>'
+        + '<path d="M58 106C102 98 136 75 176 54s43-22 68-28" class="gfx-signal"/>'
+        + '<g filter="url(#f' + u + ')" class="gfx-outline">'
+        +   '<rect x="70" y="84" width="34" height="40" rx="5" class="gfx-sand"/>'
+        +   '<rect x="116" y="62" width="34" height="62" rx="5" class="gfx-teal-soft"/>'
+        +   '<rect x="162" y="38" width="34" height="86" rx="5" class="gfx-teal"/>'
+        + '</g>'
+        + '<path d="M258 18l-14 15-5-18Z" class="gfx-coral"/>'
+        + '</svg>';
+    },
+    // ---- connect your website: a globe and an interlocking link --------
     ghl: function (u) {
-      return sbArtOpen(u) + sbArtDefs(u, '#6f6fe0', '#22229b', '#000075')
-        + '<circle cx="272" cy="124" r="46" fill="#22229b" opacity=".09"/>'
-        + '<g filter="url(#f' + u + ')">'
-        +   '<circle cx="104" cy="74" r="42" fill="url(#g' + u + ')"/>'
-        +   '<ellipse cx="91" cy="53" rx="22" ry="9" fill="url(#s' + u + ')" opacity=".4"/>'
+      return sbArtOpen(u) + sbArtDefs(u) + sbArtBackdrop(u, false)
+        + '<g filter="url(#f' + u + ')" class="gfx-outline">'
+        +   '<circle cx="104" cy="74" r="43" class="gfx-teal"/>'
         + '</g>'
-        + '<g stroke="#fff" stroke-width="3.2" fill="none" opacity=".78">'
-        +   '<ellipse cx="104" cy="74" rx="18" ry="42"/><path d="M64 62 h80"/><path d="M64 86 h80"/>'
+        + '<g class="gfx-paper-line">'
+        +   '<ellipse cx="104" cy="74" rx="18" ry="42"/><path d="M64 61h80M64 87h80"/>'
         + '</g>'
-        + '<g filter="url(#f' + u + ')" transform="translate(206,74) rotate(-38)">'
-        +   '<rect x="-52" y="-15" width="56" height="30" rx="15" fill="none"'
-        +     ' stroke="#ff9900" stroke-width="9"/>'
-        +   '<rect x="-4" y="-15" width="56" height="30" rx="15" fill="none"'
-        +     ' stroke="#ff9900" stroke-width="9"/>'
+        + '<g filter="url(#f' + u + ')" transform="translate(210,74) rotate(-38)" class="gfx-coral-line">'
+        +   '<rect x="-54" y="-15" width="58" height="30" rx="15"/>'
+        +   '<rect x="-4" y="-15" width="58" height="30" rx="15"/>'
         + '</g></svg>';
     },
-    // ---- business details: a profile card ----
-    // Was a storefront whose awning was an unfilled outlined trapezoid — it read
-    // as a stray envelope flap hovering over the card rather than a roof. Same
-    // idea, told as the thing it actually is: your details on a card, checked.
+    // ---- business details: a checked profile card ---------------------
     business: function (u) {
-      return sbArtOpen(u) + sbArtDefs(u, '#ffffff', '#efede7', '#5b6472')
-        + '<circle cx="272" cy="30" r="48" fill="#5b6472" opacity=".07"/>'
-        + '<g filter="url(#f' + u + ')">'
-        +   '<rect x="76" y="30" width="168" height="94" rx="15" fill="#fff"/>'
-        +   '<path d="M76 45 a15 15 0 0 1 15 -15 h138 a15 15 0 0 1 15 15 v9 h-168z"'
-        +     ' fill="#e7e4dd"/>'
+      return sbArtOpen(u) + sbArtDefs(u) + sbArtBackdrop(u, true)
+        + '<g filter="url(#f' + u + ')" class="gfx-outline">'
+        +   '<rect x="72" y="28" width="176" height="98" rx="10" class="gfx-paper"/>'
+        +   '<path d="M72 40a12 12 0 0 1 12-12h152a12 12 0 0 1 12 12v16H72Z" class="gfx-teal"/>'
         + '</g>'
-        + '<circle cx="112" cy="82" r="19" fill="#d8d4cb"/>'
-        + '<circle cx="112" cy="76" r="7" fill="#fff"/>'
-        + '<path d="M100 95 a12 12 0 0 1 24 0 z" fill="#fff"/>'
-        + '<g fill="#5b6472" opacity=".22">'
-        +   '<rect x="144" y="70" width="72" height="8" rx="4"/>'
-        +   '<rect x="144" y="86" width="52" height="8" rx="4"/>'
+        + '<circle cx="112" cy="86" r="20" class="gfx-teal-soft gfx-stroke"/>'
+        + '<circle cx="112" cy="79" r="7" class="gfx-paper"/>'
+        + '<path d="M99 101a13 13 0 0 1 26 0Z" class="gfx-paper"/>'
+        + '<g class="gfx-ink" opacity=".28">'
+        +   '<rect x="148" y="72" width="72" height="7" rx="3.5"/>'
+        +   '<rect x="148" y="89" width="52" height="7" rx="3.5"/>'
         + '</g>'
-        + '<g filter="url(#f' + u + ')">'
-        +   '<circle cx="228" cy="110" r="18" fill="#05b48f"/>'
-        + '</g>'
-        + '<path d="M220 110 l6 6 11 -13" stroke="#fff" stroke-width="4" fill="none"'
-        +   ' stroke-linecap="round" stroke-linejoin="round"/></svg>';
+        + sbArtCheck(234, 108).replace('fSTATUS', 'f' + u)
+        + '</svg>';
     },
-    // ---- brand voice: a quote mark ----
+    // ---- brand voice: editorial quote card ----------------------------
     brand: function (u) {
-      return sbArtOpen(u) + sbArtDefs(u, '#ffffff', '#efede7', '#5b6472')
-        + '<circle cx="52" cy="118" r="48" fill="#5b6472" opacity=".07"/>'
-        + '<g filter="url(#f' + u + ')">'
-        +   '<rect x="74" y="28" width="172" height="84" rx="16" fill="#fff"/>'
-        +   '<path d="M110 112 l4 22 22 -22 z" fill="#fff"/>'
+      return sbArtOpen(u) + sbArtDefs(u) + sbArtBackdrop(u, false)
+        + '<g filter="url(#f' + u + ')" class="gfx-outline">'
+        +   '<rect x="70" y="26" width="178" height="88" rx="10" class="gfx-paper"/>'
+        +   '<path d="M106 114l5 22 24-22Z" class="gfx-paper"/>'
         + '</g>'
-        + '<g fill="#5b6472" opacity=".55">'
-        +   '<path d="M112 54 q-14 6 -14 20 h14 v18 h-24 v-22 q0 -20 24 -26 z"/>'
-        +   '<path d="M150 54 q-14 6 -14 20 h14 v18 h-24 v-22 q0 -20 24 -26 z"/>'
+        + '<g class="gfx-coral">'
+        +   '<path d="M116 52q-16 7-16 23h15v20H88V70q0-21 28-29Z"/>'
+        +   '<path d="M158 52q-16 7-16 23h15v20h-27V70q0-21 28-29Z"/>'
         + '</g>'
-        + '<g fill="#5b6472" opacity=".18">'
-        +   '<rect x="176" y="56" width="52" height="7" rx="3.5"/>'
-        +   '<rect x="176" y="72" width="40" height="7" rx="3.5"/>'
+        + '<g class="gfx-ink" opacity=".24">'
+        +   '<rect x="178" y="57" width="52" height="7" rx="3.5"/>'
+        +   '<rect x="178" y="75" width="40" height="7" rx="3.5"/>'
         + '</g></svg>';
     },
-    // ---- lock this to you: a padlock ----
+    // ---- lock this to you: a secured padlock --------------------------
     admin: function (u) {
-      return sbArtOpen(u) + sbArtDefs(u, '#ffffff', '#efede7', '#5b6472')
-        + '<circle cx="262" cy="112" r="48" fill="#5b6472" opacity=".07"/>'
-        + '<g stroke="#5b6472" stroke-width="12" fill="none" opacity=".45">'
-        +   '<path d="M134 62 v-14 a26 26 0 0 1 52 0 v14"/>'
+      return sbArtOpen(u) + sbArtDefs(u) + sbArtBackdrop(u, true)
+        + '<g class="gfx-ink-line thick" opacity=".8">'
+        +   '<path d="M134 64V48a26 26 0 0 1 52 0v16"/>'
         + '</g>'
-        + '<g filter="url(#f' + u + ')">'
-        +   '<rect x="112" y="60" width="96" height="70" rx="16" fill="url(#g' + u + ')"'
-        +     ' stroke="#d8d4cb" stroke-width="2"/>'
-        +   '<ellipse cx="146" cy="74" rx="22" ry="7" fill="#fff" opacity=".7"/>'
+        + '<g filter="url(#f' + u + ')" class="gfx-outline">'
+        +   '<rect x="108" y="60" width="104" height="72" rx="10" class="gfx-teal"/>'
         + '</g>'
-        + '<circle cx="160" cy="90" r="9" fill="#5b6472" opacity=".55"/>'
-        + '<rect x="156.5" y="96" width="7" height="18" rx="3.5" fill="#5b6472" opacity=".55"/></svg>';
+        + '<circle cx="160" cy="90" r="9" class="gfx-paper"/>'
+        + '<rect x="156.5" y="96" width="7" height="19" rx="3.5" class="gfx-paper"/>'
+        + '<circle cx="222" cy="38" r="7" class="gfx-coral"/></svg>';
     },
-    // ---- keep your history: stacked disks ----
-    // The first version was white-on-white with a hairline border and all but
-    // disappeared against the neutral tint. Given real fill and edge contrast,
-    // plus a green tick so it reads as "kept" rather than "storage hardware".
+    // ---- keep your history: stacked records with a confirmation --------
     storage: function (u) {
       var band = function (y, top) {
-        return '<path d="M100 ' + y + ' v-24 h120 v24" fill="#e7e4dd" stroke="#c9c4b9" stroke-width="2"/>'
-          + '<ellipse cx="160" cy="' + y + '" rx="60" ry="17" fill="' + (top ? '#fff' : '#e7e4dd')
-          + '" stroke="#c9c4b9" stroke-width="2"/>';
+        return '<path d="M98 ' + y + 'v-24h124v24" class="' + (top ? 'gfx-paper' : 'gfx-teal-soft') + ' gfx-stroke"/>'
+          + '<ellipse cx="160" cy="' + y + '" rx="62" ry="17" class="'
+          + (top ? 'gfx-paper' : 'gfx-teal-soft') + ' gfx-stroke"/>';
       };
-      return sbArtOpen(u) + sbArtDefs(u, '#ffffff', '#efede7', '#5b6472')
-        + '<circle cx="52" cy="34" r="44" fill="#5b6472" opacity=".07"/>'
+      return sbArtOpen(u) + sbArtDefs(u) + sbArtBackdrop(u, false)
         + '<g filter="url(#f' + u + ')">'
         +   band(112, false) + band(86, false) + band(60, true)
         + '</g>'
-        + '<g filter="url(#f' + u + ')"><circle cx="222" cy="106" r="18" fill="#05b48f"/></g>'
-        + '<path d="M214 106 l6 6 11 -13" stroke="#fff" stroke-width="4" fill="none"'
-        +   ' stroke-linecap="round" stroke-linejoin="round"/></svg>';
+        + sbArtCheck(230, 108).replace('fSTATUS', 'f' + u)
+        + '</svg>';
     }
   };
 
