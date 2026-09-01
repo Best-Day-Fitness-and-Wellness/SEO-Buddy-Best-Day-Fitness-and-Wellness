@@ -196,6 +196,7 @@ so one production replica remains the supported topology.
 | `lib/attribution.js` | Deterministic contact source classification |
 | `lib/content-quality.js` | Deterministic article quality and automatic-publish gate |
 | `lib/profile-routes.js` | Brand and business profile HTTP contracts |
+| `lib/usage-routes.js` | AI usage reporting and owner budget HTTP contracts |
 | `public/modules/*` | Browser cross-cutting feature modules |
 | `scripts/*` | Smoke verification, backup, restore, database migration |
 
@@ -220,8 +221,8 @@ so one production replica remains the supported topology.
 
 ## Remaining constraints and next refactors
 
-1. **`server.js` is still the main monolith.** Operations and profile routes are
-   extracted; continue one route family at a time into routes, services,
+1. **`server.js` is still the main monolith.** Operations, profile, and usage
+   routes are extracted; continue one route family at a time into services,
    integrations, and repository interfaces. Keep contract tests around the
    existing HTTP boundary before every extraction.
 2. **Feature state is still process-local during a run.** PostgreSQL mode makes

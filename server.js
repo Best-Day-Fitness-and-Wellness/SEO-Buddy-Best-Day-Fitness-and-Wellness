@@ -51,6 +51,7 @@ const { summarizeContactAttribution } = require('./lib/attribution');
 const { assessArticleQuality } = require('./lib/content-quality');
 const { registerOperationsRoutes } = require('./lib/operations-routes');
 const { registerProfileRoutes } = require('./lib/profile-routes');
+const { registerUsageRoutes } = require('./lib/usage-routes');
 
 // Load UI-saved secrets from the durable storage root. Tenant state is isolated
 // below this root after configuration is loaded; host-provided variables still
@@ -3017,9 +3018,17 @@ function meterUsage(kind, n) {
 function usageOverBudget() { if (usageDb.budgetUSD == null) return false; return currentUsage().estCostUSD >= usageDb.budgetUSD; }
 function budgetBlock(res) { res.json({ success: true, budgetReached: true, message: `You've reached your monthly usage budget of $${usageDb.budgetUSD}. Raise or clear it in Settings to keep running AI features this month.` }); return true; }
 
-app.get('/api/usage', (req, res) => {
-  const u = currentUsage();
-  res.json({ month: usageMonthKey(), account: accountKey(), usage: u, budgetUSD: usageDb.budgetUSD, overBudget: usageOverBudget() });
+registerUsageRoutes(app, {
+  requireOwner,
+  currentUsage,
+  usageMonthKey,
+  accountKey,
+  usageState: {
+    get budgetUSD() { return usageDb.budgetUSD; },
+    set budgetUSD(value) { usageDb.budgetUSD = value; },
+  },
+  usageOverBudget,
+  saveUsage,
 });
 // Storage status — is DATA_DIR pointed at a persistent volume (survives redeploys) or ephemeral?
 app.get('/api/storage-status', (req, res) => {
@@ -3152,13 +3161,6 @@ app.get('/api/gsc-diagnostics', requireAuth, async (req, res) => {
 
   res.json(out);
 });
-app.post('/api/usage/budget', requireOwner, (req, res) => {
-  const v = req.body && req.body.budgetUSD;
-  usageDb.budgetUSD = (v === null || v === '' || v === undefined) ? null : Math.max(0, Number(v) || 0);
-  saveUsage();
-  res.json({ success: true, budgetUSD: usageDb.budgetUSD });
-});
-
 // Stage 2 — tools the assistant can PROPOSE (executed only on the user's explicit
 // confirm, client-side). The server never fires an action from a chat message.
 const ASSISTANT_TOOLS = [{

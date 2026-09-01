@@ -32,6 +32,7 @@ const { createSwitchableJobQueue } = require('../lib/job-queue.js');
 const { createJobWorker } = require('../lib/job-worker.js');
 const { createPostgresJobQueue, publicJob: publicPostgresJob } = require('../lib/postgres-job-queue.js');
 const { registerProfileRoutes } = require('../lib/profile-routes.js');
+const { normalizeBudget, registerUsageRoutes } = require('../lib/usage-routes.js');
 const { ProviderRuntimeError, createProviderRuntime } = require('../lib/provider-runtime.js');
 const { createPostgresStateBridge, replayPostgresOutbox } = require('../lib/postgres-state-bridge.js');
 const { classifyContactSource, summarizeContactAttribution } = require('../lib/attribution.js');
@@ -425,6 +426,53 @@ test('profile routes preserve brand and business response contracts', () => {
     success: true,
     profile: { name: 'Best Day Fitness', city: 'St. Petersburg' },
   });
+});
+
+test('usage routes preserve reporting and owner budget contracts', () => {
+  const routes = new Map();
+  const app = {
+    get(path, ...handlers) { routes.set(`GET ${path}`, handlers.at(-1)); },
+    post(path, ...handlers) { routes.set(`POST ${path}`, handlers.at(-1)); },
+  };
+  const requireOwner = () => {};
+  const usageState = { budgetUSD: 25 };
+  let saves = 0;
+  registerUsageRoutes(app, {
+    requireOwner,
+    currentUsage: () => ({ geminiCalls: 3, estCostUSD: 1.25 }),
+    usageMonthKey: () => '2026-09',
+    accountKey: () => 'best-day-fitness',
+    usageState,
+    usageOverBudget: () => false,
+    saveUsage: () => { saves += 1; },
+  });
+
+  function response() {
+    return {
+      body: null,
+      json(body) { this.body = body; return this; },
+    };
+  }
+
+  const usage = response();
+  routes.get('GET /api/usage')({}, usage);
+  assert.deepEqual(usage.body, {
+    month: '2026-09',
+    account: 'best-day-fitness',
+    usage: { geminiCalls: 3, estCostUSD: 1.25 },
+    budgetUSD: 25,
+    overBudget: false,
+  });
+
+  const saved = response();
+  routes.get('POST /api/usage/budget')({ body: { budgetUSD: '-12' } }, saved);
+  assert.deepEqual(saved.body, { success: true, budgetUSD: 0 });
+  assert.equal(usageState.budgetUSD, 0);
+  assert.equal(saves, 1);
+
+  assert.equal(normalizeBudget(''), null);
+  assert.equal(normalizeBudget('invalid'), 0);
+  assert.equal(normalizeBudget('42.5'), 42.5);
 });
 
 test('provider runtime retries transient failures and reports bounded integration health', async () => {
