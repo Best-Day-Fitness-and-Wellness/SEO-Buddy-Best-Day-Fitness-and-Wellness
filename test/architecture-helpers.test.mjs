@@ -77,6 +77,14 @@ const {
   buildNextMoves,
   registerDashboardRoutes,
 } = require('../lib/dashboard-routes.js');
+const {
+  createReviewsService,
+  metaContent: reviewsMetaContent,
+  monthlyGrowth: reviewsMonthlyGrowth,
+  parseJsonLd: parseReviewsJsonLd,
+  parseReviewCards,
+  registerReviewsRoutes,
+} = require('../lib/reviews-routes.js');
 const { ProviderRuntimeError, createProviderRuntime } = require('../lib/provider-runtime.js');
 const { createPostgresStateBridge, replayPostgresOutbox } = require('../lib/postgres-state-bridge.js');
 const { classifyContactSource, summarizeContactAttribution } = require('../lib/attribution.js');
@@ -1341,6 +1349,138 @@ test('local SEO routes preserve NAP, generation, validation, and reply-history c
   assert.equal(failed.statusCode, 502);
   assert.deepEqual(failed.body, { success: false, error: 'generation unavailable' });
   assert.deepEqual(errors.at(-1), ['[Local Generate] failed:', 'generation unavailable']);
+});
+
+test('reviews service preserves parsing, audits, snapshots, coalescing, caching, and route failures', async () => {
+  const cardsHtml = [
+    '<div class="rev" data-plat="google"><b>Ada</b><div class="d">2026-01</div><div class="rs" aria-label="4 out of 5 stars">★★★★</div><p>Helpful</p></div>',
+    '<div class="rev" data-plat="yelp"><b>Lin</b><div class="d">2026-03</div><div class="rs">★★★★★<span class="off">★</span></div><p>Specific</p></div>',
+  ].join('');
+  assert.deepEqual(parseReviewCards(cardsHtml), [
+    { platform: 'google', author: 'Ada', date: '2026-01', rating: 4 },
+    { platform: 'yelp', author: 'Lin', date: '2026-03', rating: 5 },
+  ]);
+  assert.deepEqual(reviewsMonthlyGrowth(parseReviewCards(cardsHtml)), [
+    { month: '2026-01', added: 1, total: 1 },
+    { month: '2026-02', added: 0, total: 1 },
+    { month: '2026-03', added: 1, total: 2 },
+  ]);
+  assert.deepEqual(parseReviewsJsonLd('<script type="application/ld+json">{"review":[]}</script>'), { review: [] });
+  assert.match(parseReviewsJsonLd('<script type="application/ld+json">{bad}</script>').__parseError, /JSON/);
+  assert.equal(reviewsMetaContent('<meta content="A useful description" name="description">', 'name', 'description'), 'A useful description');
+
+  const description = 'A'.repeat(90);
+  const pageHtml = `<!doctype html><html><head>
+    <title>Best Day Fitness Customer Reviews</title>
+    <meta name="description" content="${description}">
+    <meta property="og:image" content="https://reviews.example/og.png">
+    <link rel="canonical" href="https://reviews.example/">
+    <script type="application/ld+json">{"review":[{"reviewRating":{"ratingValue":5}},{"reviewRating":{"ratingValue":5}}],"aggregateRating":{"ratingValue":5,"reviewCount":2}}</script>
+  </head><body><b id="rev-count">2</b>${cardsHtml}</body></html>`;
+  const providerCalls = [];
+  const response = ({ status = 200, body = '', contentType = 'text/plain', json = null } = {}) => ({
+    status,
+    ok: status >= 200 && status < 300,
+    headers: { get(name) { return name.toLowerCase() === 'content-type' ? contentType : null; } },
+    async text() { return body; },
+    async json() { return json; },
+  });
+  const providerRuntime = {
+    async fetch(provider, url, requestOptions, policy) {
+      providerCalls.push({ provider, url, requestOptions, policy });
+      if (url === 'https://reviews.example/') return response({ body: pageHtml, contentType: 'text/html' });
+      if (url === 'https://reviews.example/og.png') return response({ contentType: 'image/png' });
+      if (url === 'https://reviews.example/sitemap.xml') return response({ body: '<?xml version="1.0"?><urlset><lastmod>2026-08-20</lastmod></urlset>', contentType: 'application/xml' });
+      if (url === 'https://reviews.example/robots.txt') return response({ body: 'User-agent: *\nAllow: /' });
+      throw new Error(`Unexpected URL ${url}`);
+    },
+  };
+  const saved = [];
+  const service = createReviewsService({
+    providerRuntime,
+    initialSnapshots: [{ date: '2026-07-01', published: 1, byPlatform: { google: 1 }, headerTotal: 1 }],
+    saveSnapshots: snapshots => saved.push(structuredClone(snapshots)),
+    getReviewsUrl: () => 'https://reviews.example///',
+    getTrustpilotSettings: () => ({}),
+    nowMs: () => new Date('2026-09-01T12:00:00.000Z').getTime(),
+    nowIso: () => '2026-09-01T12:00:00.000Z',
+  });
+  const [first, concurrent] = await Promise.all([service.getStats(), service.getStats()]);
+  assert.strictEqual(first, concurrent);
+  assert.equal(first.reachable, true);
+  assert.equal(first.url, 'https://reviews.example');
+  assert.deepEqual(first.inventory, {
+    published: 2,
+    byPlatform: { google: 1, yelp: 1 },
+    avgRating: 4.5,
+    newest: '2026-03',
+    oldest: '2026-01',
+    delta30: 1,
+  });
+  assert.equal(first.problems, 0);
+  assert.equal(first.trustpilot.configured, false);
+  assert.equal(providerCalls.length, 4);
+  assert.equal(providerCalls[0].provider, 'reviews-site');
+  assert.equal(providerCalls[0].policy.throwOnHttpError, false);
+  assert.equal(providerCalls[0].policy.policy.timeoutMs, 12000);
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].at(-1).date, '2026-09-01');
+  assert.strictEqual(await service.getStats(), first);
+  assert.equal(providerCalls.length, 4, 'fresh review stats should come from the five-minute cache');
+
+  const trustpilotCalls = [];
+  const trustpilotService = createReviewsService({
+    providerRuntime: {
+      async fetch(provider, url, requestOptions) {
+        trustpilotCalls.push({ provider, url, requestOptions });
+        return response({ json: {
+          id: 'business-unit-1',
+          name: { identifying: 'bestdayfitness.com' },
+          score: { trustScore: 4.7, stars: 4.5 },
+          numberOfReviews: { total: 12, oneStar: 1, twoStars: 0 },
+        } });
+      },
+    },
+    saveSnapshots: () => {},
+    getReviewsUrl: () => 'https://reviews.example',
+    getTrustpilotSettings: () => ({ apiKey: 'private-key', domain: 'https://www.bestdayfitness.com/', apiBase: 'https://trustpilot.example/v1' }),
+    nowMs: () => new Date('2026-09-01T12:00:00.000Z').getTime(),
+    nowIso: () => '2026-09-01T12:00:00.000Z',
+  });
+  const trustpilot = await trustpilotService.fetchTrustpilot();
+  assert.deepEqual({ configured: trustpilot.configured, ok: trustpilot.ok, trustScore: trustpilot.trustScore, reviewCount: trustpilot.reviewCount }, {
+    configured: true, ok: true, trustScore: 4.7, reviewCount: 12,
+  });
+  assert.equal(trustpilotCalls.length, 1);
+  assert.equal(trustpilotCalls[0].provider, 'trustpilot');
+  assert.match(trustpilotCalls[0].url, /name=bestdayfitness\.com/);
+  assert.doesNotMatch(trustpilotCalls[0].url, /private-key/);
+  assert.equal(trustpilotCalls[0].requestOptions.headers.apikey, 'private-key');
+  assert.strictEqual(await trustpilotService.fetchTrustpilot(), trustpilot);
+  assert.equal(trustpilotCalls.length, 1, 'Trustpilot should use its fifteen-minute cache');
+
+  const routes = new Map();
+  const app = { get(path, ...handlers) { routes.set(`GET ${path}`, handlers); } };
+  const errors = [];
+  let routeError = null;
+  registerReviewsRoutes(app, {
+    service: { async getStats() { if (routeError) throw routeError; return { score: 100 }; } },
+    logger: { error(...args) { errors.push(args); } },
+  });
+  const routeResponse = () => ({
+    statusCode: 200,
+    body: null,
+    status(code) { this.statusCode = code; return this; },
+    json(body) { this.body = body; return this; },
+  });
+  const ok = routeResponse();
+  await routes.get('GET /api/reviews-stats').at(-1)({}, ok);
+  assert.deepEqual(ok.body, { success: true, score: 100 });
+  routeError = new Error('reviews unavailable');
+  const failed = routeResponse();
+  await routes.get('GET /api/reviews-stats').at(-1)({}, failed);
+  assert.deepEqual([failed.statusCode, failed.body], [500, { success: false, error: 'reviews unavailable' }]);
+  assert.deepEqual(errors.at(-1), ['[Reviews] stats failed:', 'reviews unavailable']);
 });
 
 test('dashboard routes preserve prioritized moves, weekly digest, readiness, and score contracts', async () => {
