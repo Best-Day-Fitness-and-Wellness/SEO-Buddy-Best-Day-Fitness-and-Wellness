@@ -53,6 +53,14 @@ const {
   registerOnsiteRoutes,
 } = require('../lib/onsite-routes.js');
 const { buildAioSchemas, registerAioCoreRoutes } = require('../lib/aio-core-routes.js');
+const {
+  ASSISTANT_TOOLS,
+  assistantSystemPrompt,
+  readAssistantModelResponse,
+  registerAssistantRoutes,
+  resolveAssistantAction,
+  shapeAssistantMessages,
+} = require('../lib/assistant-routes.js');
 const { ProviderRuntimeError, createProviderRuntime } = require('../lib/provider-runtime.js');
 const { createPostgresStateBridge, replayPostgresOutbox } = require('../lib/postgres-state-bridge.js');
 const { classifyContactSource, summarizeContactAttribution } = require('../lib/attribution.js');
@@ -1317,6 +1325,136 @@ test('local SEO routes preserve NAP, generation, validation, and reply-history c
   assert.equal(failed.statusCode, 502);
   assert.deepEqual(failed.body, { success: false, error: 'generation unavailable' });
   assert.deepEqual(errors.at(-1), ['[Local Generate] failed:', 'generation unavailable']);
+});
+
+test('assistant routes preserve grounding, bounded context, and confirmation-only action proposals', async () => {
+  const toolNames = ASSISTANT_TOOLS[0].functionDeclarations.map(tool => tool.name);
+  assert.deepEqual(toolNames, [
+    'run_ai_visibility_check',
+    'run_factcheck',
+    'check_ai_crawler_access',
+    'find_reddit_threads',
+    'find_where_to_get_listed',
+    'draft_google_business_post',
+    'write_article',
+    'draft_citation_pitch',
+    'generate_pdf_report',
+  ]);
+
+  const articleTopic = 'x'.repeat(100);
+  const article = resolveAssistantAction('write_article', { topic: articleTopic });
+  assert.equal(article.title, `Write an article: "${'x'.repeat(80)}"`);
+  assert.deepEqual(article.body, { keyword: articleTopic });
+  assert.equal(article.endpoint, '/api/generate-article');
+  assert.deepEqual(resolveAssistantAction('draft_google_business_post', null).body, { text: '' });
+  assert.equal(resolveAssistantAction('generate_pdf_report').clientAction, 'pdf');
+  assert.equal(resolveAssistantAction('unsupported_action', {}), null);
+
+  const context = { business: { name: 'Best Day Fitness' }, score: 72 };
+  const prompt = assistantSystemPrompt(context);
+  assert.match(prompt, /GROUND every answer in the DATA below/);
+  assert.match(prompt, /nothing publishes or sends on its own/);
+  assert.match(prompt, /LIVE DATA for Best Day Fitness/);
+  assert.match(prompt, /"score":72/);
+
+  const sourceMessages = Array.from({ length: 13 }, (_, index) => ({
+    role: index % 2 ? 'assistant' : 'user',
+    content: index === 12 ? 'z'.repeat(2100) : `message-${index}`,
+  }));
+  const shaped = shapeAssistantMessages(sourceMessages);
+  assert.equal(shaped.length, 12);
+  assert.equal(shaped[0].parts[0].text, 'message-1');
+  assert.equal(shaped[0].role, 'model');
+  assert.equal(shaped.at(-1).parts[0].text.length, 2000);
+  assert.deepEqual(readAssistantModelResponse({
+    candidates: [{ content: { parts: [
+      { text: 'First ' },
+      { functionCall: { name: 'run_factcheck', args: {} } },
+      { text: 'second' },
+      { functionCall: { name: 'ignored', args: {} } },
+    ] } }],
+  }), {
+    text: 'First second',
+    functionCall: { name: 'run_factcheck', args: {} },
+  });
+  assert.deepEqual(readAssistantModelResponse({ text: ' fallback ' }), {
+    text: 'fallback',
+    functionCall: null,
+  });
+
+  const routes = new Map();
+  const app = { post(path, ...handlers) { routes.set(`POST ${path}`, handlers); } };
+  const requireAuth = () => {};
+  let hasKey = false;
+  let overBudget = false;
+  let geminiResult = { text: 'Your live score is 72.' };
+  let geminiError = null;
+  let contextCalls = 0;
+  const requests = [];
+  const errors = [];
+  registerAssistantRoutes(app, {
+    requireAuth,
+    hasGeminiKey: () => hasKey,
+    usageOverBudget: () => overBudget,
+    getBudget: () => 25,
+    getContext: () => { contextCalls += 1; return context; },
+    geminiGenerate: async (...args) => {
+      requests.push(args);
+      if (geminiError) throw geminiError;
+      return geminiResult;
+    },
+    model: 'gemini-test',
+    logger: { error(...args) { errors.push(args); } },
+  });
+  assert.equal(routes.get('POST /api/assistant')[0], requireAuth);
+  const handler = routes.get('POST /api/assistant').at(-1);
+  const response = () => ({
+    statusCode: 200,
+    body: null,
+    status(code) { this.statusCode = code; return this; },
+    json(body) { this.body = body; return this; },
+  });
+
+  const missing = response();
+  await handler({ body: {} }, missing);
+  assert.deepEqual([missing.statusCode, missing.body], [400, { success: false, error: 'No message provided.' }]);
+  const noKey = response();
+  await handler({ body: { messages: [{ role: 'user', content: 'Help' }] } }, noKey);
+  assert.match(noKey.body.reply, /Gemini API key/);
+
+  hasKey = true;
+  overBudget = true;
+  const blocked = response();
+  await handler({ body: { messages: [{ role: 'user', content: 'Help' }] } }, blocked);
+  assert.match(blocked.body.reply, /monthly usage budget of \$25/);
+  assert.equal(contextCalls, 0);
+
+  overBudget = false;
+  const answered = response();
+  await handler({ body: { messages: sourceMessages } }, answered);
+  assert.deepEqual(answered.body, { success: true, reply: 'Your live score is 72.', action: null });
+  assert.equal(contextCalls, 1);
+  assert.equal(requests[0][0].model, 'gemini-test');
+  assert.equal(requests[0][0].contents.length, 12);
+  assert.equal(requests[0][0].config.temperature, 0.4);
+  assert.strictEqual(requests[0][0].config.tools, ASSISTANT_TOOLS);
+  assert.deepEqual(requests[0][1], { usageKind: 'assistant' });
+
+  geminiResult = { candidates: [{ content: { parts: [{ functionCall: {
+    name: 'run_factcheck',
+    args: {},
+  } }] } }] };
+  const proposed = response();
+  await handler({ body: { messages: [{ role: 'user', content: 'Check the facts' }] } }, proposed);
+  assert.equal(proposed.body.action.endpoint, '/api/ai-factcheck/run');
+  assert.equal(proposed.body.action.confirmLabel, 'Run it');
+  assert.match(proposed.body.reply, /Tap \*\*Run it\*\*/);
+
+  geminiError = new Error('assistant unavailable');
+  const failed = response();
+  await handler({ body: { messages: [{ role: 'user', content: 'Help' }] } }, failed);
+  assert.deepEqual([failed.statusCode, failed.body], [502, { success: false, error: 'assistant unavailable' }]);
+  assert.deepEqual(errors.at(-1), ['[Assistant] failed:', 'assistant unavailable']);
 });
 
 test('core AIO routes preserve grounded citations, best-effort extraction, history, and schema contracts', async () => {
