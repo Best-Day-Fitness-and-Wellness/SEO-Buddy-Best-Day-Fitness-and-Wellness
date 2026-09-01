@@ -2497,8 +2497,7 @@ body.asst-open .sb-dock-wrap { display: none; }
    divided by effort. Three kinds, visually distinct, so a $0 protective
    step can never sit level with the thing gating 60% of the score.
    ------------------------------------------------------------------------- */
-/* A gallery, not a list. align-items:start so a short card never stretches to
-   match the tall hero sharing its row and open a dead gap above its buttons. */
+/* Legacy grid retained for any cards outside the compact Explore carousel. */
 .sb-gs {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(288px, 1fr));
@@ -2673,6 +2672,16 @@ body.asst-open .sb-dock-wrap { display: none; }
 .sb-stepdot.on { background: var(--action); width: 20px; border-radius: 4px; }
 .sb-step-foot { margin-top: 10px; text-align: center; font-size: 12.5px; color: var(--ink-3); }
 
+/* Explore is a compact shelf, not an eleven-card wall. A capped carousel keeps
+   one useful card in view on desktop and expands to the available phone width. */
+.sb-explore-step {
+  width: min(100%, 720px);
+  margin: 26px auto;
+}
+.sb-explore-step .sb-step-hdr { padding: 0 46px; }
+.sb-step-note { font-size: 12px; font-weight: 600; color: var(--ink-3); }
+.sb-explore-step .sb-card { height: 100%; }
+
 /* Motion preference: snapping and smooth scrolling both go away. */
 @media (prefers-reduced-motion: reduce) {
   .sb-track { scroll-behavior: auto; }
@@ -2748,6 +2757,9 @@ body.asst-open .sb-dock-wrap { display: none; }
   .sb-stepdot { width: 10px; height: 10px; }
   .sb-stepdot.on { width: 26px; }
   .sb-dots { gap: 9px; margin-top: 16px; padding: 6px 0; }
+
+  .sb-explore-step { width: 100%; }
+  .sb-explore-step .sb-step-hdr { padding: 0; }
 
   /* One card per row, and the hero stops trying to span two columns. */
   .sb-gs { grid-template-columns: 1fr; gap: 14px; }

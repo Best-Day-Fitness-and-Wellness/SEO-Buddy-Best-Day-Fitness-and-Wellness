@@ -2787,21 +2787,67 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let html = head;
     if (scoring.length) {
-      html += '<div class="sb-gs">' + scoring.map((s, i) => sbStepCard(s, i === 0, true)).join('') + '</div>';
+      html += sbCardCarousel(
+        'Recommended next steps',
+        'Recommended SEO Buddy setup steps',
+        scoring,
+        s => sbStepCard(s, true, true)
+      );
     }
     if (protect.length) {
-      html += '<div class="sb-eyebrow">Still to do <span class="n">'
-        + (protect.length === 1 ? 'this one will not' : 'these will not')
-        + ' change your score</span></div>'
-        + '<div class="sb-gs">' + protect.map(s => sbStepCard(s, false, true)).join('') + '</div>';
+      html += sbCardCarousel(
+        'Still to do',
+        'Protective SEO Buddy setup steps',
+        protect,
+        s => sbStepCard(s, true, true),
+        (protect.length === 1 ? 'this one will not' : 'these will not') + ' change your score'
+      );
     }
     if (done.length) {
-      html += '<div class="sb-eyebrow">Already running</div>'
-        + '<div class="sb-gs">' + done.map(s => sbDoneCard(s)).join('') + '</div>';
+      html += sbCardCarousel(
+        'Already running',
+        'SEO Buddy tools that are already running',
+        done,
+        s => sbDoneCard(s, true)
+      );
     }
     html += '<div class="sb-eyebrow">All tools</div>';
     host.innerHTML = html;
     sbWireCards(host, steps);
+    host.querySelectorAll('.sb-explore-step').forEach(carousel => {
+      sbWireStepper(carousel, Number(carousel.dataset.total));
+    });
+  }
+
+  // Explore keeps every card available without stacking the whole catalogue
+  // down the page. This uses the same markup and controller as Today's guided
+  // setup, so swipe, arrows, dots and keyboard navigation behave identically.
+  function sbCardCarousel(title, ariaLabel, items, renderCard, note) {
+    const total = items.length;
+    const controls = total > 1;
+    return '<section class="sb-step sb-explore-step" data-total="' + total
+      + '" aria-roledescription="carousel" aria-label="' + ariaLabel + '">'
+      + '<div class="sb-step-hdr">'
+      +   '<b>' + title + '</b>'
+      +   (note ? '<span class="sb-step-note">' + note + '</span>' : '')
+      +   (controls ? '<span class="sb-step-pos" aria-live="polite">1 of ' + total + '</span>' : '')
+      + '</div>'
+      + '<div class="sb-step-rail">'
+      +   (controls ? '<button class="sb-step-nav prev" type="button" aria-label="Previous card" disabled>'
+      +     '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5 L8 12 L15 19"/></svg></button>' : '')
+      +   '<div class="sb-track" tabindex="0" role="group" aria-label="' + ariaLabel + '">'
+      +     items.map((item, i) => '<div class="sb-slide" role="group" aria-roledescription="slide" aria-label="'
+      +       (i + 1) + ' of ' + total + '">' + renderCard(item) + '</div>').join('')
+      +   '</div>'
+      +   (controls ? '<button class="sb-step-nav next" type="button" aria-label="Next card">'
+      +     '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5 L16 12 L9 19"/></svg></button>' : '')
+      + '</div>'
+      + (controls ? '<div class="sb-dots">'
+      +   items.map((item, i) => '<button class="sb-stepdot' + (i ? '' : ' on') + '" type="button" data-i="' + i
+      +     '" aria-label="Show card ' + (i + 1) + ' of ' + total + ': '
+      +     item.title.replace(/["<>]/g, '') + '"></button>').join('')
+      + '</div>' : '')
+      + '</section>';
   }
 
   // A finished step, still on the shelf. Same artwork, muted, and the only
@@ -2810,12 +2856,12 @@ document.addEventListener('DOMContentLoaded', () => {
   // action rather than a destination.
   const SB_DONE_TAB = { autopilot: 'performance-tab', business: 'settings-tab' };
 
-  function sbDoneCard(st) {
+  function sbDoneCard(st, hero) {
     const p = st.pillar || '';
     const tint = p || (st.kind === 'protect' ? 'neutral' : 'p5');
     const worth = st.kind === 'unlock' ? '+' + st.points + ' pts' : (st.badge || 'done');
-    return '<div class="sb-card illus is-done" data-key="' + st.key + '">'
-      + '<div class="sb-art ' + tint + '">' + sbArt(st.key) + '</div>'
+    return '<div class="sb-card illus is-done' + (hero ? ' hero' : '') + '" data-key="' + st.key + '">'
+      + '<div class="sb-art ' + tint + '">' + sbArt(st.key, hero) + '</div>'
       + '<div class="sb-body">'
       +   '<div class="r1"><h4>' + st.title + '</h4>'
       +     '<span class="pts done"><span class="tk">&#10003;</span>' + worth + '</span></div>'
