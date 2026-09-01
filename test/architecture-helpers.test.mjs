@@ -61,6 +61,16 @@ const {
   resolveAssistantAction,
   shapeAssistantMessages,
 } = require('../lib/assistant-routes.js');
+const {
+  DEFAULT_SOCIAL_PLATFORMS,
+  MEDIA_MAX_MB,
+  buildSocialPackPrompt,
+  buildTranscriptionRequest,
+  estimatedDecodedBytes,
+  normalizeMediaType,
+  registerRecordedContentRoutes,
+  shapeSocialPack,
+} = require('../lib/recorded-content-routes.js');
 const { ProviderRuntimeError, createProviderRuntime } = require('../lib/provider-runtime.js');
 const { createPostgresStateBridge, replayPostgresOutbox } = require('../lib/postgres-state-bridge.js');
 const { classifyContactSource, summarizeContactAttribution } = require('../lib/attribution.js');
@@ -1325,6 +1335,134 @@ test('local SEO routes preserve NAP, generation, validation, and reply-history c
   assert.equal(failed.statusCode, 502);
   assert.deepEqual(failed.body, { success: false, error: 'generation unavailable' });
   assert.deepEqual(errors.at(-1), ['[Local Generate] failed:', 'generation unavailable']);
+});
+
+test('recorded-content routes preserve media validation, bounded prompts, usage, and response contracts', async () => {
+  assert.equal(MEDIA_MAX_MB, 18);
+  assert.equal(normalizeMediaType('Audio/MP3; codecs=mp3'), 'audio/mp3');
+  assert.equal(estimatedDecodedBytes('12345678'), 6);
+
+  const transcriptionRequest = buildTranscriptionRequest('encoded-audio', 'audio/mp3', 'gemini-test');
+  assert.equal(transcriptionRequest.model, 'gemini-test');
+  assert.deepEqual(transcriptionRequest.contents[0].parts[0], {
+    inlineData: { mimeType: 'audio/mp3', data: 'encoded-audio' },
+  });
+  assert.match(transcriptionRequest.contents[0].parts[1].text, /Transcribe this recording verbatim/);
+
+  const longTranscript = 't'.repeat(60100);
+  const socialPrompt = buildSocialPackPrompt('Best Day Fitness', longTranscript, 3, 4);
+  assert.match(socialPrompt, /Best Day Fitness answering a customer question/);
+  assert.match(socialPrompt, /5 hooks for idea 3/);
+  assert.match(socialPrompt, /script for hook 4/);
+  assert.equal((socialPrompt.match(/t/g) || []).length < 60100, true);
+  assert.deepEqual(shapeSocialPack({
+    ideas: ['1', '2', '3', '4', '5', '6'],
+    hooks: ['a', 'b', 'c', 'd', 'e', 'f'],
+    script: 'Speak plainly.',
+  }, 0, null), {
+    success: true,
+    ideas: ['1', '2', '3', '4', '5'],
+    hooks: ['a', 'b', 'c', 'd', 'e'],
+    script: 'Speak plainly.',
+    ideaIndex: 1,
+    hookIndex: 1,
+    platforms: DEFAULT_SOCIAL_PLATFORMS,
+  });
+
+  const routes = new Map();
+  const app = { post(path, ...handlers) { routes.set(`POST ${path}`, handlers); } };
+  const requireAuth = () => {};
+  let overBudget = false;
+  let geminiResult = { text: ' These are the owner’s own words. ' };
+  let geminiError = null;
+  let parsedPack = {
+    ideas: ['Idea 1', 'Idea 2'],
+    hooks: ['Hook 1'],
+    script: 'A specific thirty-second story.',
+    platforms: ['Instagram'],
+  };
+  const requests = [];
+  const errors = [];
+  registerRecordedContentRoutes(app, {
+    requireAuth,
+    usageOverBudget: () => overBudget,
+    budgetBlock: res => res.status(429).json({ success: false, budgetReached: true }),
+    geminiGenerate: async (...args) => {
+      requests.push(args);
+      if (geminiError) throw geminiError;
+      return geminiResult;
+    },
+    model: 'gemini-test',
+    businessName: 'Best Day Fitness',
+    parseGeminiJson: () => parsedPack,
+    logger: { error(...args) { errors.push(args); } },
+  });
+  assert.equal(routes.get('POST /api/transcribe')[0], requireAuth);
+  assert.equal(routes.get('POST /api/social-pack')[0], requireAuth);
+  const transcribe = routes.get('POST /api/transcribe').at(-1);
+  const socialPack = routes.get('POST /api/social-pack').at(-1);
+  const response = () => ({
+    statusCode: 200,
+    body: null,
+    status(code) { this.statusCode = code; return this; },
+    json(body) { this.body = body; return this; },
+  });
+
+  const missing = response();
+  await transcribe({ body: {} }, missing);
+  assert.deepEqual([missing.statusCode, missing.body], [400, { success: false, error: 'No recording received.' }]);
+  const unsupported = response();
+  await transcribe({ body: { data: 'abc', mimeType: 'text/plain' } }, unsupported);
+  assert.equal(unsupported.statusCode, 400);
+  assert.match(unsupported.body.error, /Unsupported file type "text\/plain"/);
+
+  overBudget = true;
+  const blockedTranscription = response();
+  await transcribe({ body: { data: 'abc', mimeType: 'audio/mp3' } }, blockedTranscription);
+  assert.deepEqual([blockedTranscription.statusCode, blockedTranscription.body], [429, { success: false, budgetReached: true }]);
+  assert.equal(requests.length, 0);
+
+  overBudget = false;
+  const transcribed = response();
+  await transcribe({ body: { data: 'abc', mimeType: 'Audio/MP3; codecs=mp3' } }, transcribed);
+  assert.deepEqual(transcribed.body, {
+    success: true,
+    transcript: 'These are the owner’s own words.',
+    words: 6,
+  });
+  assert.equal(requests[0][0].contents[0].parts[0].inlineData.mimeType, 'audio/mp3');
+  assert.deepEqual(requests[0][1], { usageKind: 'transcribe' });
+
+  const tooShort = response();
+  await socialPack({ body: { transcript: 'Not enough detail.' } }, tooShort);
+  assert.deepEqual([tooShort.statusCode, tooShort.body], [400, { success: false, error: 'Need a transcript of at least a couple of paragraphs.' }]);
+
+  const source = 'A'.repeat(250);
+  const packed = response();
+  await socialPack({ body: { transcript: source, ideaIndex: 2, hookIndex: 3 } }, packed);
+  assert.deepEqual(packed.body, {
+    success: true,
+    ideas: ['Idea 1', 'Idea 2'],
+    hooks: ['Hook 1'],
+    script: 'A specific thirty-second story.',
+    ideaIndex: 2,
+    hookIndex: 3,
+    platforms: ['Instagram'],
+  });
+  assert.match(requests[1][0].contents, /5 hooks for idea 2/);
+  assert.deepEqual(requests[1][1], { usageKind: 'social' });
+
+  parsedPack = {};
+  const unusable = response();
+  await socialPack({ body: { transcript: source } }, unusable);
+  assert.deepEqual([unusable.statusCode, unusable.body], [500, { success: false, error: 'Gemini did not return a usable script — try again.' }]);
+  assert.deepEqual(errors.at(-1), ['[Social pack] failed:', 'Gemini did not return a usable script — try again.']);
+
+  geminiError = new Error('transcription unavailable');
+  const failed = response();
+  await transcribe({ body: { data: 'abc', mimeType: 'audio/mp3' } }, failed);
+  assert.deepEqual([failed.statusCode, failed.body], [500, { success: false, error: 'transcription unavailable' }]);
+  assert.deepEqual(errors.at(-1), ['[Transcribe] failed:', 'transcription unavailable']);
 });
 
 test('assistant routes preserve grounding, bounded context, and confirmation-only action proposals', async () => {

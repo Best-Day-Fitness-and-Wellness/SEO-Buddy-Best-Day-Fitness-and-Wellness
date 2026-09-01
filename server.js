@@ -62,6 +62,7 @@ const { createPerformanceService, registerPerformanceRoutes } = require('./lib/p
 const { registerOnsiteRoutes } = require('./lib/onsite-routes');
 const { registerAioCoreRoutes } = require('./lib/aio-core-routes');
 const { registerAssistantRoutes } = require('./lib/assistant-routes');
+const { registerRecordedContentRoutes } = require('./lib/recorded-content-routes');
 
 // Load UI-saved secrets from the durable storage root. Tenant state is isolated
 // below this root after configuration is loaded; host-provided variables still
@@ -4254,115 +4255,15 @@ app.get('/api/reviews-stats', async (req, res) => {
 // Both spend Gemini credits, so both sit behind requireAuth.
 // ===========================================================================
 
-// Gemini accepts media inline up to ~20MB. Anything bigger needs the Files API,
-// which is a lot of moving parts for a phone recording — so we cap and explain.
-const MEDIA_MAX_MB = 18;
-const MEDIA_TYPES = [
-  'audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-wav', 'audio/webm', 'audio/mp4',
-  'audio/m4a', 'audio/x-m4a', 'audio/aac', 'audio/ogg', 'audio/flac',
-  'video/mp4', 'video/webm', 'video/quicktime', 'video/x-m4v', 'video/mpeg',
-];
-
-// ---------------------------------------------------------------------------
-// Transcribe. Gemini takes audio directly, so the recording never leaves the
-// stack we already pay for — no local ffmpeg, no unlisted-YouTube caption
-// scraping workaround.
-// ---------------------------------------------------------------------------
-app.post('/api/transcribe', requireAuth, async (req, res) => {
-  try {
-    const { data, mimeType } = req.body || {};
-    if (!data) return res.status(400).json({ success: false, error: 'No recording received.' });
-
-    const mt = String(mimeType || '').split(';')[0].trim().toLowerCase();
-    if (!MEDIA_TYPES.includes(mt)) {
-      return res.status(400).json({ success: false, error: `Unsupported file type "${mimeType || 'unknown'}". Use an audio or video recording (m4a, mp3, wav, mp4, mov).` });
-    }
-
-    const bytes = Math.floor(String(data).length * 0.75);
-    if (bytes > MEDIA_MAX_MB * 1048576) {
-      return res.status(413).json({
-        success: false,
-        error: `That file is ${(bytes / 1048576).toFixed(1)}MB. The limit is ${MEDIA_MAX_MB}MB — record audio only instead of video, or trim it. A 10-minute voice memo is usually about 5MB.`,
-      });
-    }
-
-    if (usageOverBudget()) return budgetBlock(res);
-    const r = await geminiGenerate({
-      model: GEMINI_MODEL,
-      contents: [{
-        parts: [
-          { inlineData: { mimeType: mt, data } },
-          { text: `Transcribe this recording verbatim.
-Keep the speaker's own words, filler and all — this is raw source material for an
-article, and the specifics and turns of phrase are the whole point. Do not
-summarise, tidy up, or add commentary. Return only the transcript text.` },
-        ],
-      }],
-    }, { usageKind: 'transcribe' });
-
-    const transcript = String(r.text || '').trim();
-    if (!transcript) throw new Error('Nothing came back from the transcription — try a shorter or clearer recording.');
-
-    res.json({
-      success: true,
-      transcript,
-      words: transcript.split(/\s+/).filter(Boolean).length,
-    });
-  } catch (e) {
-    console.error('[Transcribe] failed:', e.message);
-    res.status(500).json({ success: false, error: e.message });
-  }
-});
-
-// ---------------------------------------------------------------------------
-// Social pack. Ideas -> hooks -> script in ONE pass, so the model keeps the
-// speaker's voice across all three. The personal-stories instruction on the
-// script is the load-bearing part; without it the output is interchangeable
-// with every other AI script on the internet.
-// ---------------------------------------------------------------------------
-app.post('/api/social-pack', requireAuth, async (req, res) => {
-  try {
-    const { transcript, ideaIndex, hookIndex } = req.body || {};
-    if (!transcript || transcript.trim().length < 200) {
-      return res.status(400).json({ success: false, error: 'Need a transcript of at least a couple of paragraphs.' });
-    }
-    if (usageOverBudget()) return budgetBlock(res);
-    const prompt = `Here is a transcript of ${BUSINESS.name} answering a customer question:
-
-"""
-${String(transcript).slice(0, 60000)}
-"""
-
-Give me 5 ideas for short-form videos based on this transcript.
-
-Then give me 5 hooks for idea ${(Number(ideaIndex) || 1)}. Make sure they have stakes to hook
-the viewer in and make them want to keep watching.
-
-Then write me a script for hook ${(Number(hookIndex) || 1)} for a 30 second video, and make sure
-you include personal stories and specifics from the transcript — not generic advice.
-
-Return ONLY raw JSON, no markdown fences:
-{"ideas":["..."],"hooks":["..."],"script":"the spoken script, plain text, no stage directions","platforms":["Instagram","TikTok","Facebook","Threads","Bluesky","LinkedIn","YouTube Shorts"]}`;
-
-    const r = await geminiGenerate({ model: GEMINI_MODEL, contents: prompt }, { usageKind: 'social' });
-    const pack = parseGeminiJson(r.text) || {};
-    if (!pack.script) throw new Error('Gemini did not return a usable script — try again.');
-
-    res.json({
-      success: true,
-      ideas: (pack.ideas || []).slice(0, 5),
-      hooks: (pack.hooks || []).slice(0, 5),
-      script: pack.script,
-      ideaIndex: Number(ideaIndex) || 1,
-      hookIndex: Number(hookIndex) || 1,
-      platforms: Array.isArray(pack.platforms) && pack.platforms.length
-        ? pack.platforms
-        : ['Instagram', 'TikTok', 'Facebook', 'Threads', 'Bluesky', 'LinkedIn', 'YouTube Shorts'],
-    });
-  } catch (e) {
-    console.error('[Social pack] failed:', e.message);
-    res.status(500).json({ success: false, error: e.message });
-  }
+registerRecordedContentRoutes(app, {
+  requireAuth,
+  usageOverBudget,
+  budgetBlock,
+  geminiGenerate,
+  model: GEMINI_MODEL,
+  businessName: BUSINESS.name,
+  parseGeminiJson,
+  logger: console,
 });
 
 function scheduleDailyStateBackups() {
