@@ -41,6 +41,7 @@ const { registerAiAuditRoutes } = require('../lib/ai-audit-routes.js');
 const { registerScheduledFeatureRoutes } = require('../lib/scheduled-feature-routes.js');
 const { createGoogleDelivery } = require('../lib/google-delivery.js');
 const { EMAIL_PATTERN, registerDeliveryRoutes } = require('../lib/delivery-routes.js');
+const { CITATION_STATUSES, LISTING_TYPES, normalizeCitationQueries, registerCitationRoutes } = require('../lib/citation-routes.js');
 const { ProviderRuntimeError, createProviderRuntime } = require('../lib/provider-runtime.js');
 const { createPostgresStateBridge, replayPostgresOutbox } = require('../lib/postgres-state-bridge.js');
 const { classifyContactSource, summarizeContactAttribution } = require('../lib/attribution.js');
@@ -1161,6 +1162,195 @@ test('delivery routes preserve setup, validation, send, draft, and digest contra
   assert.deepEqual(errors, [
     ['[Gmail send] failed:', 'mailbox unavailable'],
     ['[GBP post] failed:', 'GBP unavailable'],
+  ]);
+});
+
+test('citation routes preserve scan, tracker, listing, and pitch contracts', async () => {
+  assert.deepEqual(CITATION_STATUSES, ['todo', 'submitted', 'pitched', 'live']);
+  assert.deepEqual(LISTING_TYPES, ['directory', 'review']);
+  assert.deepEqual(normalizeCitationQueries([' one ', '', null, ...Array.from({ length: 10 }, (_, i) => `q${i}`)]), [
+    'one', 'q0', 'q1', 'q2', 'q3', 'q4', 'q5', 'q6',
+  ]);
+
+  const routes = new Map();
+  const app = {
+    get(path, ...handlers) { routes.set(`GET ${path}`, handlers); },
+    post(path, ...handlers) { routes.set(`POST ${path}`, handlers); },
+  };
+  const requireAuth = () => {};
+  let hasKey = false;
+  let overBudget = false;
+  let savedQueries = [' saved query '];
+  let autoEnabled = true;
+  let newDomains = ['new.example'];
+  let scanError = null;
+  let geminiResult = {};
+  let geminiError = null;
+  let nudges = 0;
+  let saves = 0;
+  const scans = [];
+  const statuses = [];
+  const prompts = [];
+  const errors = [];
+  const worklist = { success: true, targets: [{ domain: 'directory.example' }] };
+  const kit = {
+    name: 'Best Day Fitness',
+    addressOneLine: '123 Main St',
+    phone: '(727) 555-0100',
+    website: 'https://example.com',
+    categories: ['Personal Trainer', 'Senior Fitness'],
+    shortDesc: 'Fitness for adults 50+.',
+  };
+
+  registerCitationRoutes(app, {
+    requireAuth,
+    hasGeminiKey: () => hasKey,
+    usageOverBudget: () => overBudget,
+    budgetBlock: res => res.status(429).json({ success: false, budgetReached: true }),
+    getSavedQueries: () => savedQueries,
+    performScan: async queries => {
+      scans.push(queries);
+      if (scanError) throw scanError;
+    },
+    worklist: () => worklist,
+    enqueueScanCheck: () => { nudges += 1; },
+    setAutoEnabled: enabled => { autoEnabled = enabled; saves += 1; return autoEnabled; },
+    clearNewDomains: () => { newDomains = []; saves += 1; },
+    updateStatus: (domain, status) => { statuses.push({ domain, status }); saves += 1; },
+    listingKit: () => kit,
+    geminiGenerate: async request => {
+      prompts.push(request);
+      if (geminiError) throw geminiError;
+      return { text: JSON.stringify(geminiResult) };
+    },
+    model: 'gemini-test',
+    parseGeminiJson: JSON.parse,
+    brandPrompt: () => 'Best Day Fitness brand',
+    logger: { error(...args) { errors.push(args); } },
+  });
+
+  function response() {
+    return {
+      statusCode: 200,
+      body: null,
+      status(code) { this.statusCode = code; return this; },
+      json(body) { this.body = body; return this; },
+    };
+  }
+  const handler = (method, path) => routes.get(`${method} ${path}`).at(-1);
+  for (const path of [
+    '/api/citation-scan',
+    '/api/citation-autopilot/toggle',
+    '/api/citation-autopilot/seen',
+    '/api/citation-status',
+    '/api/citation-outreach',
+  ]) {
+    assert.equal(routes.get(`POST ${path}`)[0], requireAuth);
+  }
+
+  const cached = response();
+  handler('GET', '/api/citation-worklist')({}, cached);
+  assert.equal(nudges, 1);
+  assert.deepEqual(cached.body, worklist);
+
+  const unavailable = response();
+  await handler('POST', '/api/citation-scan')({ body: {} }, unavailable);
+  assert.equal(unavailable.body.unavailable, true);
+  hasKey = true;
+  overBudget = true;
+  const blocked = response();
+  await handler('POST', '/api/citation-scan')({ body: {} }, blocked);
+  assert.equal(blocked.statusCode, 429);
+  overBudget = false;
+  savedQueries = [];
+  const empty = response();
+  await handler('POST', '/api/citation-scan')({ body: {} }, empty);
+  assert.equal(empty.statusCode, 400);
+  const scanned = response();
+  await handler('POST', '/api/citation-scan')({ body: { queries: ['  senior fitness ', '', 'mobility'] } }, scanned);
+  assert.deepEqual(scans.at(-1), ['senior fitness', 'mobility']);
+  assert.deepEqual(scanned.body, worklist);
+  scanError = new Error('search unavailable');
+  const scanFailed = response();
+  await handler('POST', '/api/citation-scan')({ body: { queries: ['fitness'] } }, scanFailed);
+  assert.equal(scanFailed.statusCode, 502);
+  assert.equal(scanFailed.body.error, 'Could not complete the scan: search unavailable');
+
+  const toggled = response();
+  handler('POST', '/api/citation-autopilot/toggle')({ body: { enabled: false } }, toggled);
+  assert.deepEqual(toggled.body, { success: true, enabled: false });
+  const seen = response();
+  handler('POST', '/api/citation-autopilot/seen')({ body: {} }, seen);
+  assert.deepEqual(newDomains, []);
+  const invalidStatus = response();
+  handler('POST', '/api/citation-status')({ body: { domain: 'example.com', status: 'unknown' } }, invalidStatus);
+  assert.equal(invalidStatus.statusCode, 400);
+  const updated = response();
+  handler('POST', '/api/citation-status')({ body: { domain: 'example.com', status: 'pitched' } }, updated);
+  assert.deepEqual(statuses, [{ domain: 'example.com', status: 'pitched' }]);
+  assert.equal(saves, 3);
+
+  const missingDomain = response();
+  await handler('POST', '/api/citation-outreach')({ body: {} }, missingDomain);
+  assert.equal(missingDomain.statusCode, 400);
+  const competitor = response();
+  await handler('POST', '/api/citation-outreach')({ body: { domain: 'competitor.example', type: 'competitor' } }, competitor);
+  assert.equal(competitor.body.kind, 'skip');
+
+  hasKey = false;
+  const listingFallback = response();
+  await handler('POST', '/api/citation-outreach')({ body: { domain: 'directory.example', type: 'directory' } }, listingFallback);
+  assert.deepEqual(listingFallback.body.fields, {
+    name: 'Best Day Fitness',
+    address: '123 Main St',
+    phone: '(727) 555-0100',
+    website: 'https://example.com',
+    categories: 'Personal Trainer · Senior Fitness',
+    description: 'Fitness for adults 50+.',
+  });
+  assert.equal(listingFallback.body.claimUrl, 'https://directory.example');
+
+  hasKey = true;
+  geminiResult = { claimUrl: 'https://directory.example/claim', howTo: 'Complete the claim form.' };
+  const listingGrounded = response();
+  await handler('POST', '/api/citation-outreach')({ body: { domain: 'directory.example', type: 'review' } }, listingGrounded);
+  assert.equal(listingGrounded.body.claimUrl, 'https://directory.example/claim');
+  assert.equal(prompts.at(-1).model, 'gemini-test');
+
+  hasKey = false;
+  const pitchSetup = response();
+  await handler('POST', '/api/citation-outreach')({ body: { domain: 'news.example', type: 'news' } }, pitchSetup);
+  assert.equal(pitchSetup.body.unavailable, true);
+  hasKey = true;
+  geminiResult = {
+    email: ' editor@news.example ',
+    contactUrl: 'https://news.example/contact',
+    to: 'Features editor',
+    subject: 'Local fitness resource',
+    body: 'A short pitch',
+    howToFind: 'Use the contact page.',
+  };
+  const pitched = response();
+  await handler('POST', '/api/citation-outreach')({ body: { domain: 'news.example', type: 'news', queries: ['senior fitness'] } }, pitched);
+  assert.deepEqual(pitched.body, {
+    success: true,
+    kind: 'pitch',
+    domain: 'news.example',
+    email: 'editor@news.example',
+    contactUrl: 'https://news.example/contact',
+    to: 'Features editor',
+    subject: 'Local fitness resource',
+    body: 'A short pitch',
+    howToFind: 'Use the contact page.',
+  });
+  geminiError = new Error('grounding failed');
+  const pitchFailed = response();
+  await handler('POST', '/api/citation-outreach')({ body: { domain: 'news.example', type: 'news' } }, pitchFailed);
+  assert.equal(pitchFailed.statusCode, 502);
+  assert.equal(pitchFailed.body.error, 'grounding failed');
+  assert.deepEqual(errors, [
+    ['[Citation Scan] failed:', 'search unavailable'],
+    ['[Outreach pitch] failed:', 'grounding failed'],
   ]);
 });
 

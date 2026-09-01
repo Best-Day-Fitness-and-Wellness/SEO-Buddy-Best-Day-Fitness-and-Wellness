@@ -205,6 +205,7 @@ so one production replica remains the supported topology.
 | `lib/scheduled-feature-routes.js` | Shared state, toggle, run, and seen controls for scheduled dashboard features |
 | `lib/google-delivery.js` | Gmail and Google Business Profile OAuth and provider adapters |
 | `lib/delivery-routes.js` | Pitch, GBP post, and performance-digest delivery HTTP contracts |
+| `lib/citation-routes.js` | Citation scanning, tracking, listing, and outreach HTTP contracts |
 | `public/modules/*` | Browser cross-cutting feature modules |
 | `scripts/*` | Smoke verification, backup, restore, database migration |
 
@@ -231,10 +232,10 @@ so one production replica remains the supported topology.
 
 1. **`server.js` is still the main monolith.** Operations, profile, usage,
    Search Console, content autopilot, manual article lifecycle, AI Visibility,
-   AI audits, scheduled feature controls, and Google delivery are extracted;
-   continue one route family at a time into services, integrations, and repository
-   interfaces. Keep contract tests around the existing HTTP boundary before every
-   extraction.
+   AI audits, scheduled feature controls, Google delivery, and Citation Outreach
+   are extracted; continue one route family at a time into services, integrations,
+   and repository interfaces. Keep contract tests around the existing HTTP boundary
+   before every extraction.
 2. **Feature state is still process-local during a run.** PostgreSQL mode makes
    the database the startup recovery authority, but one production replica is
    still the supported topology. Move mutations to transactional repository

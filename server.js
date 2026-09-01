@@ -60,6 +60,7 @@ const { registerAiAuditRoutes } = require('./lib/ai-audit-routes');
 const { registerScheduledFeatureRoutes } = require('./lib/scheduled-feature-routes');
 const { createGoogleDelivery } = require('./lib/google-delivery');
 const { registerDeliveryRoutes } = require('./lib/delivery-routes');
+const { LISTING_TYPES, registerCitationRoutes } = require('./lib/citation-routes');
 
 // Load UI-saved secrets from the durable storage root. Tenant state is isolated
 // below this root after configuration is loaded; host-provided variables still
@@ -3475,11 +3476,6 @@ function saveCitations() {
   saveJsonFileSync(CITATIONS_FILE, citationsDb, 'Citations');
 }
 
-const CITATION_STATUSES = ['todo', 'submitted', 'pitched', 'live'];
-// Which target types are "pitch" (outreach email) vs "listing" (claim/submit).
-const PITCH_TYPES = ['listicle', 'news', 'forum', 'other'];
-const LISTING_TYPES = ['directory', 'review'];
-
 // Canonical facts pasted onto every listing + used in every pitch.
 function siteDomain() {
   let domain = (process.env.GSC_SITE_URL || 'https://bestdayfitness.com').trim();
@@ -3658,132 +3654,43 @@ async function maybeRunCitationScan(force) {
   finally { citScanRunning = false; }
 }
 
-// GET the cached worklist (read-only). Fire-and-forget a due-check so opening
-// the tab nudges the weekly schedule, but never block on a live scan.
-app.get('/api/citation-worklist', (req, res) => {
-  enqueueDurableJob('citation.scan', {}, { idempotencyKey: durableJobKey('citation.scan', 12 * 60 * 60 * 1000), maxAttempts: 5 });
-  res.json(worklistPayload());
-});
-
-// POST run a fresh scan (auth — spends grounded searches). Preserves the
-// status of any domain that is still present so progress is never lost.
-app.post('/api/citation-scan', requireAuth, async (req, res) => {
-  const geminiKey = process.env.GEMINI_API_KEY;
-  if (!geminiKey) {
-    return res.json({ success: true, unavailable: true, message: 'Add your Gemini key in Settings to scan the sites AI cites (this runs a live Google search).' });
-  }
-  if (usageOverBudget()) return budgetBlock(res);
-  let queries = Array.isArray(req.body && req.body.queries) ? req.body.queries : (citationsDb.queries || []);
-  queries = queries.map(q => String(q || '').trim()).filter(Boolean).slice(0, 8);
-  if (!queries.length) return res.status(400).json({ success: false, error: 'At least one search query is required.' });
-  try {
-    await performCitationScan(queries);
-    res.json(worklistPayload());
-  } catch (err) {
-    console.error('[Citation Scan] failed:', err.message);
-    res.status(502).json({ success: false, error: `Could not complete the scan: ${err.message}` });
-  }
-});
-
-// Toggle the weekly auto-scan on/off.
-app.post('/api/citation-autopilot/toggle', requireAuth, (req, res) => {
-  citationsDb.autoEnabled = !!(req.body && req.body.enabled);
-  saveCitations();
-  res.json({ success: true, enabled: citationsDb.autoEnabled });
-});
-// Clear the NEW-target flags once the worklist has been viewed.
-app.post('/api/citation-autopilot/seen', requireAuth, (req, res) => {
-  citationsDb.newDomains = [];
-  saveCitations();
-  res.json({ success: true });
+registerCitationRoutes(app, {
+  requireAuth,
+  hasGeminiKey: () => !!process.env.GEMINI_API_KEY,
+  usageOverBudget,
+  budgetBlock,
+  getSavedQueries: () => citationsDb.queries || [],
+  performScan: performCitationScan,
+  worklist: worklistPayload,
+  enqueueScanCheck: () => enqueueDurableJob('citation.scan', {}, {
+    idempotencyKey: durableJobKey('citation.scan', 12 * 60 * 60 * 1000),
+    maxAttempts: 5,
+  }),
+  setAutoEnabled: enabled => {
+    citationsDb.autoEnabled = enabled;
+    saveCitations();
+    return citationsDb.autoEnabled;
+  },
+  clearNewDomains: () => {
+    citationsDb.newDomains = [];
+    saveCitations();
+  },
+  updateStatus: (domain, status) => {
+    if (!citationsDb.statuses) citationsDb.statuses = {};
+    citationsDb.statuses[domain] = { status, updatedAt: new Date().toISOString() };
+    saveCitations();
+  },
+  listingKit,
+  geminiGenerate,
+  model: GEMINI_MODEL,
+  parseGeminiJson,
+  brandPrompt,
+  logger: console,
 });
 
 // Background scheduler for the weekly citation auto-scan (staggered from the
 // Local/On-Site autopilots so they don't all fire grounded calls at once).
 scheduleDurableCheck('citation.scan', 60000, 12 * 60 * 60 * 1000);
-
-// POST update one target's status in the tracker (auth).
-app.post('/api/citation-status', requireAuth, (req, res) => {
-  const { domain, status } = req.body || {};
-  if (!domain || !CITATION_STATUSES.includes(status)) {
-    return res.status(400).json({ success: false, error: `Provide a domain and a status of: ${CITATION_STATUSES.join(', ')}.` });
-  }
-  if (!citationsDb.statuses) citationsDb.statuses = {};
-  citationsDb.statuses[domain] = { status, updatedAt: new Date().toISOString() };
-  saveCitations();
-  res.json({ success: true, domain, status });
-});
-
-// POST generate the action asset for one target — a pitch email (listicle/
-// news/forum) or a copy-paste listing payload + claim link (directory/review).
-app.post('/api/citation-outreach', requireAuth, async (req, res) => {
-  const { domain, type, queries } = req.body || {};
-  if (!domain) return res.status(400).json({ success: false, error: 'A target domain is required.' });
-  const geminiKey = process.env.GEMINI_API_KEY;
-  const t = String(type || 'other').toLowerCase();
-  const qList = Array.isArray(queries) ? queries.filter(Boolean) : [];
-  const kit = listingKit();
-
-  if (t === 'competitor') {
-    return res.json({ success: true, kind: 'skip', message: "This is a competitor's own site — study their positioning, but you can't get listed here." });
-  }
-
-  // Listing payload (directories + review sites): built from the canonical kit.
-  if (LISTING_TYPES.includes(t)) {
-    let claimUrl = `https://${domain}`;
-    let howTo = 'Look for a "Claim this business", "Add your business", or "For businesses" link, then paste the fields below.';
-    if (geminiKey) {
-      try {
-        const p = `Best Day Fitness wants to claim or create a free business listing on "${domain}" (a ${t} site). Using current web information, find the exact URL where a business owner adds or claims a listing on ${domain}. Return ONLY raw JSON, no markdown: {"claimUrl":"the direct add/claim/for-business URL","howTo":"one short line on the steps"}`;
-        const r = await geminiGenerate({ model: GEMINI_MODEL, contents: p, config: { tools: [{ googleSearch: {} }] } });
-        const parsed = parseGeminiJson(r.text);
-        if (parsed && parsed.claimUrl) claimUrl = parsed.claimUrl;
-        if (parsed && parsed.howTo) howTo = parsed.howTo;
-      } catch (e) { console.error('[Outreach listing] grounding failed:', e.message); }
-    }
-    return res.json({
-      success: true, kind: 'listing', domain, claimUrl, howTo,
-      fields: {
-        name: kit.name, address: kit.addressOneLine, phone: kit.phone, website: kit.website,
-        categories: kit.categories.join(' · '), description: kit.shortDesc
-      }
-    });
-  }
-
-  // Pitch email (editorial listicles, local news, forums): grounded + personalized.
-  if (!geminiKey) {
-    return res.json({ success: true, kind: 'pitch', domain, unavailable: true, message: 'Add a Gemini key in Settings to auto-draft a personalized pitch for this source.' });
-  }
-  try {
-    const p = `You are helping a local business get included in a third-party ${t}.
-Business: ${brandPrompt()}
-Phone ${kit.phone}. Owner's first name: Chris.
-Target site: "${domain}". It shows up in AI answers for searches like: ${qList.join('; ') || 'best gyms / senior fitness in St. Petersburg'}.
-Do BOTH of the following using current web information about "${domain}":
-1) Find the single best REAL way to reach them to pitch inclusion: an actual publicly-listed email address if one exists (prefer editorial / tips / news / submissions / contact / info in that order), and the URL of the page where a pitch or listing submission is made (their contact, "submit a tip", "write for us", or about page). Only return an email you can actually find published — never invent one.
-2) Write a warm, specific pitch for inclusion. Reference what the site or article actually covers so it's clearly not a template. Under 130 words, one clear ask, friendly sign-off from Chris.
-Return ONLY raw JSON, no markdown: {"email":"the best real, publicly-listed email address, or empty string if none is published","contactUrl":"the URL to submit/pitch or the site's contact page (empty if none)","to":"a short human label for who this reaches, e.g. 'Features editor'","subject":"","body":"","howToFind":"one short line on how to reach or confirm the right recipient"}`;
-    const r = await geminiGenerate({ model: GEMINI_MODEL, contents: p, config: { tools: [{ googleSearch: {} }] } });
-    const parsed = parseGeminiJson(r.text) || {};
-    const emailRe = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
-    const foundEmail = parsed.email && emailRe.test(String(parsed.email).trim()) ? String(parsed.email).trim() : '';
-    let contactUrl = '';
-    if (parsed.contactUrl && /^https?:\/\//i.test(String(parsed.contactUrl).trim())) contactUrl = String(parsed.contactUrl).trim();
-    else contactUrl = `https://${domain}`;
-    return res.json({
-      success: true, kind: 'pitch', domain,
-      email: foundEmail,
-      contactUrl,
-      to: parsed.to || (foundEmail || 'Editor'),
-      subject: parsed.subject || `Best Day Fitness — a senior-focused studio for ${domain}`,
-      body: parsed.body || '',
-      howToFind: parsed.howToFind || 'Check the article byline or the site’s contact/about page for the right person.'
-    });
-  } catch (err) {
-    console.error('[Outreach pitch] failed:', err.message);
-    return res.status(502).json({ success: false, error: err.message });
-  }
-});
 
 // ============================================================
 // 16. Local SEO Autopilot — hands-off local upkeep:
