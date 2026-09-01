@@ -475,7 +475,7 @@ Point `DATA_DIR` at a persistent volume in production so this data survives rede
 
 Node.js · Express · `@google/genai` (Gemini) · `googleapis` (Search Console, Indexing, Gmail, Business Profile) · OpenAI & Perplexity REST APIs (optional AI‑visibility engines) · GoHighLevel API · vanilla‑JS single‑page front‑end.
 
-The browser code is split by responsibility: `public/modules/core.js` owns authentication and safe rendering helpers, `assistant.js` owns the copilot, `reviews.js` owns review monitoring, and `public/app.js` coordinates the remaining dashboard features. `lib/browser-assets.js` gives every stylesheet and script a deterministic content hash with immutable caching, while HTML always revalidates and points to the current files.
+The browser code is split by responsibility: `public/modules/core.js` owns authentication and safe rendering helpers, `assistant.js` owns the copilot, `reviews.js` owns review monitoring, and `public/app.js` coordinates the remaining dashboard features. Server-side Search Console reads and non-secret diagnostics share one `lib/gsc-routes.js` service boundary, preventing query and live-vs-mock behavior from drifting across endpoints. `lib/browser-assets.js` gives every stylesheet and script a deterministic content hash with immutable caching, while HTML always revalidates and points to the current files.
 
 ---
 

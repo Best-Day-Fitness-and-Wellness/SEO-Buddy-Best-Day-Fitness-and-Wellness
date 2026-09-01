@@ -33,6 +33,7 @@ const { createJobWorker } = require('../lib/job-worker.js');
 const { createPostgresJobQueue, publicJob: publicPostgresJob } = require('../lib/postgres-job-queue.js');
 const { registerProfileRoutes } = require('../lib/profile-routes.js');
 const { normalizeBudget, registerUsageRoutes } = require('../lib/usage-routes.js');
+const { createGscService, mapPageRows, mapQueryRows, searchDateRange } = require('../lib/gsc-routes.js');
 const { ProviderRuntimeError, createProviderRuntime } = require('../lib/provider-runtime.js');
 const { createPostgresStateBridge, replayPostgresOutbox } = require('../lib/postgres-state-bridge.js');
 const { classifyContactSource, summarizeContactAttribution } = require('../lib/attribution.js');
@@ -473,6 +474,60 @@ test('usage routes preserve reporting and owner budget contracts', () => {
   assert.equal(normalizeBudget(''), null);
   assert.equal(normalizeBudget('invalid'), 0);
   assert.equal(normalizeBudget('42.5'), 42.5);
+});
+
+test('Search Console service preserves query shaping, sorting, and live contracts', async () => {
+  assert.deepEqual(searchDateRange(() => Date.parse('2026-09-01T12:00:00.000Z')), {
+    startDate: '2026-08-02',
+    endDate: '2026-09-01',
+  });
+  assert.deepEqual(mapQueryRows([
+    { keys: ['popular'], impressions: 100, clicks: 8, ctr: 0.08, position: 2.14 },
+    { keys: ['opportunity'], impressions: 25, clicks: 0, ctr: 0, position: 6.25 },
+  ]), [
+    { query: 'opportunity', impressions: 25, clicks: 0, ctr: 0, position: 6.3, leak: true },
+    { query: 'popular', impressions: 100, clicks: 8, ctr: 8, position: 2.1, leak: false },
+  ]);
+  assert.deepEqual(mapPageRows([
+    { keys: ['https://example.com/low'], impressions: 5, clicks: 1, ctr: 0.2, position: 8.94 },
+    { keys: ['https://example.com/high'], impressions: 40, clicks: 0, ctr: 0, position: 3.01 },
+  ]).map(row => row.page), ['https://example.com/high', 'https://example.com/low']);
+
+  const requests = [];
+  const service = createGscService({
+    getGoogleAuth: () => ({ account: 'service' }),
+    getSiteUrl: () => 'sc-domain:bestdayfitness.com',
+    getRawCredentials: () => '',
+    createWebmasters: auth => ({ auth }),
+    searchConsoleQuery: async (client, request) => {
+      requests.push({ client, request });
+      return { data: { rows: [{ keys: ['https://bestdayfitness.com/page'], impressions: 12, clicks: 0, ctr: 0, position: 4 }] } };
+    },
+    parseServiceAccountJson: () => ({ creds: null, repairs: [] }),
+    credentialShape: () => '',
+    integrationUnavailable: (provider, message) => new Error(`${provider}: ${message}`),
+    allowMockIntegrations: false,
+    mockData: [],
+    baseDir: process.cwd(),
+    now: () => Date.parse('2026-09-01T12:00:00.000Z'),
+    logger: { error() {} },
+  });
+
+  const dashboard = await service.getDashboardData();
+  assert.equal(dashboard.source, 'live_gsc');
+  assert.equal(dashboard.data[0].query, 'https://bestdayfitness.com/page');
+
+  const pages = await service.getPages(' senior fitness ');
+  assert.equal(pages.source, 'live_gsc');
+  assert.equal(pages.query, 'senior fitness');
+  assert.deepEqual(requests[1].request.requestBody.dimensionFilterGroups, [{
+    filters: [{ dimension: 'query', operator: 'equals', expression: 'senior fitness' }],
+  }]);
+
+  const diagnostics = await service.diagnostics();
+  assert.equal(diagnostics.verdict, 'connected');
+  assert.equal(diagnostics.serviceAccountEmail, null);
+  assert.equal(Object.hasOwn(diagnostics, 'private_key'), false);
 });
 
 test('provider runtime retries transient failures and reports bounded integration health', async () => {
