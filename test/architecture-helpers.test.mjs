@@ -1708,16 +1708,19 @@ test('citation routes preserve scan, tracker, listing, and pitch contracts', asy
   let autoEnabled = true;
   let newDomains = ['new.example'];
   let scanError = null;
+  let targetError = null;
   let geminiResult = {};
   let geminiError = null;
   let nudges = 0;
   let saves = 0;
   const scans = [];
+  const targetQueries = [];
+  const kitUpdates = [];
   const statuses = [];
   const prompts = [];
   const errors = [];
   const worklist = { success: true, targets: [{ domain: 'directory.example' }] };
-  const kit = {
+  let kit = {
     name: 'Best Day Fitness',
     addressOneLine: '123 Main St',
     phone: '(727) 555-0100',
@@ -1742,6 +1745,20 @@ test('citation routes preserve scan, tracker, listing, and pitch contracts', asy
     clearNewDomains: () => { newDomains = []; saves += 1; },
     updateStatus: (domain, status) => { statuses.push({ domain, status }); saves += 1; },
     listingKit: () => kit,
+    discoverTargets: async queries => {
+      targetQueries.push(queries);
+      if (targetError) throw targetError;
+      return {
+        brandCited: true,
+        sourcesFound: 2,
+        targets: [{ domain: 'directory.example', type: 'directory' }],
+      };
+    },
+    updateListingKit: parsed => {
+      kitUpdates.push(parsed);
+      kit = { ...kit, ...parsed };
+      saves += 1;
+    },
     geminiGenerate: async request => {
       prompts.push(request);
       if (geminiError) throw geminiError;
@@ -1763,6 +1780,8 @@ test('citation routes preserve scan, tracker, listing, and pitch contracts', asy
   }
   const handler = (method, path) => routes.get(`${method} ${path}`).at(-1);
   for (const path of [
+    '/api/citation-targets',
+    '/api/listing-kit',
     '/api/citation-scan',
     '/api/citation-autopilot/toggle',
     '/api/citation-autopilot/seen',
@@ -1776,7 +1795,34 @@ test('citation routes preserve scan, tracker, listing, and pitch contracts', asy
   handler('GET', '/api/citation-worklist')({}, cached);
   assert.equal(nudges, 1);
   assert.deepEqual(cached.body, worklist);
+  const initialKit = response();
+  handler('GET', '/api/listing-kit')({}, initialKit);
+  assert.deepEqual(initialKit.body, { success: true, kit });
 
+  const invalidTargets = response();
+  await handler('POST', '/api/citation-targets')({ body: { queries: [] } }, invalidTargets);
+  assert.deepEqual([invalidTargets.statusCode, invalidTargets.body], [400, { error: 'At least one search query is required.' }]);
+  const targetsUnavailable = response();
+  await handler('POST', '/api/citation-targets')({ body: { queries: ['fitness'] } }, targetsUnavailable);
+  assert.deepEqual(targetsUnavailable.body, {
+    success: true,
+    unavailable: true,
+    message: 'Add your Gemini key in Settings to find the sites AI cites (this runs a live Google search).',
+    targets: [],
+  });
+  hasKey = true;
+  const targetsFound = response();
+  await handler('POST', '/api/citation-targets')({ body: { queries: [' senior fitness ', '', null, 'mobility'] } }, targetsFound);
+  assert.deepEqual(targetQueries.at(-1), ['senior fitness', 'mobility']);
+  assert.deepEqual(targetsFound.body, {
+    success: true,
+    brandCited: true,
+    totalQueries: 2,
+    sourcesFound: 2,
+    targets: [{ domain: 'directory.example', type: 'directory' }],
+  });
+
+  hasKey = false;
   const unavailable = response();
   await handler('POST', '/api/citation-scan')({ body: {} }, unavailable);
   assert.equal(unavailable.body.unavailable, true);
@@ -1872,9 +1918,45 @@ test('citation routes preserve scan, tracker, listing, and pitch contracts', asy
   await handler('POST', '/api/citation-outreach')({ body: { domain: 'news.example', type: 'news' } }, pitchFailed);
   assert.equal(pitchFailed.statusCode, 502);
   assert.equal(pitchFailed.body.error, 'grounding failed');
+
+  targetError = new Error('target search failed');
+  const targetsFailed = response();
+  await handler('POST', '/api/citation-targets')({ body: { queries: ['fitness'] } }, targetsFailed);
+  assert.equal(targetsFailed.statusCode, 502);
+  assert.deepEqual(targetsFailed.body, {
+    success: false,
+    error: 'Could not complete citation analysis: target search failed',
+  });
+
+  hasKey = false;
+  geminiError = null;
+  const kitFallback = response();
+  await handler('POST', '/api/listing-kit')({ body: {} }, kitFallback);
+  assert.equal(kitFallback.body.note, 'Add a Gemini key to regenerate descriptions; using the built-in defaults for now.');
+  assert.deepEqual(kitFallback.body.kit, kit);
+  hasKey = true;
+  geminiResult = {
+    tagline: 'Stronger every day',
+    shortDesc: 'Personal training for active adults 50+.',
+    longDesc: 'Build strength, mobility, and confidence with expert coaching.',
+    categories: ['Personal Trainer', 'Senior Fitness'],
+  };
+  const kitRegenerated = response();
+  await handler('POST', '/api/listing-kit')({ body: {} }, kitRegenerated);
+  assert.deepEqual(kitUpdates, [geminiResult]);
+  assert.equal(kitRegenerated.body.kit.tagline, 'Stronger every day');
+  assert.match(prompts.at(-1).contents, /Write listing copy for business directories/);
+  assert.equal(saves, 4);
+  geminiError = new Error('kit generation failed');
+  const kitFailed = response();
+  await handler('POST', '/api/listing-kit')({ body: {} }, kitFailed);
+  assert.equal(kitFailed.statusCode, 502);
+  assert.deepEqual(kitFailed.body, { success: false, error: 'kit generation failed' });
   assert.deepEqual(errors, [
     ['[Citation Scan] failed:', 'search unavailable'],
     ['[Outreach pitch] failed:', 'grounding failed'],
+    ['[Citation Targets] failed:', 'target search failed'],
+    ['[Listing Kit] regenerate failed:', 'kit generation failed'],
   ]);
 });
 

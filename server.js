@@ -2880,42 +2880,6 @@ app.get('/api/aio-schema', (req, res) => {
   });
 });
 
-// 12. Citation Target Finder — the real third-party sources AI cites for your
-// searches (where you need to get listed to show up in AI answers).
-app.post('/api/citation-targets', requireAuth, async (req, res) => {
-  const { queries } = req.body;
-  if (!Array.isArray(queries) || queries.length === 0) {
-    return res.status(400).json({ error: 'At least one search query is required.' });
-  }
-
-  const geminiKey = process.env.GEMINI_API_KEY;
-  if (!geminiKey) {
-    return res.json({
-      success: true,
-      unavailable: true,
-      message: 'Add your Gemini key in Settings to find the sites AI cites (this runs a live Google search).',
-      targets: []
-    });
-  }
-
-  const cleanQueries = queries.map(q => String(q || '').trim()).filter(Boolean).slice(0, 8);
-
-  try {
-    const { brandCited, sourcesFound, targets } = await discoverCitationTargets(cleanQueries);
-
-    return res.json({
-      success: true,
-      brandCited,
-      totalQueries: cleanQueries.length,
-      sourcesFound,
-      targets
-    });
-  } catch (err) {
-    console.error('[Citation Targets] failed:', err.message);
-    return res.status(502).json({ success: false, error: `Could not complete citation analysis: ${err.message}` });
-  }
-});
-
 // 15. Performance — period-over-period trends, durable snapshots, and leads
 const PERF_FILE = path.join(DATA_DIR, 'performance.json');
 let perfSnapshots = [];
@@ -3029,36 +2993,6 @@ function listingKit() {
     generatedAt: cached.generatedAt || null
   };
 }
-
-// GET the canonical Listing Kit (read-only, no auth so the tab loads).
-app.get('/api/listing-kit', (req, res) => {
-  res.json({ success: true, kit: listingKit() });
-});
-
-// POST regenerate the kit's descriptions with Gemini (auth — spends a call).
-app.post('/api/listing-kit', requireAuth, async (req, res) => {
-  const geminiKey = process.env.GEMINI_API_KEY;
-  if (!geminiKey) return res.json({ success: true, kit: listingKit(), note: 'Add a Gemini key to regenerate descriptions; using the built-in defaults for now.' });
-  try {
-    const prompt = `${brandPrompt(true)}\n\nWrite listing copy for business directories. Return ONLY raw JSON, no markdown: {"tagline":"under 70 chars","shortDesc":"<=160 chars, keyword-aware","longDesc":"2-3 sentence paragraph","categories":["4 short business categories"]}`;
-    const r = await geminiGenerate({ model: GEMINI_MODEL, contents: prompt });
-    const parsed = parseGeminiJson(r.text);
-    if (parsed) {
-      citationsDb.kit = {
-        tagline: parsed.tagline || kitStatic().tagline,
-        shortDesc: parsed.shortDesc || kitStatic().shortDesc,
-        longDesc: parsed.longDesc || kitStatic().longDesc,
-        categories: Array.isArray(parsed.categories) && parsed.categories.length ? parsed.categories.slice(0, 6) : undefined,
-        generatedAt: new Date().toISOString()
-      };
-      saveCitations();
-    }
-    res.json({ success: true, kit: listingKit() });
-  } catch (err) {
-    console.error('[Listing Kit] regenerate failed:', err.message);
-    res.status(502).json({ success: false, error: err.message });
-  }
-});
 
 // Shared finder: grounded discovery + classification of the sources AI cites.
 async function discoverCitationTargets(cleanQueries) {
@@ -3196,6 +3130,19 @@ registerCitationRoutes(app, {
     saveCitations();
   },
   listingKit,
+  discoverTargets: discoverCitationTargets,
+  updateListingKit: parsed => {
+    citationsDb.kit = {
+      tagline: parsed.tagline || kitStatic().tagline,
+      shortDesc: parsed.shortDesc || kitStatic().shortDesc,
+      longDesc: parsed.longDesc || kitStatic().longDesc,
+      categories: Array.isArray(parsed.categories) && parsed.categories.length
+        ? parsed.categories.slice(0, 6)
+        : undefined,
+      generatedAt: new Date().toISOString(),
+    };
+    saveCitations();
+  },
   geminiGenerate,
   model: GEMINI_MODEL,
   parseGeminiJson,
