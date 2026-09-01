@@ -103,6 +103,7 @@ const BROWSER_ASSETS = buildBrowserAssets(PUBLIC_DIR, [
   { token: 'ASSISTANT_ASSET', file: 'modules/assistant.js' },
   { token: 'REVIEWS_ASSET', file: 'modules/reviews.js' },
   { token: 'RECORDED_CONTENT_ASSET', file: 'modules/recorded-content.js' },
+  { token: 'PDF_REPORT_ASSET', file: 'modules/pdf-report.js' },
 ]);
 const INDEX_HTML = renderAssetIndex(fs.readFileSync(path.join(PUBLIC_DIR, 'index.html'), 'utf8'), BROWSER_ASSETS);
 
