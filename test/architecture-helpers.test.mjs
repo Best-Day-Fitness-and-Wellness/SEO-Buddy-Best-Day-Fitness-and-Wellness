@@ -85,6 +85,13 @@ const {
   parseReviewCards,
   registerReviewsRoutes,
 } = require('../lib/reviews-routes.js');
+const {
+  PRESERVED_SETTINGS,
+  cleanSettingValue,
+  normalizeSettings,
+  registerConfigurationRoutes,
+  validateSavedSettings,
+} = require('../lib/configuration-routes.js');
 const { ProviderRuntimeError, createProviderRuntime } = require('../lib/provider-runtime.js');
 const { createPostgresStateBridge, replayPostgresOutbox } = require('../lib/postgres-state-bridge.js');
 const { classifyContactSource, summarizeContactAttribution } = require('../lib/attribution.js');
@@ -1349,6 +1356,134 @@ test('local SEO routes preserve NAP, generation, validation, and reply-history c
   assert.equal(failed.statusCode, 502);
   assert.deepEqual(failed.body, { success: false, error: 'generation unavailable' });
   assert.deepEqual(errors.at(-1), ['[Local Generate] failed:', 'generation unavailable']);
+});
+
+test('configuration routes preserve secrets, credentials, validation, activation, and storage contracts', () => {
+  assert.ok(PRESERVED_SETTINGS.includes('GOOGLE_APPLICATION_CREDENTIALS'));
+  assert.ok(PRESERVED_SETTINGS.includes('ADMIN_PASSWORD'));
+  assert.ok(PRESERVED_SETTINGS.includes('TRUSTPILOT_API_KEY'));
+  assert.equal(cleanSettingValue('  value  ', 10), 'value');
+  assert.equal(cleanSettingValue('123456', 4), '1234');
+
+  const normalized = normalizeSettings({
+    geminiKey: ' new-gemini ',
+    ghlLocation: ' location-2 ',
+    blogPrefix: 'articles',
+  }, {
+    GEMINI_API_KEY: 'old-gemini',
+    OPENAI_API_KEY: 'preserved-openai',
+    ADMIN_PASSWORD: 'owner-secret',
+  });
+  assert.deepEqual(normalized, {
+    GEMINI_API_KEY: 'new-gemini',
+    OPENAI_API_KEY: 'preserved-openai',
+    GHL_LOCATION_ID: 'location-2',
+    GHL_BLOG_PATH_PREFIX: 'articles',
+    ADMIN_PASSWORD: 'owner-secret',
+  });
+  assert.throws(() => normalizeSettings({ geminiKey: 'valid\nINJECTED=value' }, {}), /control characters/);
+  assert.equal(validateSavedSettings({ GSC_SITE_URL: 'sc-domain:bestdayfitness.com' }), null);
+  assert.equal(validateSavedSettings({ GSC_SITE_URL: 'sc-domain:https://bad.example' }), 'Search Console domain properties must look like sc-domain:example.com.');
+  assert.equal(validateSavedSettings({ GSC_SITE_URL: 'ftp://bad.example' }), 'The site URL must start with http:// or https://.');
+  assert.equal(validateSavedSettings({ GHL_AUTHOR_URL: 'not a URL' }), 'The author URL must start with http:// or https://.');
+  const prefix = { GHL_BLOG_PATH_PREFIX: 'post' };
+  assert.equal(validateSavedSettings(prefix), null);
+  assert.equal(prefix.GHL_BLOG_PATH_PREFIX, '/post');
+
+  const routes = new Map();
+  const app = {
+    get(path, ...handlers) { routes.set(`GET ${path}`, handlers); },
+    post(path, ...handlers) { routes.set(`POST ${path}`, handlers); },
+  };
+  const requireOwner = () => {};
+  const environment = {
+    DATA_DIR: '/persistent-data',
+    ADMIN_PASSWORD: 'owner-secret',
+    GEMINI_API_KEY: 'old-gemini',
+    TRUSTPILOT_API_KEY: 'trustpilot-key',
+  };
+  const writes = [];
+  const reloads = [];
+  const reinitialized = [];
+  const serialized = [];
+  let cacheClears = 0;
+  const errors = [];
+  registerConfigurationRoutes(app, {
+    requireOwner,
+    configDir: '/persistent-data',
+    environment,
+    parseServiceAccountJson: raw => {
+      if (raw === 'throw') throw new Error('bad credentials');
+      try { return { creds: JSON.parse(raw) }; } catch (error) { return { creds: null, error: error.message }; }
+    },
+    reloadEnvironment: settingsPath => {
+      reloads.push(settingsPath);
+      environment.GEMINI_API_KEY = 'new-gemini';
+    },
+    reinitializeGemini: key => reinitialized.push(key),
+    clearCaches: () => { cacheClears += 1; },
+    getStorageStatus: () => ({ persistent: true, backend: 'postgres', tenantId: 'tenant-1', postgresMirror: { ready: true } }),
+    writePrivateFile: (file, content, options) => writes.push({ file, content, options }),
+    serializeSettings: settings => { serialized.push(structuredClone(settings)); return 'SERIALIZED_ENV'; },
+    logger: {
+      log() {}, warn() {}, error(...args) { errors.push(args); },
+    },
+  });
+  assert.equal(routes.get('POST /api/save-settings')[0], requireOwner);
+  const save = routes.get('POST /api/save-settings').at(-1);
+  const response = () => ({
+    statusCode: 200,
+    body: null,
+    status(code) { this.statusCode = code; return this; },
+    json(body) { this.body = body; return this; },
+  });
+
+  const invalidDomain = response();
+  save({ body: { siteUrl: 'sc-domain:https://bad.example' } }, invalidDomain);
+  assert.deepEqual([invalidDomain.statusCode, invalidDomain.body], [400, { success: false, error: 'Search Console domain properties must look like sc-domain:example.com.' }]);
+  assert.equal(writes.length, 0);
+
+  const missingFields = response();
+  save({ body: { gscJson: JSON.stringify({ client_email: 'service@example.com' }) } }, missingFields);
+  assert.deepEqual([missingFields.statusCode, missingFields.body], [400, { success: false, error: 'The Google credentials JSON is missing client_email or private_key.' }]);
+
+  const credentials = {
+    type: 'service_account',
+    client_email: 'service@example.com',
+    private_key: '-----BEGIN PRIVATE KEY-----\nvalue\n-----END PRIVATE KEY-----\n',
+  };
+  const saved = response();
+  save({ body: {
+    geminiKey: 'new-gemini',
+    siteUrl: 'sc-domain:bestdayfitness.com',
+    blogPrefix: 'post',
+    gscJson: JSON.stringify(credentials),
+  } }, saved);
+  assert.equal(saved.body.success, true);
+  assert.equal(saved.body.persistent, true);
+  assert.match(saved.body.message, /persistent server volume/);
+  assert.deepEqual(writes.map(write => write.file), [
+    join('/persistent-data', 'google-creations.json'),
+    join('/persistent-data', '.env'),
+  ]);
+  assert.deepEqual(writes.map(write => write.options), [{ mode: 0o600 }, { mode: 0o600 }]);
+  assert.deepEqual(JSON.parse(writes[0].content), credentials);
+  assert.equal(writes[1].content, 'SERIALIZED_ENV');
+  assert.equal(serialized[0].GHL_BLOG_PATH_PREFIX, '/post');
+  assert.equal(serialized[0].GOOGLE_APPLICATION_CREDENTIALS, join('/persistent-data', 'google-creations.json'));
+  assert.deepEqual(reloads, [join('/persistent-data', '.env')]);
+  assert.deepEqual(reinitialized, ['new-gemini']);
+  assert.equal(cacheClears, 1);
+
+  const storage = response();
+  routes.get('GET /api/storage-status').at(-1)({}, storage);
+  assert.deepEqual(storage.body, { persistent: true, backend: 'postgres', tenantId: 'tenant-1', postgresMirror: { ready: true } });
+
+  const invalidSecret = response();
+  save({ body: { ghlToken: 'valid\nINJECTED=value' } }, invalidSecret);
+  assert.equal(invalidSecret.statusCode, 400);
+  assert.match(invalidSecret.body.error, /control characters/);
+  assert.deepEqual(errors.at(-1), ['[Settings] Failed to save server settings:', 'GoHighLevel access token contains unsupported control characters.']);
 });
 
 test('reviews service preserves parsing, audits, snapshots, coalescing, caching, and route failures', async () => {

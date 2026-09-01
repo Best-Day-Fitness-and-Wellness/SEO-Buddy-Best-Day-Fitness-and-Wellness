@@ -192,6 +192,7 @@ so one production replica remains the supported topology.
 | `lib/backup-service.js` | Secret-free checksummed backup and restore |
 | `lib/postgres-store.js` | Advisory-locked migrations and staged state mirror |
 | `lib/access-control.js` / `audit-log.js` | Roles, authorization, tamper-evident mutation trail |
+| `lib/configuration-routes.js` | Owner-only settings validation, secret persistence, activation, and storage status |
 | `lib/health-score.js` | Pure, versioned scoring and stabilization |
 | `lib/attribution.js` | Deterministic contact source classification |
 | `lib/content-quality.js` | Deterministic article quality and automatic-publish gate |
@@ -238,7 +239,7 @@ so one production replica remains the supported topology.
 
 ## Remaining constraints and next refactors
 
-1. **`server.js` is still the main monolith.** Operations, profile, usage,
+1. **`server.js` is still the main composition monolith.** Operations, configuration, profile, usage,
    Search Console, content autopilot, manual article lifecycle, AI Visibility,
    AI audits, core AIO auditing, AI Assistant, recorded content, dashboard projections, reviews analytics, scheduled feature controls, Google delivery, Citation,
    Local SEO, Performance, and On-Site SEO are extracted; continue one route family at a time into services, integrations,

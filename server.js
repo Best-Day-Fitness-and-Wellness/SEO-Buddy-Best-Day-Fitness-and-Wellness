@@ -8,8 +8,7 @@ const fs = require('fs');
 const crypto = require('node:crypto');
 const { google } = require('googleapis');
 const { GoogleGenAI } = require('@google/genai');
-const { saveJsonFileSync, setJsonWriteObserver, writeFileAtomicSync, writeJsonFileSync } = require('./lib/json-file-store');
-const { serializeDotenv } = require('./lib/dotenv-store');
+const { saveJsonFileSync, setJsonWriteObserver, writeJsonFileSync } = require('./lib/json-file-store');
 const { upsertDailySnapshot } = require('./lib/daily-snapshot');
 const {
   SCORE_VERSION,
@@ -26,7 +25,6 @@ const { createRequestMetrics } = require('./lib/request-metrics');
 const { buildBrowserAssets, renderAssetIndex } = require('./lib/browser-assets');
 const { createAccessControl } = require('./lib/access-control');
 const { createAuditLog } = require('./lib/audit-log');
-const { normalizeSecretInput } = require('./lib/secrets');
 const { createFileStateRepository } = require('./lib/state-repository');
 const { createBackupService } = require('./lib/backup-service');
 const { createPostgresStore } = require('./lib/postgres-store');
@@ -57,6 +55,7 @@ const { registerAssistantRoutes } = require('./lib/assistant-routes');
 const { registerRecordedContentRoutes } = require('./lib/recorded-content-routes');
 const { registerDashboardRoutes } = require('./lib/dashboard-routes');
 const { createReviewsService, registerReviewsRoutes } = require('./lib/reviews-routes');
+const { registerConfigurationRoutes } = require('./lib/configuration-routes');
 
 // Load UI-saved secrets from the durable storage root. Tenant state is isolated
 // below this root after configuration is loaded; host-provided variables still
@@ -1803,154 +1802,35 @@ function startAutopilotScheduler() {
 // Routes
 // ----------------------------------------------------
 
-// 0. Save Configuration Settings
-app.post('/api/save-settings', requireOwner, (req, res) => {
-  const { geminiKey, openaiKey, perplexityKey, ghlToken, ghlLocation, ghlBlog, siteUrl, blogPrefix, authorName, authorUrl, gscJson } = req.body || {};
-
-  try {
-    const clean = (value, max = 10000) => typeof value === 'string' ? value.trim().slice(0, max) : '';
-    const saved = {};
-    const preserve = [
-      'GEMINI_API_KEY', 'OPENAI_API_KEY', 'PERPLEXITY_API_KEY',
-      'GHL_ACCESS_TOKEN', 'GHL_LOCATION_ID', 'GHL_BLOG_ID',
-      'GSC_SITE_URL', 'GHL_BLOG_PATH_PREFIX', 'GHL_AUTHOR_NAME',
-      'GHL_AUTHOR_URL', 'GOOGLE_APPLICATION_CREDENTIALS',
-      'ADMIN_PASSWORD', 'OPERATOR_PASSWORD', 'AUDIT_SIGNING_KEY',
-      // Set on the host, not in this form. Without these two lines a Settings
-      // save rewrites the .env without them and silently unconfigures
-      // Trustpilot — the same way it once ate the Google credentials.
-      'TRUSTPILOT_API_KEY', 'TRUSTPILOT_DOMAIN', 'REVIEWS_URL'
-    ];
-    for (const key of preserve) if (process.env[key]) saved[key] = process.env[key];
-
-    const replacements = {
-      GEMINI_API_KEY: normalizeSecretInput(geminiKey, 'Gemini API key'),
-      OPENAI_API_KEY: normalizeSecretInput(openaiKey, 'OpenAI API key'),
-      PERPLEXITY_API_KEY: normalizeSecretInput(perplexityKey, 'Perplexity API key'),
-      GHL_ACCESS_TOKEN: normalizeSecretInput(ghlToken, 'GoHighLevel access token'),
-      GHL_LOCATION_ID: clean(ghlLocation, 500),
-      GHL_BLOG_ID: clean(ghlBlog, 500),
-      GSC_SITE_URL: clean(siteUrl, 2000),
-      GHL_BLOG_PATH_PREFIX: clean(blogPrefix, 500),
-      GHL_AUTHOR_NAME: clean(authorName, 500),
-      GHL_AUTHOR_URL: clean(authorUrl, 2000),
-    };
-    for (const [key, value] of Object.entries(replacements)) if (value) saved[key] = value;
-
-    if (saved.GSC_SITE_URL) {
-      if (saved.GSC_SITE_URL.startsWith('sc-domain:')) {
-        if (!/^sc-domain:[a-z0-9.-]+$/i.test(saved.GSC_SITE_URL)) {
-          return res.status(400).json({ success: false, error: 'Search Console domain properties must look like sc-domain:example.com.' });
-        }
-      } else {
-        let parsed;
-        try { parsed = new URL(saved.GSC_SITE_URL); } catch (e) { /* handled below */ }
-        if (!parsed || !['http:', 'https:'].includes(parsed.protocol)) {
-          return res.status(400).json({ success: false, error: 'The site URL must start with http:// or https://.' });
-        }
-      }
+registerConfigurationRoutes(app, {
+  requireOwner,
+  configDir: CONFIG_DIR,
+  environment: process.env,
+  parseServiceAccountJson,
+  reloadEnvironment: settingsPath => dotenv.config({ path: settingsPath, override: true }),
+  reinitializeGemini: apiKey => {
+    try {
+      ai = new GoogleGenAI({ apiKey });
+      console.log('[Gemini SDK] Re-initialized successfully.');
+    } catch (error) {
+      console.error('[Gemini SDK] Re-initialization failed:', error.message);
     }
-    if (saved.GHL_BLOG_PATH_PREFIX && !saved.GHL_BLOG_PATH_PREFIX.startsWith('/')) {
-      saved.GHL_BLOG_PATH_PREFIX = '/' + saved.GHL_BLOG_PATH_PREFIX;
-    }
-    if (saved.GHL_AUTHOR_URL) {
-      let parsed;
-      try { parsed = new URL(saved.GHL_AUTHOR_URL); } catch (e) { /* handled below */ }
-      if (!parsed || !['http:', 'https:'].includes(parsed.protocol)) {
-        return res.status(400).json({ success: false, error: 'The author URL must start with http:// or https://.' });
-      }
-    }
-    
-    // Write service account file if gscJson is provided
-    if (clean(gscJson, 2 * 1024 * 1024)) {
-      try {
-        // Same repair as getGoogleAuth: a paste that travelled through a
-        // document arrives with curled quotes and would otherwise be rejected
-        // with a message the person cannot act on.
-        const parsedKey = parseServiceAccountJson(gscJson);
-        if (!parsedKey.creds) {
-          return res.status(400).json({ success: false, error: 'The Google credentials field must contain valid service-account JSON. ' + (parsedKey.error || '') });
-        }
-        const credentials = parsedKey.creds;
-        if (!credentials || typeof credentials !== 'object' || !credentials.client_email || !credentials.private_key) {
-          return res.status(400).json({ success: false, error: 'The Google credentials JSON is missing client_email or private_key.' });
-        }
-        const credentialsPath = path.join(CONFIG_DIR, 'google-creations.json');
-        writeFileAtomicSync(credentialsPath, JSON.stringify(credentials), { mode: 0o600 });
-        saved.GOOGLE_APPLICATION_CREDENTIALS = credentialsPath;
-      } catch (jsonErr) {
-        console.error('[Settings] Invalid GSC JSON key:', jsonErr.message);
-        return res.status(400).json({ success: false, error: 'The Google credentials field must contain valid service-account JSON.' });
-      }
-    }
-
-    // THE BUG THAT KEPT BREAKING SEARCH CONSOLE.
-    //
-    // Everything below is written as KEY=JSON.stringify(value), which escapes
-    // both " and \. dotenv 16 expands \n and \r inside a double-quoted value
-    // but does NOT unescape \" or \\ - so a service-account key written here
-    // comes back as {\n  \"type\": ... and fails to parse at position 4.
-    // Every save silently corrupted the credential, which is why the connection
-    // kept dying a few hours after each fix rather than staying dead.
-    //
-    // The credential does not belong in a .env line at all. If it arrived as
-    // raw JSON - whether pasted just now or inherited from the host's
-    // environment - it goes to its own file on the volume and .env carries the
-    // path, which is a plain string that survives the round trip.
-    const inheritedRaw = saved.GOOGLE_APPLICATION_CREDENTIALS || '';
-    if (inheritedRaw.trim().startsWith('{')) {
-      const inherited = parseServiceAccountJson(inheritedRaw);
-      if (inherited.creds) {
-        const inheritedPath = path.join(CONFIG_DIR, 'google-creations.json');
-        writeFileAtomicSync(inheritedPath, JSON.stringify(inherited.creds), { mode: 0o600 });
-        saved.GOOGLE_APPLICATION_CREDENTIALS = inheritedPath;
-        process.env.GOOGLE_APPLICATION_CREDENTIALS = inheritedPath;
-        console.log('[Settings] Moved the service-account key out of the environment variable and onto the volume; .env now stores the path.');
-      } else {
-        // Unreadable. Dropping it from .env leaves the host's own variable in
-        // charge rather than persisting a broken copy over the top of it.
-        delete saved.GOOGLE_APPLICATION_CREDENTIALS;
-        console.warn('[Settings] Service-account JSON in the environment is unreadable; leaving it out of .env.', inherited.shape || '');
-      }
-    }
-
-    // Pick a representation only after dotenv proves it can read the value
-    // back byte-for-byte. This prevents both line injection and silent loss of
-    // legitimate backslashes (including Windows credential paths).
-    const envContent = serializeDotenv(saved);
-    const settingsPath = path.join(CONFIG_DIR, '.env');
-    writeFileAtomicSync(settingsPath, envContent, { mode: 0o600 });
-    
-    // Reload dotenv
-    dotenv.config({ path: settingsPath, override: true });
-    
-    // Re-initialize Gemini client if key is loaded
-    if (process.env.GEMINI_API_KEY) {
-      try {
-        ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-        console.log('[Gemini SDK] Re-initialized successfully.');
-      } catch (err) {
-        console.error('[Gemini SDK] Re-initialization failed:', err.message);
-      }
-    }
-
-    // Configuration changes should be visible immediately even though normal
-    // dashboard navigation is protected by short-lived upstream caches.
+  },
+  clearCaches: () => {
     getGscDashboardData.clear();
     computePerformance.clear();
     providerRuntime.clearCache();
-
-    return res.json({
-      success: true,
-      persistent: !!process.env.DATA_DIR,
-      message: process.env.DATA_DIR
-        ? 'Configuration saved to the persistent server volume and activated.'
-        : 'Configuration activated. Set DATA_DIR to a persistent volume before production so it survives redeploys.'
-    });
-  } catch (err) {
-    console.error('[Settings] Failed to save server settings:', err.message);
-    return res.status(err.statusCode || 500).json({ success: false, error: err.message });
-  }
+  },
+  getStorageStatus: () => {
+    const storage = storageReadiness();
+    return {
+      persistent: storage.persistent,
+      backend: STATE_BACKEND_MODE,
+      tenantId: stateRepository.tenantId,
+      postgresMirror: { ...postgresStatus },
+    };
+  },
+  logger: console,
 });
 
 // Search Console stays behind one service boundary so query construction,
@@ -2631,12 +2511,6 @@ registerUsageRoutes(app, {
   usageOverBudget,
   saveUsage,
 });
-// Storage status — is DATA_DIR pointed at a persistent volume (survives redeploys) or ephemeral?
-app.get('/api/storage-status', (req, res) => {
-  const storage = storageReadiness();
-  res.json({ persistent: storage.persistent, backend: STATE_BACKEND_MODE, tenantId: stateRepository.tenantId, postgresMirror: { ...postgresStatus } });
-});
-
 registerAssistantRoutes(app, {
   requireAuth,
   hasGeminiKey: () => !!process.env.GEMINI_API_KEY,
