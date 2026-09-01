@@ -38,6 +38,7 @@ const { registerAutopilotRoutes } = require('../lib/autopilot-routes.js');
 const { belongsToSearchConsoleProperty, registerContentRoutes } = require('../lib/content-routes.js');
 const { buildVisibilityDeltas, normalizePrompts, registerAiVisibilityRoutes } = require('../lib/ai-visibility-routes.js');
 const { registerAiAuditRoutes } = require('../lib/ai-audit-routes.js');
+const { registerScheduledFeatureRoutes } = require('../lib/scheduled-feature-routes.js');
 const { ProviderRuntimeError, createProviderRuntime } = require('../lib/provider-runtime.js');
 const { createPostgresStateBridge, replayPostgresOutbox } = require('../lib/postgres-state-bridge.js');
 const { classifyContactSource, summarizeContactAttribution } = require('../lib/attribution.js');
@@ -851,6 +852,107 @@ test('AI audit routes preserve status, concurrency, budget, and error contracts'
   assert.deepEqual(failed.body, { success: false, error: 'provider unavailable' });
   assert.deepEqual(errors, [['[FactCheck run] failed:', 'provider unavailable']]);
   assert.equal(factState.running, false);
+});
+
+test('scheduled feature routes preserve nudge, toggle, availability, run, and seen contracts', () => {
+  const routes = new Map();
+  const app = {
+    get(path, ...handlers) { routes.set(`GET ${path}`, handlers); },
+    post(path, ...handlers) { routes.set(`POST ${path}`, handlers); },
+  };
+  const requireAuth = () => {};
+  const local = { enabled: true, isNew: true };
+  const digest = { enabled: true, autoEmail: false, isNew: true };
+  let available = false;
+  let nudges = 0;
+  let localStarts = 0;
+  let digestStarts = 0;
+  let saves = 0;
+
+  registerScheduledFeatureRoutes(app, {
+    requireAuth,
+    features: [
+      {
+        path: '/api/local-autopilot',
+        status: () => ({ success: true, enabled: local.enabled, hasKey: available }),
+        nudge: () => { nudges += 1; },
+        toggle: body => {
+          local.enabled = !!body.enabled;
+          saves += 1;
+          return { success: true, enabled: local.enabled };
+        },
+        availability: () => available ? null : ({ success: true, unavailable: true, message: 'Add a key.' }),
+        start: () => { localStarts += 1; },
+        markSeen: () => { local.isNew = false; saves += 1; },
+      },
+      {
+        path: '/api/performance-digest',
+        status: () => ({ success: true, enabled: digest.enabled, autoEmail: digest.autoEmail }),
+        toggle: body => {
+          if (typeof body.enabled === 'boolean') digest.enabled = body.enabled;
+          if (typeof body.autoEmail === 'boolean') digest.autoEmail = body.autoEmail;
+          saves += 1;
+          return { success: true, enabled: digest.enabled, autoEmail: digest.autoEmail };
+        },
+        start: () => { digestStarts += 1; },
+        markSeen: () => { digest.isNew = false; saves += 1; },
+      },
+    ],
+  });
+
+  function response() {
+    return {
+      body: null,
+      json(body) { this.body = body; return this; },
+    };
+  }
+  const handler = (method, path) => routes.get(`${method} ${path}`).at(-1);
+
+  for (const path of [
+    '/api/local-autopilot/toggle',
+    '/api/local-autopilot/run',
+    '/api/local-autopilot/seen',
+    '/api/performance-digest/toggle',
+    '/api/performance-digest/run',
+    '/api/performance-digest/seen',
+  ]) {
+    assert.equal(routes.get(`POST ${path}`)[0], requireAuth);
+  }
+
+  const status = response();
+  handler('GET', '/api/local-autopilot')({}, status);
+  assert.equal(nudges, 1);
+  assert.deepEqual(status.body, { success: true, enabled: true, hasKey: false });
+
+  const toggled = response();
+  handler('POST', '/api/local-autopilot/toggle')({ body: { enabled: false } }, toggled);
+  assert.deepEqual(toggled.body, { success: true, enabled: false });
+
+  const blocked = response();
+  handler('POST', '/api/local-autopilot/run')({ body: {} }, blocked);
+  assert.deepEqual(blocked.body, { success: true, unavailable: true, message: 'Add a key.' });
+  assert.equal(localStarts, 0);
+
+  available = true;
+  const started = response();
+  handler('POST', '/api/local-autopilot/run')({ body: {} }, started);
+  assert.deepEqual(started.body, { success: true, started: true });
+  assert.equal(localStarts, 1);
+
+  const seen = response();
+  handler('POST', '/api/local-autopilot/seen')({ body: {} }, seen);
+  assert.deepEqual(seen.body, { success: true });
+  assert.equal(local.isNew, false);
+
+  const digestToggle = response();
+  handler('POST', '/api/performance-digest/toggle')({ body: { enabled: 'no', autoEmail: true } }, digestToggle);
+  assert.deepEqual(digestToggle.body, { success: true, enabled: true, autoEmail: true });
+
+  const digestRun = response();
+  handler('POST', '/api/performance-digest/run')({ body: {} }, digestRun);
+  assert.deepEqual(digestRun.body, { success: true, started: true });
+  assert.equal(digestStarts, 1);
+  assert.equal(saves, 3);
 });
 
 test('provider runtime retries transient failures and reports bounded integration health', async () => {

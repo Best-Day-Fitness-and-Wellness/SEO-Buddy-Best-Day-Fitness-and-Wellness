@@ -57,6 +57,7 @@ const { registerAutopilotRoutes } = require('./lib/autopilot-routes');
 const { registerContentRoutes } = require('./lib/content-routes');
 const { registerAiVisibilityRoutes } = require('./lib/ai-visibility-routes');
 const { registerAiAuditRoutes } = require('./lib/ai-audit-routes');
+const { registerScheduledFeatureRoutes } = require('./lib/scheduled-feature-routes');
 
 // Load UI-saved secrets from the durable storage root. Tenant state is isolated
 // below this root after configuration is loaded; host-provided variables still
@@ -3928,29 +3929,6 @@ function localState() {
   };
 }
 
-// GET state (read-only). Fire-and-forget a due-check so opening the tab nudges
-// the schedule, but never block the response on a live scan.
-app.get('/api/local-autopilot', (req, res) => {
-  enqueueDurableJob('local.autopilot', {}, { idempotencyKey: durableJobKey('local.autopilot', 12 * 60 * 60 * 1000), maxAttempts: 5 });
-  res.json(localState());
-});
-app.post('/api/local-autopilot/toggle', requireAuth, (req, res) => {
-  localDb.enabled = !!(req.body && req.body.enabled);
-  saveLocal();
-  res.json({ success: true, enabled: localDb.enabled });
-});
-app.post('/api/local-autopilot/run', requireAuth, (req, res) => {
-  if (!process.env.GEMINI_API_KEY) return res.json({ success: true, unavailable: true, message: 'Add your Gemini API key in Settings to run the Local SEO Autopilot.' });
-  maybeRunLocalAutopilot(true).catch(() => {});   // non-blocking; frontend polls GET for busy/results
-  res.json({ success: true, started: true });
-});
-app.post('/api/local-autopilot/seen', requireAuth, (req, res) => {
-  localDb.napNewMismatch = false;
-  if (localDb.gbpDraft) localDb.gbpDraft.isNew = false;
-  saveLocal();
-  res.json({ success: true });
-});
-
 // Draft a reply to a pasted review AND save it to history.
 app.post('/api/local-reply', requireAuth, async (req, res) => {
   const { review, rating } = req.body || {};
@@ -4074,28 +4052,6 @@ function onsiteState() {
     hasKey: !!process.env.GEMINI_API_KEY
   };
 }
-
-app.get('/api/onsite-autopilot', (req, res) => {
-  enqueueDurableJob('onsite.autopilot', {}, { idempotencyKey: durableJobKey('onsite.autopilot', 12 * 60 * 60 * 1000), maxAttempts: 5 });
-  res.json(onsiteState());
-});
-app.post('/api/onsite-autopilot/toggle', requireAuth, (req, res) => {
-  onsiteDb.enabled = !!(req.body && req.body.enabled);
-  saveOnsite();
-  res.json({ success: true, enabled: onsiteDb.enabled });
-});
-app.post('/api/onsite-autopilot/run', requireAuth, (req, res) => {
-  if (!process.env.GEMINI_API_KEY) return res.json({ success: true, unavailable: true, message: 'Add your Gemini API key in Settings to run the On-Site SEO Autopilot.' });
-  maybeRunOnsiteAutopilot(true).catch(() => {});
-  res.json({ success: true, started: true });
-});
-app.post('/api/onsite-autopilot/seen', requireAuth, (req, res) => {
-  if (onsiteDb.ideas) onsiteDb.ideas.isNew = false;
-  if (onsiteDb.links) onsiteDb.links.isNew = false;
-  if (onsiteDb.titlemeta) onsiteDb.titlemeta.isNew = false;
-  saveOnsite();
-  res.json({ success: true });
-});
 
 scheduleDurableCheck('onsite.autopilot', 45000, 12 * 60 * 60 * 1000);
 
@@ -4297,26 +4253,6 @@ function perfDigestState() {
     emailTo: process.env.DIGEST_EMAIL || process.env.GMAIL_SENDER || ''
   };
 }
-app.get('/api/performance-digest', (req, res) => {
-  enqueueDurableJob('performance.digest', {}, { idempotencyKey: durableJobKey('performance.digest', 12 * 60 * 60 * 1000), maxAttempts: 5 });
-  res.json(perfDigestState());
-});
-app.post('/api/performance-digest/toggle', requireAuth, (req, res) => {
-  const b = req.body || {};
-  if (typeof b.enabled === 'boolean') perfDigestDb.enabled = b.enabled;
-  if (typeof b.autoEmail === 'boolean') perfDigestDb.autoEmail = b.autoEmail;
-  savePerfDigest();
-  res.json({ success: true, enabled: perfDigestDb.enabled, autoEmail: perfDigestDb.autoEmail });
-});
-app.post('/api/performance-digest/run', requireAuth, (req, res) => {
-  maybeRunPerfDigest(true).catch(() => {});
-  res.json({ success: true, started: true });
-});
-app.post('/api/performance-digest/seen', requireAuth, (req, res) => {
-  if (perfDigestDb.digest) perfDigestDb.digest.isNew = false;
-  savePerfDigest();
-  res.json({ success: true });
-});
 app.post('/api/performance-digest/send', requireAuth, async (req, res) => {
   const to = ((req.body && req.body.to) || process.env.DIGEST_EMAIL || process.env.GMAIL_SENDER || '').trim();
   if (!gmailClient()) return res.json({ success: true, needsSetup: true, message: 'Connect Gmail (see the OAuth setup guide) to email the digest.' });
@@ -4327,6 +4263,83 @@ app.post('/api/performance-digest/send', requireAuth, async (req, res) => {
     const id = await sendGmail(to, 'Your weekly SEO performance — Best Day Fitness', d.text);
     res.json({ success: true, sent: true, id, to });
   } catch (e) { res.status(502).json({ success: false, error: e.message }); }
+});
+
+// These scheduled features share the same state/toggle/run/seen HTTP shape.
+// Their distinct scheduling, availability, and persistence behavior remains in
+// the feature callbacks below.
+registerScheduledFeatureRoutes(app, {
+  requireAuth,
+  features: [
+    {
+      path: '/api/local-autopilot',
+      status: localState,
+      nudge: () => enqueueDurableJob('local.autopilot', {}, {
+        idempotencyKey: durableJobKey('local.autopilot', 12 * 60 * 60 * 1000),
+        maxAttempts: 5,
+      }),
+      toggle: body => {
+        localDb.enabled = !!body.enabled;
+        saveLocal();
+        return { success: true, enabled: localDb.enabled };
+      },
+      availability: () => process.env.GEMINI_API_KEY ? null : ({
+        success: true,
+        unavailable: true,
+        message: 'Add your Gemini API key in Settings to run the Local SEO Autopilot.',
+      }),
+      start: () => maybeRunLocalAutopilot(true).catch(() => {}),
+      markSeen: () => {
+        localDb.napNewMismatch = false;
+        if (localDb.gbpDraft) localDb.gbpDraft.isNew = false;
+        saveLocal();
+      },
+    },
+    {
+      path: '/api/onsite-autopilot',
+      status: onsiteState,
+      nudge: () => enqueueDurableJob('onsite.autopilot', {}, {
+        idempotencyKey: durableJobKey('onsite.autopilot', 12 * 60 * 60 * 1000),
+        maxAttempts: 5,
+      }),
+      toggle: body => {
+        onsiteDb.enabled = !!body.enabled;
+        saveOnsite();
+        return { success: true, enabled: onsiteDb.enabled };
+      },
+      availability: () => process.env.GEMINI_API_KEY ? null : ({
+        success: true,
+        unavailable: true,
+        message: 'Add your Gemini API key in Settings to run the On-Site SEO Autopilot.',
+      }),
+      start: () => maybeRunOnsiteAutopilot(true).catch(() => {}),
+      markSeen: () => {
+        if (onsiteDb.ideas) onsiteDb.ideas.isNew = false;
+        if (onsiteDb.links) onsiteDb.links.isNew = false;
+        if (onsiteDb.titlemeta) onsiteDb.titlemeta.isNew = false;
+        saveOnsite();
+      },
+    },
+    {
+      path: '/api/performance-digest',
+      status: perfDigestState,
+      nudge: () => enqueueDurableJob('performance.digest', {}, {
+        idempotencyKey: durableJobKey('performance.digest', 12 * 60 * 60 * 1000),
+        maxAttempts: 5,
+      }),
+      toggle: body => {
+        if (typeof body.enabled === 'boolean') perfDigestDb.enabled = body.enabled;
+        if (typeof body.autoEmail === 'boolean') perfDigestDb.autoEmail = body.autoEmail;
+        savePerfDigest();
+        return { success: true, enabled: perfDigestDb.enabled, autoEmail: perfDigestDb.autoEmail };
+      },
+      start: () => maybeRunPerfDigest(true).catch(() => {}),
+      markSeen: () => {
+        if (perfDigestDb.digest) perfDigestDb.digest.isNew = false;
+        savePerfDigest();
+      },
+    },
+  ],
 });
 scheduleDurableCheck('performance.digest', 75000, 12 * 60 * 60 * 1000);
 
