@@ -71,6 +71,12 @@ const {
   registerRecordedContentRoutes,
   shapeSocialPack,
 } = require('../lib/recorded-content-routes.js');
+const {
+  buildAutopilotDigest,
+  buildDeployReadiness,
+  buildNextMoves,
+  registerDashboardRoutes,
+} = require('../lib/dashboard-routes.js');
 const { ProviderRuntimeError, createProviderRuntime } = require('../lib/provider-runtime.js');
 const { createPostgresStateBridge, replayPostgresOutbox } = require('../lib/postgres-state-bridge.js');
 const { classifyContactSource, summarizeContactAttribution } = require('../lib/attribution.js');
@@ -1335,6 +1341,146 @@ test('local SEO routes preserve NAP, generation, validation, and reply-history c
   assert.equal(failed.statusCode, 502);
   assert.deepEqual(failed.body, { success: false, error: 'generation unavailable' });
   assert.deepEqual(errors.at(-1), ['[Local Generate] failed:', 'generation unavailable']);
+});
+
+test('dashboard routes preserve prioritized moves, weekly digest, readiness, and score contracts', async () => {
+  let gbpChecks = 0;
+  const moves = buildNextMoves({
+    localDb: {
+      nap: { mismatchCount: 1, listings: [{ platform: 'Yelp', phoneMatch: false }] },
+      gbpDraft: { posted: false },
+    },
+    citationsDb: { targets: [{ domain: 'local.example' }], statuses: {} },
+    aioAuditsDb: [],
+    autopilotEnabled: false,
+    gscConfigured: false,
+    isGbpConfigured: () => { gbpChecks += 1; return false; },
+  });
+  assert.deepEqual(moves.map(move => move.key), ['nap', 'gsc', 'gbp', 'ai', 'autopilot', 'listed']);
+  assert.equal(moves[0].ownerTitle, 'Your phone number is wrong on other websites');
+  assert.equal(moves[0].capability, 'manual');
+  assert.equal(moves[1].capability, 'blocked');
+  assert.equal(moves[2].cta, 'Review & post');
+  assert.equal(gbpChecks, 1);
+  assert.deepEqual(buildNextMoves({
+    localDb: {}, citationsDb: {}, aioAuditsDb: [{}], autopilotEnabled: true,
+    gscConfigured: true, isGbpConfigured: () => assert.fail('GBP should only be checked for a draft'),
+  }), []);
+
+  const fixedNow = () => new Date('2026-09-01T12:00:00.000Z');
+  const digest = buildAutopilotDigest({
+    onsiteDb: {
+      enabled: true,
+      lastRun: '2026-08-31T09:00:00.000Z',
+      ideas: { clusters: [{}, {}], isNew: true },
+      links: { suggestions: [{}], isNew: false },
+    },
+    localDb: {
+      enabled: true,
+      lastNapRun: '2026-08-31T10:00:00.000Z',
+      lastGbpRun: '2026-08-31T11:00:00.000Z',
+      nap: { mismatchCount: 2 },
+      napNewMismatch: true,
+      gbpDraft: { posted: false, isNew: true, createdAt: '2026-08-31T11:00:00.000Z' },
+    },
+    citationsDb: {
+      autoEnabled: true,
+      lastRun: '2026-08-31T08:00:00.000Z',
+      targets: [{ domain: 'directory.example' }],
+      statuses: {},
+      newDomains: ['directory.example'],
+    },
+    perfDigestDb: {
+      enabled: true,
+      lastRun: '2026-08-31T07:00:00.000Z',
+      digest: { clicks: { cur: 10, pct: -5 }, isNew: true },
+    },
+    historyDb: [{ title: 'A useful article', date: '2026-08-30T12:00:00.000Z' }],
+    aiVisDb: {
+      autoEnabled: true,
+      lastRun: '2026-08-31T06:00:00.000Z',
+      snapshots: [{ visibilityScore: 33 }],
+    },
+    autopilotEnabled: true,
+  }, fixedNow);
+  assert.deepEqual(digest.items.map(item => item.key), [
+    'onsite', 'onsite-links', 'local-nap', 'local-gbp', 'citations', 'perf', 'articles', 'aivis',
+  ]);
+  assert.equal(digest.autopilotsOn, 7);
+  assert.equal(digest.newCount, 7);
+  assert.equal(digest.lastActivityAt, '2026-08-31T11:00:00.000Z');
+  assert.equal(digest.generatedAt, '2026-09-01T12:00:00.000Z');
+  assert.match(digest.recap, /published 1 article/);
+  assert.match(digest.recap, /ran an AI visibility check/);
+
+  const readinessContext = {
+    geminiConfigured: true,
+    storagePersistent: false,
+    gscConfigured: false,
+    ghlConfigured: false,
+    adminConfigured: true,
+    businessProfileSaved: true,
+    brandReviewed: false,
+    brandReviewedAt: null,
+    brandDurable: false,
+    stateBackendMode: 'postgres',
+    appMode: 'production',
+    mockIntegrationsAllowed: false,
+  };
+  const readiness = buildDeployReadiness(readinessContext);
+  assert.deepEqual({ ready: readiness.ready, total: readiness.total, blockersLeft: readiness.blockersLeft, allReady: readiness.allReady }, {
+    ready: 3, total: 7, blockersLeft: 3, allReady: false,
+  });
+  assert.deepEqual(readiness.runtime, { mode: 'production', mockIntegrationsAllowed: false });
+  assert.match(readiness.checks.find(check => check.key === 'storage').badText, /PostgreSQL is selected but not ready/);
+  assert.equal(readiness.checks.find(check => check.key === 'brand').durable, false);
+
+  const routes = new Map();
+  const app = { get(path, ...handlers) { routes.set(`GET ${path}`, handlers); } };
+  let healthError = null;
+  const errors = [];
+  registerDashboardRoutes(app, {
+    buildHealthScoreResponse: async () => {
+      if (healthError) throw healthError;
+      return { overall: 69, scoreVersion: 2 };
+    },
+    getNextMovesContext: () => ({
+      localDb: {}, citationsDb: {}, aioAuditsDb: [{}], autopilotEnabled: true,
+      gscConfigured: true, isGbpConfigured: () => false,
+    }),
+    getDigestContext: () => ({
+      onsiteDb: {}, localDb: {}, citationsDb: {}, perfDigestDb: {}, historyDb: [], aiVisDb: {}, autopilotEnabled: true,
+    }),
+    getReadinessContext: () => readinessContext,
+    logger: { error(...args) { errors.push(args); } },
+  });
+  assert.deepEqual([...routes.keys()], [
+    'GET /api/health-score',
+    'GET /api/next-moves',
+    'GET /api/autopilot-digest',
+    'GET /api/deploy-readiness',
+  ]);
+  const response = () => ({
+    statusCode: 200,
+    body: null,
+    status(code) { this.statusCode = code; return this; },
+    json(body) { this.body = body; return this; },
+  });
+  const score = response();
+  await routes.get('GET /api/health-score').at(-1)({}, score);
+  assert.deepEqual(score.body, { success: true, overall: 69, scoreVersion: 2 });
+  const nextMoves = response();
+  routes.get('GET /api/next-moves').at(-1)({}, nextMoves);
+  assert.deepEqual(nextMoves.body, { success: true, moves: [] });
+  const deployed = response();
+  routes.get('GET /api/deploy-readiness').at(-1)({}, deployed);
+  assert.equal(deployed.body.total, 7);
+
+  healthError = new Error('score unavailable');
+  const failed = response();
+  await routes.get('GET /api/health-score').at(-1)({}, failed);
+  assert.deepEqual([failed.statusCode, failed.body], [500, { success: false, error: 'score unavailable' }]);
+  assert.deepEqual(errors.at(-1), ['[Health Score] failed:', 'score unavailable']);
 });
 
 test('recorded-content routes preserve media validation, bounded prompts, usage, and response contracts', async () => {

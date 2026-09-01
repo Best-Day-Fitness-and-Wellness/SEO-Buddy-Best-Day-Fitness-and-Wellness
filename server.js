@@ -63,6 +63,7 @@ const { registerOnsiteRoutes } = require('./lib/onsite-routes');
 const { registerAioCoreRoutes } = require('./lib/aio-core-routes');
 const { registerAssistantRoutes } = require('./lib/assistant-routes');
 const { registerRecordedContentRoutes } = require('./lib/recorded-content-routes');
+const { registerDashboardRoutes } = require('./lib/dashboard-routes');
 
 // Load UI-saved secrets from the durable storage root. Tenant state is isolated
 // below this root after configuration is loaded; host-provided variables still
@@ -3553,231 +3554,42 @@ function scheduleDailyHealthSnapshots() {
   if (dailyTimer.unref) dailyTimer.unref();
 }
 
-app.get('/api/health-score', async (req, res) => {
-  try {
-    res.json({ success: true, ...(await buildHealthScoreResponse()) });
-  } catch (e) {
-    console.error('[Health Score] failed:', e.message);
-    res.status(500).json({ success: false, error: e.message });
-  }
-});
-
-// Prioritized "next best actions" for the Home screen — derived from real
-// state (mismatches, unposted drafts, un-run audits, coverage gaps, setup).
-// ---------------------------------------------------------------------------
-// What SEO Buddy can actually DO about each move. Owner mode renders this
-// verbatim, so it must describe the real code paths, not the intent:
-//
-//   automatic — runs unattended and writes to a real system
-//   approve   — we execute the moment the owner says yes
-//   manual    — we produce the words; a human performs the action, because we
-//               have no write path to that system
-//   blocked   — cannot proceed until a connection or input exists
-//
-// Verified against the endpoints: publishGhlHelper and indexUrlHelper write for
-// real; /api/nap-audit is read-only with no write path to any third-party
-// listing; postGbpLocalPost returns needsSetup without approved GBP API access
-// (which is why /api/gbp-mark-posted exists); citation outreach falls back to a
-// compose window unless GMAIL_* is configured.
-// ---------------------------------------------------------------------------
-const MOVE_CAPABILITY = {
-  nap:       { capability: 'manual',   doerLabel: 'You do it',
-               ownerTitle: 'Your phone number is wrong on other websites',
-               ownerWhy: "We found the mismatches, but we can't edit other companies' listings — you'll need to sign in to each one. It's tedious, and it's one of the clearest issues we can actually see and fix.",
-               ownerCta: 'Walk me through it', realEffort: 'about 15 minutes' },
-  gbp:       { capability: 'manual',   doerLabel: 'You do it',
-               ownerTitle: "This week's Google post is written",
-               ownerWhy: "Google hasn't approved us to post on your behalf yet, so this is copy-and-paste for now. Takes under a minute.",
-               ownerCta: 'Copy & open Google', realEffort: 'about 1 minute' },
-  listed:    { capability: 'manual',   doerLabel: 'You do it',
-               ownerWhy: 'AI recommends businesses from this source. We can draft the approach, but someone has to send it and follow up.',
-               ownerCta: 'Show me the draft', realEffort: 'about 5 minutes' },
-  autopilot: { capability: 'approve',  doerLabel: 'Needs approval',
-               ownerTitle: 'Let SEO Buddy publish for you on a schedule',
-               ownerWhy: 'Say yes once and we find a gap, write the page, publish it and ask Google to list it — repeatedly, without you. That whole chain we can do end to end.',
-               ownerCta: 'Turn it on', realEffort: 'about 10 seconds' },
-  ai:        { capability: 'approve',  doerLabel: 'Needs approval',
-               ownerWhy: "See whether ChatGPT and Google's AI recommend you. We run it; you just start it.",
-               ownerCta: 'Run the check', realEffort: 'about 1 minute' },
-  gsc:       { capability: 'blocked',  doerLabel: 'Blocked',
-               ownerWhy: "We can't see your real search numbers until Google Search Console is connected. Everything on Results stays estimated until then.",
-               ownerCta: 'Connect it', realEffort: 'about 5 minutes' },
-};
-function moveCapability(key) {
-  return MOVE_CAPABILITY[key] || { capability: 'manual', doerLabel: 'You do it' };
-}
-
-app.get('/api/next-moves', (req, res) => {
-  const moves = [];
-  const rank = { high: 3, med: 2, opportunity: 1 };
-  if (localDb && localDb.nap && (localDb.nap.mismatchCount || 0) > 0) {
-    const bad = (localDb.nap.listings || []).find(l => l.phoneMatch === false || l.addrMatch === false || l.nameMatch === false);
-    const where = (bad && bad.platform) ? bad.platform : 'a listing';
-    moves.push({ key: 'nap', impact: 'high', title: `Fix your business info on ${where}`, why: 'Google trusts businesses whose name, address and phone match everywhere. A mismatch quietly hurts your local ranking.', effort: '~2 min', tab: 'local-tab', cta: 'Show me how' });
-  }
-  if (localDb && localDb.gbpDraft && !localDb.gbpDraft.posted) {
-    const gbpApi = gbpConfigured();
-    moves.push({ key: 'gbp', impact: 'med', title: "Approve this week's Google post",
-      why: gbpApi
-        ? 'We wrote a fresh Google Business Profile post. Google rewards active profiles — post it in one tap.'
-        : 'We wrote a fresh Google Business Profile post. Copy it into your Google Business Profile, then tap "Mark as posted" so this clears.',
-      effort: '~30 sec', tab: 'local-tab',
-      cta: gbpApi ? 'Post it' : 'Review & post',
-      action: 'post-gbp' });
-  }
-  if (citationsDb && citationsDb.targets && citationsDb.targets.length) {
-    const st = citationsDb.statuses || {};
-    const tgt = citationsDb.targets.find(t => t.listed !== true && ((st[t.domain] && st[t.domain].status) || 'todo') === 'todo');
-    if (tgt) moves.push({ key: 'listed', impact: 'opportunity', title: `Get listed on ${tgt.domain}`, why: 'AI recommends businesses from this source. Getting listed here helps AI recommend you too — we can draft the outreach.', effort: '~5 min', tab: 'citations-tab', cta: 'See how' });
-  }
-  if (!aioAuditsDb || !aioAuditsDb.length) {
-    moves.push({ key: 'ai', impact: 'med', title: 'Run your first AI visibility check', why: "See whether ChatGPT, Gemini and Google's AI actually recommend you when people ask.", effort: '~1 min', tab: 'aio-tab', cta: 'Run check' });
-  }
-  if (!autopilotEnabled) {
-    moves.push({ key: 'autopilot', impact: 'med', title: 'Turn on content autopilot', why: 'Let SEO Buddy write and publish a fresh, keyword-targeted post for you on a schedule — hands-off.', effort: '~30 sec', tab: 'publish-tab', cta: 'Turn on', action: 'enable-autopilot' });
-  }
-  if (!process.env.GSC_SITE_URL || !getGoogleAuth()) {
-    moves.push({ key: 'gsc', impact: 'high', title: 'Connect Google Search Console', why: 'This unlocks your real search rankings and clicks — the biggest part of your score.', effort: '~5 min', tab: 'settings-tab', cta: 'Connect' });
-  }
-  moves.sort((a, b) => rank[b.impact] - rank[a.impact]);
-  // Annotate with what we can actually do about each. Owner mode reads this and
-  // never invents a state; the full interface ignores the extra fields.
-  const annotated = moves.map(m => {
-    const c = moveCapability(m.key);
-    return { ...m, capability: c.capability, doerLabel: c.doerLabel,
-             ownerTitle: c.ownerTitle || m.title, ownerWhy: c.ownerWhy || m.why,
-             ownerCta: c.ownerCta || m.cta, realEffort: c.realEffort || m.effort };
-  });
-  res.json({ success: true, moves: annotated });
-});
-
-// Consolidated autopilot digest for the Summary dashboard — one glance at
-// what every autopilot produced, with links back to each tab.
-app.get('/api/autopilot-digest', (req, res) => {
-  const items = [];
-  if (onsiteDb && onsiteDb.ideas && onsiteDb.ideas.clusters && onsiteDb.ideas.clusters.length) {
-    const n = onsiteDb.ideas.clusters.length;
-    items.push({ key: 'onsite', tab: 'onsite-tab', icon: '💡', label: 'Content ideas', text: `${n} fresh topic cluster${n > 1 ? 's' : ''} to write about`, isNew: !!onsiteDb.ideas.isNew, tone: 'info' });
-  }
-  if (onsiteDb && onsiteDb.links && onsiteDb.links.suggestions && onsiteDb.links.suggestions.length) {
-    const n = onsiteDb.links.suggestions.length;
-    items.push({ key: 'onsite-links', tab: 'onsite-tab', icon: '🔗', label: 'Internal links', text: `${n} link suggestion${n > 1 ? 's' : ''} to add`, isNew: !!onsiteDb.links.isNew, tone: 'info' });
-  }
-  if (localDb && localDb.nap) {
-    const mm = localDb.nap.mismatchCount || 0;
-    items.push({ key: 'local-nap', tab: 'local-tab', icon: '📍', label: 'NAP monitor', text: mm ? `${mm} listing${mm > 1 ? 's' : ''} to fix` : 'All listings consistent', isNew: !!localDb.napNewMismatch, tone: mm ? 'warn' : 'info' });
-  }
-  if (localDb && localDb.gbpDraft) {
-    const g = localDb.gbpDraft;
-    items.push({ key: 'local-gbp', tab: 'local-tab', icon: '📝', label: 'Weekly GBP post', text: g.posted ? 'Posted to Google ✓' : 'Ready to post', isNew: !!g.isNew, tone: 'info' });
-  }
-  if (citationsDb && citationsDb.targets && citationsDb.targets.length) {
-    const total = citationsDb.targets.length;
-    const statuses = citationsDb.statuses || {};
-    const notDone = citationsDb.targets.filter(t => t.listed !== true && ((statuses[t.domain] && statuses[t.domain].status) || 'todo') === 'todo').length;
-    const newN = (citationsDb.newDomains || []).length;
-    const text = newN ? `${newN} new source${newN > 1 ? 's' : ''} AI now cites` : (notDone ? `${notDone} source${notDone > 1 ? 's' : ''} to get listed on` : `${total} sources tracked`);
-    items.push({ key: 'citations', tab: 'citations-tab', icon: '🎯', label: 'Citation targets', text, isNew: newN > 0, tone: 'info' });
-  }
-  if (perfDigestDb && perfDigestDb.digest) {
-    const dg = perfDigestDb.digest;
-    const cl = dg.clicks;
-    const text = cl ? `${cl.cur} clicks this week${cl.pct != null ? ` (${cl.pct >= 0 ? '+' : ''}${cl.pct}%)` : ''}` : 'Weekly digest ready';
-    items.push({ key: 'perf', tab: 'performance-tab', icon: '📈', label: 'Weekly digest', text, isNew: !!dg.isNew, tone: 'info' });
-  }
-  // Published articles (content autopilot) — count what went live in the last 7 days.
-  const nowMs = Date.now();
-  const within7d = (d) => { if (!d) return false; const t = new Date(d).getTime(); return !isNaN(t) && (nowMs - t) <= 7 * 864e5; };
-  const articlesThisWeek = Array.isArray(historyDb) ? historyDb.filter(h => within7d(h.date || h.publishedAt)) : [];
-  if (Array.isArray(historyDb) && historyDb.length) {
-    const latest = historyDb[0];
-    const n = articlesThisWeek.length;
-    const text = n ? `${n} article${n > 1 ? 's' : ''} published this week` : `Last published “${String(latest.title || '').slice(0, 40)}${(latest.title || '').length > 40 ? '…' : ''}”`;
-    items.push({ key: 'articles', tab: 'publish-tab', icon: '✍️', label: 'Content autopilot', text, isNew: within7d(latest.date || latest.publishedAt), tone: 'info' });
-  }
-  // AI Visibility — latest auto-check.
-  if (aiVisDb && Array.isArray(aiVisDb.snapshots) && aiVisDb.snapshots.length) {
-    const snap = aiVisDb.snapshots[aiVisDb.snapshots.length - 1];
-    const vs = (snap && typeof snap.visibilityScore === 'number') ? `${snap.visibilityScore}% AI visibility` : 'AI visibility checked';
-    items.push({ key: 'aivis', tab: 'aio-tab', icon: '🔎', label: 'AI Visibility', text: vs, isNew: within7d(aiVisDb.lastRun), tone: 'info' });
-  }
-
-  // Plain-English weekly recap — answers "what happened this week" at a glance.
-  const did = [];
-  if (articlesThisWeek.length) did.push(`published ${articlesThisWeek.length} article${articlesThisWeek.length > 1 ? 's' : ''}`);
-  if (localDb && localDb.gbpDraft && within7d(localDb.gbpDraft.createdAt)) did.push('wrote your Google Business post');
-  if (localDb && within7d(localDb.lastNapRun)) did.push('checked your listings (NAP)');
-  if (citationsDb && within7d(citationsDb.lastRun)) did.push('scanned directories AI cites');
-  if (onsiteDb && within7d(onsiteDb.lastRun)) did.push('refreshed on-site ideas');
-  if (aiVisDb && within7d(aiVisDb.lastRun)) did.push('ran an AI visibility check');
-  if (perfDigestDb && within7d(perfDigestDb.lastRun)) did.push('built your performance digest');
-  const enabledCount = [true, (citationsDb && citationsDb.autoEnabled), (localDb && localDb.enabled), (onsiteDb && onsiteDb.enabled), (perfDigestDb && perfDigestDb.enabled), (aiVisDb && aiVisDb.autoEnabled), autopilotEnabled].filter(Boolean).length;
-  const lastActivity = [
-    articlesThisWeek[0] && (articlesThisWeek[0].date || articlesThisWeek[0].publishedAt),
-    localDb && localDb.lastNapRun, localDb && localDb.lastGbpRun,
-    citationsDb && citationsDb.lastRun, onsiteDb && onsiteDb.lastRun,
-    aiVisDb && aiVisDb.lastRun, perfDigestDb && perfDigestDb.lastRun
-  ].filter(Boolean).map(d => new Date(d).getTime()).filter(t => !isNaN(t)).sort((a, b) => b - a)[0];
-  let recap;
-  if (did.length) {
-    recap = `This week SEO Buddy ${did.length > 1 ? did.slice(0, -1).join(', ') + ' and ' + did.slice(-1) : did[0]} — all on its own. Nothing needs you unless a card below is marked NEW.`;
-  } else {
-    recap = `All ${enabledCount} autopilots are on and running on schedule. New activity will show up here automatically — no need to check back.`;
-  }
-  res.json({ success: true, items, recap, autopilotsOn: enabledCount, lastActivityAt: lastActivity ? new Date(lastActivity).toISOString() : null, newCount: items.filter(i => i.isNew).length, generatedAt: new Date().toISOString() });
-});
-
-// Deployment readiness — the six things every franchise location needs to run
-// hands-off. Reads live truth from process.env (settings-save calls
-// dotenv override, so in-app changes reflect immediately) + business profile.
-app.get('/api/deploy-readiness', (req, res) => {
-  const gemini = !!process.env.GEMINI_API_KEY;
-  const storage = storageReadiness().persistent;
-  const gsc = !!(process.env.GSC_SITE_URL && getGoogleAuth());
-  const ghl = !!(process.env.GHL_ACCESS_TOKEN && process.env.GHL_LOCATION_ID);
-  const admin = !!ADMIN_PASSWORD;
-  const business = !!businessProfileSaved; // stamped for THIS location (not the seed defaults)
-  // Saving is the owner's explicit confirmation that the voice was reviewed.
-  // The wording may remain identical to the starter profile and still be valid.
-  const brandReviewed = !!brandReviewedAt;
-  const checks = [
-    { key: 'gemini', label: 'Gemini API key', icon: '🧠', ok: gemini, severity: 'block',
-      okText: 'Powers every autopilot — content, AI visibility, local posts, and directory scans.',
-      badText: 'Add your Gemini API key so the autopilots can run.', fixLabel: 'Add Gemini key' },
-    { key: 'storage', label: 'Persistent storage', icon: '💾', ok: storage, severity: 'block',
-      okText: 'History and schedules survive redeploys — the autopilots never lose their place.',
-      badText: STATE_BACKEND_MODE === 'postgres'
-        ? 'PostgreSQL is selected but not ready. Check DATABASE_URL and migration status.'
-        : 'Attach a Railway volume and set DATA_DIR so history survives redeploys.', fixLabel: 'Set up storage' },
-    { key: 'gsc', label: 'Google Search Console', icon: '🔍', ok: gsc, severity: 'block',
-      okText: 'Unlocks real rankings, clicks, and the search-gap finder.',
-      badText: 'Connect Search Console to unlock real rankings and clicks.', fixLabel: 'Connect Search Console' },
-    { key: 'ghl', label: 'GoHighLevel publishing', icon: '📤', ok: ghl, severity: 'block',
-      okText: 'Lets the Content Autopilot publish articles to the live site automatically.',
-      badText: 'Required for the Content Autopilot to publish articles automatically.', fixLabel: 'Add GoHighLevel token & location' },
-    { key: 'admin', label: 'Admin password', icon: '🔒', ok: admin, severity: 'warn',
-      okText: 'Settings and publishing are locked to you.',
-      badText: 'Without it, anyone with the link can change settings and trigger publishing.', fixLabel: 'Set an admin password' },
-    { key: 'business', label: 'Business profile', icon: '🏢', ok: business, severity: 'warn',
-      okText: 'This location’s name, address and phone are set — used across NAP, posts, and schema.',
-      badText: 'Confirm this location’s name, address and phone (still using the seed profile).', fixLabel: 'Complete business profile' },
-    { key: 'brand', label: 'Brand voice', icon: '🗣️', ok: brandReviewed, severity: 'warn', tab: 'brand-tab',
-      reviewedAt: brandReviewedAt, durable: storageReadiness().persistent,
-      okText: 'Your voice, phrases and never-use list drive every article, post and reply.',
-      badText: 'Running on the starter voice built from your brand docs — worth a read-through so it sounds like you.', fixLabel: 'Review brand voice' }
-  ];
-  const ready = checks.filter(c => c.ok).length;
-  const total = checks.length;
-  const blockersLeft = checks.filter(c => !c.ok && c.severity === 'block').length;
-  res.json({
-    success: true,
-    ready,
-    total,
-    blockersLeft,
-    allReady: ready === total,
-    runtime: { mode: APP_MODE, mockIntegrationsAllowed: ALLOW_MOCK_INTEGRATIONS },
-    checks,
-  });
+// Home/Reports dashboard projection. The module keeps response shaping pure;
+// the composition root supplies the current live integration and feature state.
+registerDashboardRoutes(app, {
+  buildHealthScoreResponse,
+  getNextMovesContext: () => ({
+    localDb,
+    citationsDb,
+    aioAuditsDb,
+    autopilotEnabled,
+    gscConfigured: !!(process.env.GSC_SITE_URL && getGoogleAuth()),
+    isGbpConfigured: gbpConfigured,
+  }),
+  getDigestContext: () => ({
+    onsiteDb,
+    localDb,
+    citationsDb,
+    perfDigestDb,
+    historyDb,
+    aiVisDb,
+    autopilotEnabled,
+  }),
+  getReadinessContext: () => ({
+    geminiConfigured: !!process.env.GEMINI_API_KEY,
+    storagePersistent: storageReadiness().persistent,
+    gscConfigured: !!(process.env.GSC_SITE_URL && getGoogleAuth()),
+    ghlConfigured: !!(process.env.GHL_ACCESS_TOKEN && process.env.GHL_LOCATION_ID),
+    adminConfigured: !!ADMIN_PASSWORD,
+    businessProfileSaved: !!businessProfileSaved,
+    brandReviewed: !!brandReviewedAt,
+    brandReviewedAt,
+    brandDurable: storageReadiness().persistent,
+    stateBackendMode: STATE_BACKEND_MODE,
+    appMode: APP_MODE,
+    mockIntegrationsAllowed: ALLOW_MOCK_INTEGRATIONS,
+  }),
+  logger: console,
 });
 
 // Restore the autopilot schedule if it was enabled before a redeploy.
