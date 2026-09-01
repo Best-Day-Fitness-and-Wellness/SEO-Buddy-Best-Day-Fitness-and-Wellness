@@ -102,6 +102,8 @@ interactions, `brand-profile.js` owns the Brand Voice editor and readiness event
 `owner-mode.js` owns the owner Today, Results, Business, and action views,
 `search-opportunities.js` owns Search Console gaps, filters, statistics, and
 question fan-out,
+`settings.js` owns connection fields, secure settings submission, and Search
+Console diagnostics,
 `pdf-report.js` owns report assembly and PDF-library loading,
 and `theme.js` owns theme behavior. `public/app.js` remains the main feature coordinator.
 
@@ -111,6 +113,8 @@ content, Citations, Local Presence, Progress, Site Optimization, AI Visibility,
 Brand Voice, and Owner mode load on demand; the PDF vendor libraries remain
 behind the report module's second-stage loader. Search opportunities also load
 only when opened, while their content-creation handoff stays in the coordinator.
+Settings form wiring and diagnostics load only when Settings is opened; legacy
+browser-secret cleanup still runs at startup.
 Content-hashed assets prevent a deployment from combining new HTML with stale
 JavaScript.
 

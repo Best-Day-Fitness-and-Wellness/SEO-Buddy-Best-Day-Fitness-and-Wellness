@@ -112,6 +112,7 @@ const BROWSER_ASSETS = buildBrowserAssets(PUBLIC_DIR, [
   { token: 'BRAND_PROFILE_ASSET', file: 'modules/brand-profile.js' },
   { token: 'OWNER_MODE_ASSET', file: 'modules/owner-mode.js' },
   { token: 'SEARCH_OPPORTUNITIES_ASSET', file: 'modules/search-opportunities.js' },
+  { token: 'SETTINGS_ASSET', file: 'modules/settings.js' },
 ]);
 const INDEX_HTML = renderAssetIndex(fs.readFileSync(path.join(PUBLIC_DIR, 'index.html'), 'utf8'), BROWSER_ASSETS);
 

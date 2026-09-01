@@ -34,6 +34,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let brandProfileFeaturePromise = null;
   let ownerModeFeaturePromise = null;
   let searchOpportunitiesFeaturePromise = null;
+  let settingsFeaturePromise = null;
 
   function ensureReviewsFeature() {
     if (window.loadReviews) return Promise.resolve();
@@ -352,6 +353,36 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  function ensureSettingsFeature() {
+    if (window.loadSettingsWorkspace) return Promise.resolve();
+    if (settingsFeaturePromise) return settingsFeaturePromise;
+    const assetUrl = document.body.dataset.settingsAsset;
+    if (!assetUrl || !assetUrl.startsWith('/assets/')) return Promise.reject(new Error('Settings asset is unavailable.'));
+    settingsFeaturePromise = new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = assetUrl;
+      script.async = true;
+      script.addEventListener('load', resolve, { once: true });
+      script.addEventListener('error', () => reject(new Error('Could not load Settings.')), { once: true });
+      document.head.appendChild(script);
+    }).catch(error => {
+      settingsFeaturePromise = null;
+      throw error;
+    });
+    return settingsFeaturePromise;
+  }
+
+  async function loadSettingsFeature() {
+    try {
+      await ensureSettingsFeature();
+      if (window.loadSettingsWorkspace) window.loadSettingsWorkspace();
+      if (window.loadUsage) window.loadUsage();
+      if (window.loadStorageStatus) window.loadStorageStatus();
+    } catch (error) {
+      showToast('Could not load Settings. Refresh and try again.');
+    }
+  }
+
   function setDataMode(mode) {
     if (!modeStatus || !modeStatusText) return;
     const normalized = mode === true ? 'live' : mode === false ? 'demo' : mode;
@@ -403,21 +434,6 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnIndexNow = document.getElementById('btn-index-now');
   const historyTableBody = document.getElementById('history-table-body');
 
-  // Settings Selectors
-  const settingsForm = document.getElementById('settings-form');
-  const settingsGeminiKey = document.getElementById('settings-gemini-key');
-  const settingsGhlToken = document.getElementById('settings-ghl-token');
-  const settingsGhlLocation = document.getElementById('settings-ghl-location');
-  const settingsGhlBlog = document.getElementById('settings-ghl-blog');
-  const settingsSiteUrl = document.getElementById('settings-site-url');
-  const settingsBlogPrefix = document.getElementById('settings-blog-prefix');
-  const settingsAuthorName = document.getElementById('settings-author-name');
-  const settingsAuthorUrl = document.getElementById('settings-author-url');
-  const settingsGscJson = document.getElementById('settings-gsc-json');
-  const settingsAdminPassword = document.getElementById('settings-admin-password');
-  const settingsClientValue = document.getElementById('settings-client-value');
-  const settingsConvRate = document.getElementById('settings-conv-rate');
-  const settingsCaptureRate = document.getElementById('settings-capture-rate');
   const displaySiteUrlBadge = document.getElementById('display-site-url');
 
   // --- SHARED BROWSER CORE ---
@@ -430,7 +446,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // AI Visibility selectors and state live in the on-demand feature module.
   // --- INITIALIZATION ---
-  loadSettingsFromStorage();
+  migrateLegacyBrowserSecrets();
+  updateSiteUrlBadge(getStoredCredentials().siteUrl);
   renderHistory();
 
   // --- TAB SWAP SYSTEM ---
@@ -582,8 +599,7 @@ document.addEventListener('DOMContentLoaded', () => {
     } else if (tabId === 'settings-tab') {
       pageTitle.innerText = 'Settings';
       pageSubtitle.innerText = 'Connect your accounts, business info, and automation preferences';
-      if (window.loadUsage) window.loadUsage();
-      if (window.loadStorageStatus) window.loadStorageStatus();
+      loadSettingsFeature();
     }
   }
   // Exposed so tabs reachable only through Explore (brand-tab) can still be
@@ -1051,129 +1067,23 @@ document.addEventListener('DOMContentLoaded', () => {
     };
   }
 
-  function loadSettingsFromStorage() {
-    // Migrate away from persistent browser secret storage. Integration keys
-    // now live server-side; the admin password lasts only for this tab session.
+  // Secret values from early builds must never remain in persistent browser
+  // storage, even when the owner never opens Settings during this session.
+  function migrateLegacyBrowserSecrets() {
     const legacyAdmin = localStorage.getItem('seo_admin_password');
     if (legacyAdmin && !sessionStorage.getItem('seo_admin_password')) sessionStorage.setItem('seo_admin_password', legacyAdmin);
     ['seo_admin_password', 'seo_gemini_key', 'seo_ghl_token', 'seo_gsc_json'].forEach(key => localStorage.removeItem(key));
-    const creds = getStoredCredentials();
-    
-    settingsGeminiKey.value = creds.geminiKey;
-    settingsGhlToken.value = creds.ghlToken;
-    settingsGhlLocation.value = creds.ghlLocation;
-    settingsGhlBlog.value = creds.ghlBlog;
-    settingsSiteUrl.value = creds.siteUrl || 'https://bestdayfitness.com';
-    settingsBlogPrefix.value = creds.blogPrefix || '/post';
-    settingsAuthorName.value = creds.authorName || '';
-    settingsAuthorUrl.value = creds.authorUrl || '';
-    settingsGscJson.value = creds.gscJson;
-    settingsAdminPassword.value = creds.adminPassword || '';
-    if (settingsClientValue) settingsClientValue.value = creds.clientValue;
-    if (settingsConvRate) settingsConvRate.value = creds.convRate;
-    if (settingsCaptureRate) settingsCaptureRate.value = creds.captureRate;
-
-    if (creds.siteUrl) {
-      displaySiteUrlBadge.innerText = creds.siteUrl.replace('https://', '').replace('http://', '');
-    }
   }
 
-  // --- Search Console diagnostic ---------------------------------------
-  // Turns "not connected" into the actual reason. The server does the work;
-  // this only renders it and puts the fix next to the thing that is wrong.
-  const btnGscDiag = document.getElementById('btn-gsc-diag');
-  if (btnGscDiag) btnGscDiag.addEventListener('click', async () => {
-    const body = document.getElementById('gsc-diag-body');
-    btnGscDiag.disabled = true;
-    const label = btnGscDiag.textContent;
-    btnGscDiag.textContent = 'Testing\u2026';
-    body.innerHTML = '<span class="text-muted">Asking Google\u2026</span>';
-    try {
-      const res = await authFetch('/api/gsc-diagnostics');
-      if (res.status === 401) {
-        body.innerHTML = '<span class="text-muted">Enter your admin password above first \u2014 this reads your deployment settings.</span>';
-        return;
-      }
-      const d = await res.json();
-      let html = (d.checks || []).map(c =>
-        '<div class="gsc-row ' + (c.ok ? 'ok' : 'bad') + '">'
-        + '<span class="mk">' + (c.ok ? '\u2713' : '!') + '</span>'
-        + '<span><b>' + uiEsc(c.label) + '</b><span>' + uiEsc(c.detail || '') + '</span></span></div>').join('');
-
-      if (d.serviceAccountEmail) {
-        html += '<div class="gsc-row ok"><span class="mk">\u2139</span><span><b>Service account</b>'
-          + '<span>This is the address you grant access to in Search Console:<br>'
-          + '<span class="gsc-email">' + uiEsc(d.serviceAccountEmail) + '</span></span></span></div>';
-      }
-      if (d.fix) html += '<div class="gsc-fix"><b>Do this:</b> ' + uiEsc(d.fix) + '</div>';
-      else if (d.verdict === 'connected') html += '<div class="gsc-fix"><b>Connected.</b> Real rankings and clicks will replace the sample data on the next refresh.</div>';
-      body.innerHTML = html;
-    } catch (err) {
-      body.innerHTML = '<span class="text-muted">Could not run the test: ' + uiEsc(err.message) + '</span>';
-    } finally {
-      btnGscDiag.disabled = false;
-      btnGscDiag.textContent = label;
-    }
-  });
-
-  settingsForm.addEventListener('submit', async (e) => {
-    e.preventDefault();
-
-    const geminiKey = settingsGeminiKey.value.trim();
-    const openaiKey = (document.getElementById('settings-openai-key')?.value || '').trim();
-    const perplexityKey = (document.getElementById('settings-perplexity-key')?.value || '').trim();
-    const ghlToken = settingsGhlToken.value.trim();
-    const ghlLocation = settingsGhlLocation.value.trim();
-    const ghlBlog = settingsGhlBlog.value.trim();
-    const siteUrl = settingsSiteUrl.value.trim();
-    const blogPrefix = settingsBlogPrefix.value.trim();
-    const authorName = settingsAuthorName.value.trim();
-    const authorUrl = settingsAuthorUrl.value.trim();
-    const gscJson = settingsGscJson.value.trim();
-    const adminPassword = settingsAdminPassword.value;
-
-    // Store the admin password first so the save request below is authorized.
-    sessionStorage.setItem('seo_admin_password', adminPassword);
-    // Business-value assumptions for the Summary dashboard estimates.
-    if (settingsClientValue) localStorage.setItem('seo_client_value', settingsClientValue.value.trim() || '1395');
-    if (settingsConvRate) localStorage.setItem('seo_conv_rate', settingsConvRate.value.trim() || '2');
-    if (settingsCaptureRate) localStorage.setItem('seo_capture_rate', settingsCaptureRate.value.trim() || '5');
-    localStorage.setItem('seo_ghl_location', ghlLocation);
-    localStorage.setItem('seo_ghl_blog', ghlBlog);
-    localStorage.setItem('seo_site_url', siteUrl);
-    localStorage.setItem('seo_blog_prefix', blogPrefix);
-    localStorage.setItem('seo_author_name', authorName);
-    localStorage.setItem('seo_author_url', authorUrl);
-
-    if (siteUrl) {
+  function updateSiteUrlBadge(siteUrl) {
+    if (displaySiteUrlBadge && siteUrl) {
       displaySiteUrlBadge.innerText = siteUrl.replace('https://', '').replace('http://', '');
     }
+  }
+  window.getStoredCredentials = getStoredCredentials;
+  window.updateSiteUrlBadge = updateSiteUrlBadge;
 
-    try {
-      const response = await authFetch('/api/save-settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ geminiKey, openaiKey, perplexityKey, ghlToken, ghlLocation, ghlBlog, siteUrl, blogPrefix, authorName, authorUrl, gscJson })
-      });
-      const data = await response.json();
-      if (response.ok && data.success) {
-        settingsGeminiKey.value = '';
-        settingsGhlToken.value = '';
-        settingsGscJson.value = '';
-        const openaiInput = document.getElementById('settings-openai-key');
-        const perplexityInput = document.getElementById('settings-perplexity-key');
-        if (openaiInput) openaiInput.value = '';
-        if (perplexityInput) perplexityInput.value = '';
-        alert(data.message || 'Configuration saved securely on the server.');
-      } else {
-        alert(`Server settings were not saved: ${data.error || 'Unknown server error'}`);
-      }
-    } catch (err) {
-      alert(`Could not save server settings: ${err.message}`);
-    }
-
-    switchTab('gsc-tab');
-  });
+  // Settings form and diagnostics load only when their tab is opened.
 
   // --- PERSISTENT HISTORY & AUTOPILOT CONTROLLER ---
   const autopilotToggle = document.getElementById('autopilot-toggle');
