@@ -35,6 +35,7 @@ const { registerProfileRoutes } = require('../lib/profile-routes.js');
 const { normalizeBudget, registerUsageRoutes } = require('../lib/usage-routes.js');
 const { createGscService, mapPageRows, mapQueryRows, searchDateRange } = require('../lib/gsc-routes.js');
 const { registerAutopilotRoutes } = require('../lib/autopilot-routes.js');
+const { belongsToSearchConsoleProperty, registerContentRoutes } = require('../lib/content-routes.js');
 const { ProviderRuntimeError, createProviderRuntime } = require('../lib/provider-runtime.js');
 const { createPostgresStateBridge, replayPostgresOutbox } = require('../lib/postgres-state-bridge.js');
 const { classifyContactSource, summarizeContactAttribution } = require('../lib/attribution.js');
@@ -603,6 +604,79 @@ test('autopilot routes preserve schedule, queue, target, and run contracts', asy
   assert.equal(run.body.ran, true);
   assert.equal(run.body.message, 'Autopilot completed a run successfully!');
   assert.equal(saves, 3);
+});
+
+test('content routes preserve validation, history, quality, and property containment', async () => {
+  assert.equal(belongsToSearchConsoleProperty('https://www.example.com/post', 'sc-domain:example.com'), true);
+  assert.equal(belongsToSearchConsoleProperty('https://example.com.evil.test/post', 'sc-domain:example.com'), false);
+  assert.equal(belongsToSearchConsoleProperty('https://example.com/blog/post', 'https://example.com/blog/'), true);
+
+  const routes = new Map();
+  const app = {
+    get(path, ...handlers) { routes.set(`GET ${path}`, handlers.at(-1)); },
+    post(path, ...handlers) { routes.set(`POST ${path}`, handlers.at(-1)); },
+  };
+  const state = { history: [] };
+  const generatedArgs = [];
+  const indexedUrls = [];
+  let saves = 0;
+  registerContentRoutes(app, {
+    requireAuth: () => {},
+    state,
+    generateArticle: async (...args) => { generatedArgs.push(args); return { success: true, title: 'Draft' }; },
+    publishGhl: async (title, content, status) => ({ success: true, source: 'live_ghl', url: 'https://example.com/blog/draft', title, content, status }),
+    indexUrl: async url => { indexedUrls.push(url); return { success: true, source: 'live_indexing' }; },
+    safeHttpUrl: value => /^https?:\/\//.test(String(value || '')) ? String(value) : '',
+    sanitizeArticleHtml: value => value.replace(/<script>.*?<\/script>/g, ''),
+    assessArticleQuality: () => ({ score: 88, version: 3 }),
+    brandViolations: () => [],
+    usageOverBudget: () => false,
+    budgetBlock: res => res.json({ budgetReached: true }),
+    integrationErrorStatus: () => 502,
+    explainIndexError: message => message,
+    saveHistory: () => { saves += 1; },
+    getSearchConsoleProperty: () => 'sc-domain:example.com',
+    today: () => '2026-09-01',
+  });
+
+  function response() {
+    return {
+      statusCode: 200,
+      body: null,
+      status(code) { this.statusCode = code; return this; },
+      json(body) { this.body = body; return this; },
+    };
+  }
+
+  const generated = response();
+  await routes.get('POST /api/generate-article')({ body: { keyword: '  senior mobility  ', ctaUrl: 'https://example.com/join' } }, generated);
+  assert.deepEqual(generated.body, { success: true, title: 'Draft' });
+  assert.deepEqual(generatedArgs[0], ['senior mobility', '', '', 'https://example.com/join', '']);
+
+  const published = response();
+  await routes.get('POST /api/publish-ghl')({ body: { title: ' Guide ', content: '<p>Safe</p><script>bad</script>', status: 'published', keyword: 'mobility' } }, published);
+  assert.equal(published.body.quality.score, 88);
+  assert.deepEqual(state.history, [{
+    title: 'Guide',
+    keyword: 'mobility',
+    platform: 'GoHighLevel (published)',
+    date: '2026-09-01',
+    indexed: 'Indexing Available',
+    url: 'https://example.com/blog/draft',
+    qualityScore: 88,
+    qualityVersion: 3,
+  }]);
+
+  const rejected = response();
+  await routes.get('POST /api/index-url')({ body: { url: 'https://outside.test/post' } }, rejected);
+  assert.equal(rejected.statusCode, 400);
+  assert.deepEqual(indexedUrls, []);
+
+  const indexed = response();
+  await routes.get('POST /api/index-url')({ body: { url: 'https://example.com/blog/draft' } }, indexed);
+  assert.equal(indexed.body.source, 'live_indexing');
+  assert.equal(state.history[0].indexed, 'Indexing Requested');
+  assert.equal(saves, 2);
 });
 
 test('provider runtime retries transient failures and reports bounded integration health', async () => {

@@ -54,6 +54,7 @@ const { registerProfileRoutes } = require('./lib/profile-routes');
 const { registerUsageRoutes } = require('./lib/usage-routes');
 const { registerGscRoutes } = require('./lib/gsc-routes');
 const { registerAutopilotRoutes } = require('./lib/autopilot-routes');
+const { registerContentRoutes } = require('./lib/content-routes');
 
 // Load UI-saved secrets from the durable storage root. Tenant state is isolated
 // below this root after configuration is loaded; host-provided variables still
@@ -1969,98 +1970,24 @@ const gscService = registerGscRoutes(app, {
 });
 const getGscDashboardData = gscService.getDashboardData;
 
-// 2. Generate Article Endpoint
-app.post('/api/generate-article', requireAuth, async (req, res) => {
-  const body = req.body || {};
-  const keyword = String(body.keyword || '').trim().slice(0, 300);
-  const caseStudy = String(body.caseStudy || '').trim().slice(0, 10000);
-  const ctaText = String(body.ctaText || '').trim().slice(0, 300);
-  const ctaUrl = String(body.ctaUrl || '').trim().slice(0, 2000);
-  const transcript = String(body.transcript || '').trim().slice(0, 60000);
-  if (!keyword) return res.status(400).json({ error: 'Keyword is required' });
-  if (ctaUrl && !safeHttpUrl(ctaUrl)) return res.status(400).json({ error: 'CTA URL must start with http:// or https://.' });
-  if (usageOverBudget()) return budgetBlock(res);
-
-  try {
-    const data = await generateArticleHelper(keyword, caseStudy, ctaText, ctaUrl, transcript);
-    return res.json(data);
-  } catch (err) {
-    return res.status(integrationErrorStatus(err)).json({ success: false, code: err.code || 'GENERATION_FAILED', error: err.message });
-  }
-});
-
-// 3. Publish to GoHighLevel
-app.post('/api/publish-ghl', requireAuth, async (req, res) => {
-  const body = req.body || {};
-  const title = String(body.title || '').trim().slice(0, 300);
-  const content = sanitizeArticleHtml(String(body.content || '').slice(0, 2 * 1024 * 1024));
-  const status = ['draft', 'published'].includes(String(body.status || '').toLowerCase())
-    ? String(body.status).toLowerCase()
-    : 'draft';
-  if (!title) return res.status(400).json({ success: false, error: 'A title is required.' });
-  if (!content.trim()) return res.status(400).json({ success: false, error: 'Article content is required.' });
-
-  try {
-    // Credentials and destination IDs come only from server-side settings.
-    // Never accept secret or routing overrides from a browser request.
-    const data = await publishGhlHelper(title, content, status);
-    const quality = assessArticleQuality(content, { brandViolations: brandViolations(content + ' ' + title) });
-    
-    // Save to history list
-    const historyEntry = {
-      title,
-      keyword: String(body.keyword || 'Manual Entry').slice(0, 300),
-      platform: data.source === 'mock_ghl' ? 'GHL (Mock Manual)' : `GoHighLevel (${status})`,
-      date: new Date().toISOString().split('T')[0],
-      indexed: 'Indexing Available',
-      url: data.url,
-      qualityScore: quality.score,
-      qualityVersion: quality.version,
-    };
-    
-    // Avoid duplicates
-    if (!historyDb.some(h => h.url === historyEntry.url)) {
-      historyDb.unshift(historyEntry);
-      saveHistory();
-    }
-
-    return res.json({ ...data, quality });
-  } catch (err) {
-    return res.status(integrationErrorStatus(err)).json({ success: false, code: err.code || 'PUBLISH_FAILED', error: err.message });
-  }
-});
-
-// 4. Request Google Indexing
-app.post('/api/index-url', requireAuth, async (req, res) => {
-  const url = safeHttpUrl(req.body && req.body.url);
-  if (!url) return res.status(400).json({ error: 'A valid http:// or https:// URL is required.' });
-  const configured = String(process.env.GSC_SITE_URL || '').trim();
-  if (configured) {
-    const target = new URL(url);
-    const allowed = configured.startsWith('sc-domain:')
-      ? (target.hostname === configured.slice(10) || target.hostname.endsWith('.' + configured.slice(10)))
-      : url.startsWith(configured);
-    if (!allowed) return res.status(400).json({ error: 'The indexing URL must belong to the configured Search Console property.' });
-  }
-
-  try {
-    const data = await indexUrlHelper(url);
-    
-    // Update matching entry in history
-    historyDb.forEach(h => {
-      if (h.url === url) h.indexed = 'Indexing Requested';
-    });
-    saveHistory();
-
-    return res.json(data);
-  } catch (err) {
-    return res.status(integrationErrorStatus(err)).json({ success: false, code: err.code || 'INDEXING_FAILED', error: explainIndexError(err.message) });
-  }
-});
-
-// 5. Get History List
-app.get('/api/history', (req, res) => {
-  return res.json(historyDb);
+// Manual article delivery shares one boundary for validation, quality,
+// history persistence, and Search Console property containment.
+registerContentRoutes(app, {
+  requireAuth,
+  state: { get history() { return historyDb; } },
+  generateArticle: generateArticleHelper,
+  publishGhl: publishGhlHelper,
+  indexUrl: indexUrlHelper,
+  safeHttpUrl,
+  sanitizeArticleHtml,
+  assessArticleQuality,
+  brandViolations,
+  usageOverBudget,
+  budgetBlock,
+  integrationErrorStatus,
+  explainIndexError,
+  saveHistory,
+  getSearchConsoleProperty: () => process.env.GSC_SITE_URL,
 });
 
 // Autopilot HTTP contracts use an adapter over the existing scheduler state.
