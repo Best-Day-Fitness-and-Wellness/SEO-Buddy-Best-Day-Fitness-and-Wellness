@@ -44,6 +44,14 @@ const { EMAIL_PATTERN, registerDeliveryRoutes } = require('../lib/delivery-route
 const { CITATION_STATUSES, LISTING_TYPES, normalizeCitationQueries, registerCitationRoutes } = require('../lib/citation-routes.js');
 const { buildCanonicalNap, buildReviewReplyPrompt, mapNapListings, registerLocalSeoRoutes } = require('../lib/local-seo-routes.js');
 const { aggregateGscRows, createPerformanceService, registerPerformanceRoutes } = require('../lib/performance-routes.js');
+const {
+  assertPublicHttpUrl,
+  buildOnsiteSchemas,
+  extractPageContent,
+  fetchPublicHtml,
+  isBlockedAddress,
+  registerOnsiteRoutes,
+} = require('../lib/onsite-routes.js');
 const { ProviderRuntimeError, createProviderRuntime } = require('../lib/provider-runtime.js');
 const { createPostgresStateBridge, replayPostgresOutbox } = require('../lib/postgres-state-bridge.js');
 const { classifyContactSource, summarizeContactAttribution } = require('../lib/attribution.js');
@@ -1308,6 +1316,222 @@ test('local SEO routes preserve NAP, generation, validation, and reply-history c
   assert.equal(failed.statusCode, 502);
   assert.deepEqual(failed.body, { success: false, error: 'generation unavailable' });
   assert.deepEqual(errors.at(-1), ['[Local Generate] failed:', 'generation unavailable']);
+});
+
+test('on-site routes preserve URL safety, tool validation, generation, AEO, and schema contracts', async () => {
+  assert.equal(isBlockedAddress('127.0.0.1'), true);
+  assert.equal(isBlockedAddress('169.254.169.254'), true);
+  assert.equal(isBlockedAddress('192.168.1.1'), true);
+  assert.equal(isBlockedAddress('8.8.8.8'), false);
+  assert.equal(isBlockedAddress('::1'), true);
+  assert.equal(isBlockedAddress('2606:4700:4700::1111'), false);
+  await assert.rejects(assertPublicHttpUrl('file:///etc/passwd'), /Only public http:\/\//);
+  await assert.rejects(assertPublicHttpUrl('https://localhost/page'), /Private or local network/);
+  await assert.rejects(assertPublicHttpUrl('https://example.com:8443/page'), /standard public website ports/);
+  await assert.rejects(
+    assertPublicHttpUrl('https://private.example/page', async () => [{ address: '10.0.0.1' }]),
+    /resolves to a private or reserved network/,
+  );
+  const publicUrl = await assertPublicHttpUrl('https://public.example/page', async () => [{ address: '8.8.8.8' }]);
+  assert.equal(publicUrl.toString(), 'https://public.example/page');
+
+  const validatedRedirects = [];
+  let fetchCount = 0;
+  let cancelled = 0;
+  const fetched = await fetchPublicHtml('https://public.example/start', 1024, {
+    validatePublicUrl: async value => {
+      validatedRedirects.push(value);
+      return new URL(value);
+    },
+    fetchImpl: async () => {
+      fetchCount += 1;
+      if (fetchCount === 1) {
+        return {
+          status: 302,
+          ok: false,
+          headers: { get: name => name === 'location' ? '/final' : null },
+          body: { cancel: async () => { cancelled += 1; } },
+        };
+      }
+      return new Response('<html><title>Final</title><h1>Answer</h1></html>', { status: 200 });
+    },
+  });
+  assert.deepEqual(validatedRedirects, ['https://public.example/start', 'https://public.example/final']);
+  assert.equal(cancelled, 1);
+  assert.equal(fetched.url, 'https://public.example/final');
+  assert.match(fetched.html, /<title>Final<\/title>/);
+  await assert.rejects(fetchPublicHtml('https://public.example/large', 100, {
+    validatePublicUrl: async value => new URL(value),
+    fetchImpl: async () => ({
+      status: 200,
+      ok: true,
+      headers: { get: name => name === 'content-length' ? '101' : null },
+      body: null,
+      text: async () => '',
+    }),
+  }), /too large to scan safely/);
+
+  const page = extractPageContent('<html><title> Fitness <b>Guide</b> </title><style>hidden</style><script>secret()</script><h1>Main <em>Answer</em></h1><h2>What helps?</h2><p>Useful content</p></html>');
+  assert.equal(page.pageTitle, 'Fitness Guide');
+  assert.deepEqual(page.headings, ['H1: Main Answer', 'H2: What helps?']);
+  assert.doesNotMatch(page.bodyText, /secret|hidden/);
+  assert.match(page.bodyText, /Useful content/);
+
+  const schemas = buildOnsiteSchemas({
+    siteUrl: 'sc-domain:bestdayfitness.com',
+    business: { name: 'Best Day Fitness' },
+    authorName: 'Coach Chris',
+    authorUrl: 'https://example.com/coach',
+  });
+  assert.equal(schemas.service.provider['@id'], 'https://bestdayfitness.com/#organization');
+  assert.equal(schemas.breadcrumb.itemListElement[2].item, 'https://bestdayfitness.com/personal-training');
+  assert.deepEqual(schemas.article.author, {
+    '@type': 'Person',
+    name: 'Coach Chris',
+    url: 'https://example.com/coach',
+  });
+  assert.equal(schemas.faqpage['@type'], 'FAQPage');
+  assert.equal(schemas.howto.step.length, 3);
+
+  const routes = new Map();
+  const app = {
+    get(path, ...handlers) { routes.set(`GET ${path}`, handlers); },
+    post(path, ...handlers) { routes.set(`POST ${path}`, handlers); },
+  };
+  const requireAuth = () => {};
+  let hasKey = false;
+  let history = [];
+  let geminiText = '{"ok":true}';
+  let geminiError = null;
+  let fetchResult = {
+    response: { ok: true, status: 200 },
+    html: '<html><title>Live Page</title><h1>Direct answer</h1><p>Helpful content.</p></html>',
+    url: 'https://public.example/final',
+  };
+  const prompts = [];
+  const validated = [];
+  const errors = [];
+  registerOnsiteRoutes(app, {
+    requireAuth,
+    hasGeminiKey: () => hasKey,
+    brandPrompt: () => 'Best Day Fitness brand',
+    geminiGenerate: async request => {
+      prompts.push(request);
+      if (geminiError) throw geminiError;
+      return { text: geminiText };
+    },
+    model: 'gemini-test',
+    parseGeminiJson: text => { try { return JSON.parse(text); } catch (error) { return null; } },
+    getHistory: () => history,
+    getSiteUrl: () => 'sc-domain:bestdayfitness.com',
+    getAuthorName: () => 'Coach Chris',
+    getAuthorUrl: () => 'https://example.com/coach',
+    business: { name: 'Best Day Fitness' },
+    validatePublicUrl: async value => {
+      validated.push(value);
+      if (value.includes('private')) throw new Error('Private URL blocked.');
+      return new URL(value);
+    },
+    fetchPage: async () => {
+      if (fetchResult instanceof Error) throw fetchResult;
+      return fetchResult;
+    },
+    logger: { error(...args) { errors.push(args); } },
+  });
+  const response = () => ({
+    statusCode: 200,
+    body: null,
+    status(code) { this.statusCode = code; return this; },
+    json(body) { this.body = body; return this; },
+  });
+  const onsite = routes.get('POST /api/onsite').at(-1);
+  assert.equal(routes.get('POST /api/onsite')[0], requireAuth);
+
+  const unknown = response();
+  await onsite({ body: { tool: 'unknown' } }, unknown);
+  assert.deepEqual([unknown.statusCode, unknown.body], [400, { success: false, error: 'Unknown tool.' }]);
+  const unsafe = response();
+  await onsite({ body: { tool: 'aeoReadiness', url: 'private.example' } }, unsafe);
+  assert.equal(unsafe.statusCode, 400);
+  assert.deepEqual(unsafe.body, { success: false, error: 'Private URL blocked.', data: { fetchError: 'Private URL blocked.' } });
+  const unavailable = response();
+  await onsite({ body: { tool: 'keywords' } }, unavailable);
+  assert.equal(unavailable.body.unavailable, true, 'credential check must remain ahead of per-tool field validation');
+
+  hasKey = true;
+  const missingSeed = response();
+  await onsite({ body: { tool: 'keywords' } }, missingSeed);
+  assert.deepEqual([missingSeed.statusCode, missingSeed.body], [400, { error: 'Enter a seed keyword.' }]);
+  const missingKeyword = response();
+  await onsite({ body: { tool: 'titlemeta' } }, missingKeyword);
+  assert.deepEqual([missingKeyword.statusCode, missingKeyword.body], [400, { error: 'Enter a target keyword.' }]);
+  const missingQuery = response();
+  await onsite({ body: { tool: 'fanout', query: '  ' } }, missingQuery);
+  assert.deepEqual([missingQuery.statusCode, missingQuery.body], [400, { error: 'A search query is required.' }]);
+
+  const noLinks = response();
+  await onsite({ body: { tool: 'links' } }, noLinks);
+  assert.deepEqual(noLinks.body.data.suggestions, []);
+  assert.equal(prompts.length, 0);
+  history = [
+    { title: 'One', keyword: 'one', url: '/one', ignored: true },
+    { title: 'Two', keyword: 'two', url: '/two' },
+  ];
+  const links = response();
+  await onsite({ body: { tool: 'links' } }, links);
+  assert.deepEqual(links.body, { success: true, data: { ok: true } });
+  assert.match(prompts.at(-1).contents, /"title":"One","keyword":"one","url":"\/one"/);
+
+  const keywords = response();
+  await onsite({ body: { tool: 'keywords', seed: 'senior fitness' } }, keywords);
+  assert.deepEqual(prompts.at(-1).config, { tools: [{ googleSearch: {} }] });
+  const titlemeta = response();
+  await onsite({ body: { tool: 'titlemeta', keyword: 'mobility', currentTitle: 'Old Title' } }, titlemeta);
+  assert.equal(prompts.at(-1).config, undefined);
+  assert.match(prompts.at(-1).contents, /current title is: "Old Title"/);
+  geminiText = 'invalid';
+  const fanout = response();
+  await onsite({ body: { tool: 'fanout', query: 'balance training' } }, fanout);
+  assert.deepEqual(fanout.body, { success: true, data: { questions: [] } });
+
+  geminiText = '{"overallScore":86,"bucket":"AEO-ready"}';
+  const aeo = response();
+  await onsite({ body: { tool: 'aeoReadiness', url: 'public.example/start' } }, aeo);
+  assert.equal(validated.at(-1), 'https://public.example/start');
+  assert.deepEqual(aeo.body, {
+    success: true,
+    data: {
+      overallScore: 86,
+      bucket: 'AEO-ready',
+      url: 'https://public.example/final',
+      pageTitle: 'Live Page',
+    },
+  });
+  assert.match(prompts.at(-1).contents, /PAGE TITLE: Live Page/);
+  assert.match(prompts.at(-1).contents, /H1: Direct answer/);
+
+  fetchResult = { response: { ok: false, status: 404 }, html: '', url: 'https://public.example/missing' };
+  const missingPage = response();
+  await onsite({ body: { tool: 'aeoReadiness', url: 'public.example/missing' } }, missingPage);
+  assert.match(missingPage.body.data.fetchError, /HTTP 404/);
+  fetchResult = new Error('Page exceeded limit.');
+  const fetchFailed = response();
+  await onsite({ body: { tool: 'aeoReadiness', url: 'public.example/large' } }, fetchFailed);
+  assert.equal(fetchFailed.statusCode, 400);
+  assert.deepEqual(fetchFailed.body.data, { fetchError: 'Page exceeded limit.' });
+
+  geminiError = new Error('generation unavailable');
+  const generatedFailed = response();
+  await onsite({ body: { tool: 'keywords', seed: 'fitness' } }, generatedFailed);
+  assert.equal(generatedFailed.statusCode, 502);
+  assert.deepEqual(generatedFailed.body, { success: false, error: 'generation unavailable' });
+  assert.deepEqual(errors.at(-1), ['[On-Site] failed:', 'generation unavailable']);
+
+  const schemaResponse = response();
+  routes.get('GET /api/onsite-schema').at(-1)({}, schemaResponse);
+  assert.deepEqual(Object.keys(schemaResponse.body), ['service', 'review', 'breadcrumb', 'faqpage', 'article', 'howto']);
+  assert.equal(JSON.parse(schemaResponse.body.service).provider.name, 'Best Day Fitness');
+  assert.equal(JSON.parse(schemaResponse.body.article).author.name, 'Coach Chris');
 });
 
 test('performance service preserves aggregation, trends, persistence, attribution, and route contracts', async () => {

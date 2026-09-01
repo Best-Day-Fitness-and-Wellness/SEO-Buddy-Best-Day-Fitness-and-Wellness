@@ -5,8 +5,6 @@ const cors = require('cors');
 const dotenv = require('dotenv');
 const path = require('path');
 const fs = require('fs');
-const dns = require('node:dns').promises;
-const net = require('node:net');
 const crypto = require('node:crypto');
 const { google } = require('googleapis');
 const { GoogleGenAI } = require('@google/genai');
@@ -61,6 +59,7 @@ const { registerDeliveryRoutes } = require('./lib/delivery-routes');
 const { LISTING_TYPES, registerCitationRoutes } = require('./lib/citation-routes');
 const { buildCanonicalNap, mapNapListings, registerLocalSeoRoutes } = require('./lib/local-seo-routes');
 const { createPerformanceService, registerPerformanceRoutes } = require('./lib/performance-routes');
+const { registerOnsiteRoutes } = require('./lib/onsite-routes');
 
 // Load UI-saved secrets from the durable storage root. Tenant state is isolated
 // below this root after configuration is loaded; host-provided variables still
@@ -2955,302 +2954,19 @@ function parseGeminiJson(text) {
   try { return JSON.parse(raw); } catch (e) { return null; }
 }
 
-function isBlockedAddress(address) {
-  const value = String(address || '').toLowerCase().split('%')[0];
-  if (net.isIP(value) === 4) {
-    const p = value.split('.').map(Number);
-    return p[0] === 0 || p[0] === 10 || p[0] === 127 || p[0] >= 224
-      || (p[0] === 100 && p[1] >= 64 && p[1] <= 127)
-      || (p[0] === 169 && p[1] === 254)
-      || (p[0] === 172 && p[1] >= 16 && p[1] <= 31)
-      || (p[0] === 192 && (p[1] === 0 || p[1] === 168))
-      || (p[0] === 198 && (p[1] === 18 || p[1] === 19))
-      || (p[0] === 198 && p[1] === 51 && p[2] === 100)
-      || (p[0] === 203 && p[1] === 0 && p[2] === 113);
-  }
-  if (net.isIP(value) === 6) {
-    if (value.startsWith('::ffff:')) return isBlockedAddress(value.slice(7));
-    return value === '::' || value === '::1' || value.startsWith('fe8') || value.startsWith('fe9')
-      || value.startsWith('fea') || value.startsWith('feb') || value.startsWith('fc')
-      || value.startsWith('fd') || value.startsWith('ff') || value.startsWith('2001:db8:');
-  }
-  return true;
-}
-
-async function assertPublicHttpUrl(value) {
-  let parsed;
-  try { parsed = new URL(value); } catch (e) { throw new Error('Enter a valid public page URL.'); }
-  if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) {
-    throw new Error('Only public http:// or https:// page URLs are supported.');
-  }
-  if (parsed.port && !['80', '443'].includes(parsed.port)) {
-    throw new Error('Only standard public website ports (80 and 443) are supported.');
-  }
-  const host = parsed.hostname.toLowerCase().replace(/\.$/, '');
-  if (!host || host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') || host.endsWith('.internal')) {
-    throw new Error('Private or local network addresses cannot be scanned.');
-  }
-  if (net.isIP(host)) {
-    if (isBlockedAddress(host)) throw new Error('Private or reserved network addresses cannot be scanned.');
-  } else {
-    let records;
-    try { records = await dns.lookup(host, { all: true, verbatim: true }); }
-    catch (e) { throw new Error('That hostname could not be resolved.'); }
-    if (!records.length || records.some(record => isBlockedAddress(record.address))) {
-      throw new Error('That hostname resolves to a private or reserved network address.');
-    }
-  }
-  return parsed;
-}
-
-async function fetchPublicHtml(value, maxBytes = 2 * 1024 * 1024) {
-  let current = value;
-  for (let redirects = 0; redirects <= 4; redirects++) {
-    const parsed = await assertPublicHttpUrl(current);
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 12000);
-    let response;
-    try {
-      response = await fetch(parsed, {
-        redirect: 'manual',
-        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; SEOBuddyBot/1.0)' },
-        signal: ctrl.signal,
-      });
-      if ([301, 302, 303, 307, 308].includes(response.status)) {
-        const location = response.headers.get('location');
-        if (!location) throw new Error('The page redirected without a destination.');
-        if (response.body) await response.body.cancel();
-        current = new URL(location, parsed).toString();
-        continue;
-      }
-      if (!response.ok) return { response, html: '', url: parsed.toString() };
-      const declared = Number(response.headers.get('content-length') || 0);
-      if (declared > maxBytes) throw new Error('That page is too large to scan safely (2 MB limit).');
-      const reader = response.body && response.body.getReader ? response.body.getReader() : null;
-      if (!reader) {
-        const html = await response.text();
-        if (Buffer.byteLength(html) > maxBytes) throw new Error('That page is too large to scan safely (2 MB limit).');
-        return { response, html, url: parsed.toString() };
-      }
-      const chunks = [];
-      let total = 0;
-      while (true) {
-        const { done, value: chunk } = await reader.read();
-        if (done) break;
-        total += chunk.byteLength;
-        if (total > maxBytes) {
-          await reader.cancel();
-          throw new Error('That page is too large to scan safely (2 MB limit).');
-        }
-        chunks.push(Buffer.from(chunk));
-      }
-      return { response, html: Buffer.concat(chunks).toString('utf8'), url: parsed.toString() };
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-  throw new Error('That page redirected too many times.');
-}
-
-app.post('/api/onsite', requireAuth, async (req, res) => {
-  const { tool, seed, keyword, currentTitle, url, query } = req.body || {};
-  const allowedTools = new Set(['keywords', 'titlemeta', 'links', 'fanout', 'aeoReadiness']);
-  if (!allowedTools.has(tool)) return res.status(400).json({ success: false, error: 'Unknown tool.' });
-  if (tool === 'aeoReadiness') {
-    let candidate = String(url || '').trim();
-    if (!candidate) return res.status(400).json({ success: false, error: 'Enter a page URL to check.' });
-    if (!/^https?:\/\//i.test(candidate)) candidate = 'https://' + candidate;
-    try { await assertPublicHttpUrl(candidate); }
-    catch (e) { return res.status(400).json({ success: false, error: e.message, data: { fetchError: e.message } }); }
-  }
-  const geminiKey = process.env.GEMINI_API_KEY;
-  if (!geminiKey) {
-    return res.json({ success: true, unavailable: true, message: 'Add your Gemini API key in Settings to use the on-site tools.' });
-  }
-  const brand = brandPrompt(true);
-
-  try {
-    if (tool === 'keywords') {
-      if (!seed) return res.status(400).json({ error: 'Enter a seed keyword.' });
-      const prompt = `${brand}\nUsing current web information, expand the seed keyword "${seed}" into 4–5 topic clusters this business could realistically target. For each cluster give: a short theme, 4–6 specific keyword phrases people actually search (favor local and long‑tail), 2–3 real questions people ask, and one concrete blog/page content idea. Return ONLY raw JSON, no markdown: {"clusters":[{"theme":"","keywords":[],"questions":[],"contentIdea":""}]}`;
-      const r = await geminiGenerate({ model: GEMINI_MODEL, contents: prompt, config: { tools: [{ googleSearch: {} }] } });
-      return res.json({ success: true, data: parseGeminiJson(r.text) });
-    }
-    if (tool === 'titlemeta') {
-      if (!keyword) return res.status(400).json({ error: 'Enter a target keyword.' });
-      const prompt = `${brand}\nWrite SEO title tags and meta descriptions targeting the keyword "${keyword}"${currentTitle ? ` (current title is: "${currentTitle}")` : ''}. Provide 3 title options (each 60 characters or fewer, compelling, naturally including the keyword) and 2 meta descriptions (each 155 characters or fewer, with a clear call to action). Return ONLY raw JSON, no markdown: {"titles":[],"metas":[]}`;
-      const r = await geminiGenerate({ model: GEMINI_MODEL, contents: prompt });
-      return res.json({ success: true, data: parseGeminiJson(r.text) });
-    }
-    if (tool === 'links') {
-      const pages = historyDb.map(h => ({ title: h.title, keyword: h.keyword, url: h.url }));
-      if (pages.length < 2) {
-        return res.json({ success: true, data: { suggestions: [], note: 'Publish at least two pages first — then this suggests internal links between them to build topic authority.' } });
-      }
-      const prompt = `${brand}\nHere are the pages this website has published:\n${JSON.stringify(pages)}\nSuggest internal links between them to build topic authority (pillar/cluster style). For each suggestion give the source page title, the target page title, a natural anchor phrase, and a one‑line reason. Return ONLY raw JSON, no markdown: {"suggestions":[{"from":"","to":"","anchor":"","why":""}]}`;
-      const r = await geminiGenerate({ model: GEMINI_MODEL, contents: prompt });
-      return res.json({ success: true, data: parseGeminiJson(r.text) });
-    }
-    if (tool === 'fanout') {
-      // Query fan-out — the related sub-questions AI answer engines break a search into.
-      // Knowing these tells the owner what a single, citable page must cover.
-      const q = (query || '').trim();
-      if (!q) return res.status(400).json({ error: 'A search query is required.' });
-      const prompt = `${brand}\nA person's search is: "${q}". AI answer engines break a search like this into several related sub-questions ("query fan-out"), then answer each one. Using current web information, list the 5–7 specific, natural questions real people ask around this search — the questions a single, citable article on this topic should answer to earn AI citations. Favor questions this business's audience (adults 50+, seniors, injury recovery, local St. Petersburg) would actually ask. Phrase each as a real question. Return ONLY raw JSON, no markdown: {"questions":["",""]}`;
-      const r = await geminiGenerate({ model: GEMINI_MODEL, contents: prompt, config: { tools: [{ googleSearch: {} }] } });
-      return res.json({ success: true, data: parseGeminiJson(r.text) || { questions: [] } });
-    }
-    if (tool === 'aeoReadiness') {
-      // Score a real page against the AEO Content Optimization Checklist (from HubSpot's AEO course).
-      let target = (url || '').trim();
-      if (!target) return res.status(400).json({ error: 'Enter a page URL to check.' });
-      if (!/^https?:\/\//i.test(target)) target = 'https://' + target;
-
-      // Fetch public page HTML only. Validate every redirect and cap the body
-      // so this tool cannot reach cloud metadata/private services or consume
-      // unbounded memory from a hostile URL.
-      let html = '';
-      try {
-        const fetched = await fetchPublicHtml(target);
-        if (!fetched.response.ok) return res.json({ success: true, data: { fetchError: `Couldn't load that page (HTTP ${fetched.response.status}). Double-check the URL is public and correct.` } });
-        html = fetched.html;
-        target = fetched.url;
-      } catch (e) {
-        return res.status(400).json({ success: false, error: e.message, data: { fetchError: e.message } });
-      }
-
-      // Extract title, H1–H3 headings, and a body-text excerpt for the auditor.
-      const clean = (s) => (s || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
-      const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
-      const pageTitle = titleMatch ? clean(titleMatch[1]) : '';
-      const headings = [];
-      const hre = /<(h[1-3])[^>]*>([\s\S]*?)<\/\1>/gi;
-      let hm;
-      while ((hm = hre.exec(html)) && headings.length < 40) {
-        const txt = clean(hm[2]);
-        if (txt) headings.push(`${hm[1].toUpperCase()}: ${txt}`);
-      }
-      let bodyText = html
-        .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-        .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-        .replace(/<[^>]+>/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-      if (bodyText.length > 5000) bodyText = bodyText.slice(0, 5000);
-
-      const auditPrompt = `You are an AEO (Answer Engine Optimization) auditor. Score how ready this web page is to be extracted and cited by AI answer engines (ChatGPT, Perplexity, Google AI Overviews). Judge only what the page actually shows.
-
-PAGE URL: ${target}
-PAGE TITLE: ${pageTitle || '(none found)'}
-HEADINGS FOUND:
-${headings.length ? headings.join('\n') : '(no H1-H3 headings found)'}
-PAGE TEXT (excerpt):
-"""
-${bodyText || '(no readable text found)'}
-"""
-
-Score the page on these 7 checklist items. For each, decide pass (true/false) and give one specific, plain-English note:
-1. answerFirst - Does it lead with a direct, self-contained answer (ideally ~40-60 words) near the top, before background?
-2. questionHeaders - Are H2/H3 headings phrased as the real questions people ask?
-3. selfContained - Does each section make sense on its own (extractable without the rest)?
-4. listsTables - Does it use lists and/or tables that are easy for AI to extract?
-5. fanoutCoverage - Does it answer several related sub-questions, not just one narrow point?
-6. freshness - Is there a visible publish/updated date and current, non-stale info?
-7. dualAudience - Is it clear and well-structured for both humans and AI (plain language, logical order)?
-
-Then set:
-- overallScore: 0-100 (roughly the share of items passed, weighted toward answerFirst and questionHeaders).
-- bucket: one of "AEO-ready", "Quick win", or "Needs rewrite" (Quick win = mostly good with a few easy fixes; Needs rewrite = several structural gaps).
-- topFixes: the 2-4 most impactful, specific changes to make, in plain language for a non-technical owner.
-
-Return ONLY raw JSON, no markdown:
-{"overallScore":0,"bucket":"","checklist":[{"key":"answerFirst","label":"Answer-first opening","pass":true,"note":""},{"key":"questionHeaders","label":"Question-style headers","pass":true,"note":""},{"key":"selfContained","label":"Self-contained sections","pass":true,"note":""},{"key":"listsTables","label":"Lists & tables","pass":true,"note":""},{"key":"fanoutCoverage","label":"Covers related questions","pass":true,"note":""},{"key":"freshness","label":"Freshness / dates","pass":true,"note":""},{"key":"dualAudience","label":"Clear for AI & humans","pass":true,"note":""}],"topFixes":[""]}`;
-
-      const r = await geminiGenerate({ model: GEMINI_MODEL, contents: auditPrompt });
-      const data = parseGeminiJson(r.text) || {};
-      data.url = target;
-      data.pageTitle = pageTitle;
-      return res.json({ success: true, data });
-    }
-    return res.status(400).json({ error: 'Unknown tool.' });
-  } catch (err) {
-    console.error('[On-Site] failed:', err.message);
-    return res.status(502).json({ success: false, error: err.message });
-  }
-});
-
-app.get('/api/onsite-schema', (req, res) => {
-  let domain = (process.env.GSC_SITE_URL || 'https://bestdayfitness.com').trim();
-  if (domain.startsWith('sc-domain:')) domain = 'https://' + domain.substring(10);
-  domain = domain.replace(/\/$/, '');
-
-  const service = {
-    "@context": "https://schema.org",
-    "@type": "Service",
-    "serviceType": "Personal Training for Adults 50+",
-    "provider": { "@type": "SportsClub", "name": BUSINESS.name, "@id": `${domain}/#organization` },
-    "areaServed": { "@type": "City", "name": "St. Petersburg, FL" },
-    "description": "Personalized personal training, integrated physical therapy, and mobility coaching for adults 50+, seniors, and people recovering from injury."
-  };
-  const review = {
-    "@context": "https://schema.org",
-    "@type": "SportsClub",
-    "name": BUSINESS.name,
-    "@id": `${domain}/#organization`,
-    "aggregateRating": {
-      "@type": "AggregateRating",
-      "ratingValue": "REPLACE_WITH_YOUR_REAL_GOOGLE_RATING",
-      "reviewCount": "REPLACE_WITH_YOUR_REAL_REVIEW_COUNT",
-      "bestRating": "5"
-    }
-  };
-  const breadcrumb = {
-    "@context": "https://schema.org",
-    "@type": "BreadcrumbList",
-    "itemListElement": [
-      { "@type": "ListItem", "position": 1, "name": "Home", "item": domain },
-      { "@type": "ListItem", "position": 2, "name": "Services", "item": `${domain}/services` },
-      { "@type": "ListItem", "position": 3, "name": "Personal Training", "item": `${domain}/personal-training` }
-    ]
-  };
-  // AEO-priority types (per HubSpot's AEO course): FAQPage, Article, HowTo.
-  // FAQPage maps directly to the Q&A format answer engines extract.
-  const faqpage = {
-    "@context": "https://schema.org",
-    "@type": "FAQPage",
-    "mainEntity": [
-      { "@type": "Question", "name": "REPLACE with a real question people ask, e.g. Is Best Day Fitness good for adults over 65?", "acceptedAnswer": { "@type": "Answer", "text": "REPLACE with a direct 40–60 word answer that stands on its own." } },
-      { "@type": "Question", "name": "REPLACE with a second real question, e.g. Do you help people recovering from injury?", "acceptedAnswer": { "@type": "Answer", "text": "REPLACE with a direct 40–60 word answer." } }
-    ]
-  };
-  const article = {
-    "@context": "https://schema.org",
-    "@type": "Article",
-    "headline": "REPLACE with the article title (under 110 characters)",
-    "author": { "@type": "Person", "name": (process.env.GHL_AUTHOR_NAME || "REPLACE with the author's full name"), "url": (process.env.GHL_AUTHOR_URL || "REPLACE with the author's profile or LinkedIn URL") },
-    "publisher": { "@type": "Organization", "name": BUSINESS.name, "@id": `${domain}/#organization` },
-    "datePublished": "REPLACE with YYYY-MM-DD",
-    "dateModified": "REPLACE with YYYY-MM-DD",
-    "mainEntityOfPage": "REPLACE with the full URL of this article"
-  };
-  const howto = {
-    "@context": "https://schema.org",
-    "@type": "HowTo",
-    "name": "REPLACE with the how-to title, e.g. How to Improve Balance for Seniors at Home",
-    "step": [
-      { "@type": "HowToStep", "name": "Step 1 title", "text": "REPLACE with the first step's instructions." },
-      { "@type": "HowToStep", "name": "Step 2 title", "text": "REPLACE with the second step's instructions." },
-      { "@type": "HowToStep", "name": "Step 3 title", "text": "REPLACE with the third step's instructions." }
-    ]
-  };
-  res.json({
-    service: JSON.stringify(service, null, 2),
-    review: JSON.stringify(review, null, 2),
-    breadcrumb: JSON.stringify(breadcrumb, null, 2),
-    faqpage: JSON.stringify(faqpage, null, 2),
-    article: JSON.stringify(article, null, 2),
-    howto: JSON.stringify(howto, null, 2)
-  });
+registerOnsiteRoutes(app, {
+  requireAuth,
+  hasGeminiKey: () => !!process.env.GEMINI_API_KEY,
+  brandPrompt,
+  geminiGenerate,
+  model: GEMINI_MODEL,
+  parseGeminiJson,
+  getHistory: () => historyDb,
+  getSiteUrl: () => process.env.GSC_SITE_URL,
+  getAuthorName: () => process.env.GHL_AUTHOR_NAME,
+  getAuthorUrl: () => process.env.GHL_AUTHOR_URL,
+  business: BUSINESS,
+  logger: console,
 });
 
 // ============================================================
