@@ -294,12 +294,20 @@ test('static assets compress, cache briefly, and keep PDF code off the critical 
   const hashedAssets = [...html.matchAll(/(?:href|src)="(\/assets\/[^"]+)"/g)].map(match => match[1]);
   assert.equal(hashedAssets.length, 5, 'stylesheet, theme, core, app, and assistant must be on the initial path');
   const reviewsAsset = html.match(/data-reviews-asset="(\/assets\/reviews\.[a-f0-9]{12}\.js)"/)?.[1];
+  const recordedContentAsset = html.match(/data-recorded-content-asset="(\/assets\/recorded-content\.[a-f0-9]{12}\.js)"/)?.[1];
   assert.ok(reviewsAsset, 'reviews must have a versioned lazy asset');
+  assert.ok(recordedContentAsset, 'recorded content must have a versioned lazy asset');
   assert.equal(hashedAssets.includes(reviewsAsset), false, 'reviews must not execute on the initial path');
+  assert.equal(hashedAssets.includes(recordedContentAsset), false, 'recorded content must not execute on the initial path');
   for (const asset of hashedAssets) {
     assert.match(asset, /\.[a-f0-9]{12}\.(?:css|js)$/);
     const response = await request(asset, { auth: false, headers: { 'Accept-Encoding': 'gzip' } });
     assert.equal(response.status, 200, `${asset} must be served`);
+    assert.match(response.headers.get('cache-control') || '', /max-age=31536000, immutable/);
+  }
+  for (const asset of [reviewsAsset, recordedContentAsset]) {
+    const response = await request(asset, { auth: false, headers: { 'Accept-Encoding': 'gzip' } });
+    assert.equal(response.status, 200, `${asset} must be served lazily`);
     assert.match(response.headers.get('cache-control') || '', /max-age=31536000, immutable/);
   }
 
@@ -319,14 +327,20 @@ test('static assets compress, cache briefly, and keep PDF code off the critical 
   assert.match(source, /Live today/);
   assert.doesNotMatch(source, /SEO BUDDY ASSISTANT/);
   assert.doesNotMatch(source, /REVIEWS SITE/);
+  assert.doesNotMatch(source, /Transcribe this recording|function transcribeFile/);
   assert.match(source, /ensureReviewsFeature/);
+  assert.match(source, /ensureRecordedContentFeature/);
 
   const coreSource = await (await request('/modules/core.js', { auth: false })).text();
   const assistantSource = await (await request('/modules/assistant.js', { auth: false })).text();
   const reviewsSource = await (await request('/modules/reviews.js', { auth: false })).text();
+  const recordedContentSource = await (await request('/modules/recorded-content.js', { auth: false })).text();
   assert.match(coreSource, /global\.SeoBuddyCore/);
   assert.match(assistantSource, /SEO BUDDY ASSISTANT/);
   assert.match(reviewsSource, /REVIEWS SITE/);
+  assert.match(recordedContentSource, /global\.initializeRecordedContent/);
+  assert.match(recordedContentSource, /\/api\/transcribe/);
+  assert.match(recordedContentSource, /\/api\/social-pack/);
 });
 
 test('every mutating or credit-spending route is password protected', async () => {

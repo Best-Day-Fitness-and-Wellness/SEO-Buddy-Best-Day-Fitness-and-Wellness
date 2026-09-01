@@ -27,6 +27,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const modeStatus = document.getElementById('mode-status');
   const modeStatusText = document.getElementById('mode-status-text');
   let reviewsFeaturePromise = null;
+  let recordedContentFeaturePromise = null;
 
   function ensureReviewsFeature() {
     if (window.loadReviews) return Promise.resolve();
@@ -54,6 +55,48 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (error) {
       const checks = document.getElementById('rv-checks');
       if (checks) checks.innerHTML = '<li class="rv-empty">Could not load the Reviews feature. Refresh and try again.</li>';
+    }
+  }
+
+  function ensureRecordedContentFeature() {
+    if (window.initializeRecordedContent) return Promise.resolve();
+    if (recordedContentFeaturePromise) return recordedContentFeaturePromise;
+    const assetUrl = document.body.dataset.recordedContentAsset;
+    if (!assetUrl || !assetUrl.startsWith('/assets/')) return Promise.reject(new Error('Recorded-content feature asset is unavailable.'));
+    recordedContentFeaturePromise = new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = assetUrl;
+      script.async = true;
+      script.addEventListener('load', resolve, { once: true });
+      script.addEventListener('error', () => reject(new Error('Could not load the recorded-content feature.')), { once: true });
+      document.head.appendChild(script);
+    }).catch(error => {
+      recordedContentFeaturePromise = null;
+      throw error;
+    });
+    return recordedContentFeaturePromise;
+  }
+
+  async function loadRecordedContentFeature() {
+    if (window.initializeRecordedContent) {
+      window.initializeRecordedContent();
+      return;
+    }
+    const recordingDrop = document.getElementById('rec-drop');
+    const socialButton = document.getElementById('btn-social-pack');
+    if (recordingDrop) recordingDrop.setAttribute('aria-busy', 'true');
+    if (socialButton) socialButton.disabled = true;
+    try {
+      await ensureRecordedContentFeature();
+      if (window.initializeRecordedContent) window.initializeRecordedContent();
+    } catch (error) {
+      const recordingStatus = document.getElementById('rec-status');
+      const socialOutput = document.getElementById('sp-out');
+      if (recordingStatus) {
+        recordingStatus.className = 'rec-status err';
+        recordingStatus.textContent = 'Could not load recording tools. Refresh and try again.';
+      }
+      if (socialOutput) socialOutput.innerHTML = '<div class="sp-err">Could not load the social-pack tools. Refresh and try again.</div>';
     }
   }
 
@@ -293,6 +336,7 @@ document.addEventListener('DOMContentLoaded', () => {
     } else if (tabId === 'ai-tab') {
       pageTitle.innerText = 'Create a Post';
       pageSubtitle.innerText = 'Have AI write an authoritative, SEO-optimized article for you';
+      loadRecordedContentFeature();
     } else if (tabId === 'publish-tab') {
       pageTitle.innerText = 'Publish';
       pageSubtitle.innerText = 'Publish to your site, request Google indexing, and run the content autopilot';
@@ -314,6 +358,7 @@ document.addEventListener('DOMContentLoaded', () => {
     } else if (tabId === 'local-tab') {
       pageTitle.innerText = 'Local Presence';
       pageSubtitle.innerText = 'NAP monitoring, weekly Google posts, reviews, and your local checklist';
+      loadRecordedContentFeature();
       if (window.loadLocalAutopilot) window.loadLocalAutopilot();
     } else if (tabId === 'onsite-tab') {
       pageTitle.innerText = 'Site Optimization';
@@ -516,181 +561,6 @@ document.addEventListener('DOMContentLoaded', () => {
     codeEditor.style.display = 'none';
   }
 
-  // ---------------------------------------------------------------------------
-  // Recording -> transcript. The only way the owner's first-hand expertise gets
-  // into an article; everything else here writes from the model's general
-  // knowledge. Feeds the optional "Your own words" box above.
-  // ---------------------------------------------------------------------------
-  const recDrop = document.getElementById('rec-drop');
-  const recFile = document.getElementById('rec-file');
-  const recStatus = document.getElementById('rec-status');
-
-  function recSay(msg, cls) {
-    if (!recStatus) return;
-    recStatus.className = 'rec-status' + (cls ? ' ' + cls : '');
-    recStatus.textContent = msg || '';
-  }
-
-  async function transcribeFile(file) {
-    if (!file) return;
-    // Two sources writing into one box at once produces interleaved nonsense.
-    if (typeof dictating !== 'undefined' && dictating) stopDictation();
-    const MAX = 18 * 1048576;
-    if (file.size > MAX) {
-      recSay(`That file is ${(file.size / 1048576).toFixed(1)}MB — the limit is 18MB. Record audio only instead of video, or trim it.`, 'err');
-      return;
-    }
-    recSay(`Transcribing ${file.name} (${(file.size / 1048576).toFixed(1)}MB)… this takes about as long as the recording.`);
-    try {
-      const b64 = await new Promise((resolve, reject) => {
-        const fr = new FileReader();
-        fr.onload = () => resolve(String(fr.result).split(',')[1]);
-        fr.onerror = () => reject(new Error('Could not read that file.'));
-        fr.readAsDataURL(file);
-      });
-      const res = await authFetch('/api/transcribe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data: b64, mimeType: file.type }),
-      });
-      const j = await res.json();
-      if (!res.ok || !j.success) throw new Error(j.error || 'Transcription failed.');
-      const ta = document.getElementById('input-transcript');
-      if (ta) {
-        // Never clobber words that are already there — they may have been
-        // dictated or hand-typed, and losing them silently is unforgivable.
-        if (ta.value.trim()) appendTranscript(j.transcript);
-        else ta.value = j.transcript;
-      }
-      recSay(`Transcribed — ${j.words} words added. Edit it if you like, then generate the article.`, 'ok');
-    } catch (err) {
-      recSay(err.message, 'err');
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-  // Live dictation. Same idea as a system dictation app, but scoped to this box:
-  // the browser's own speech engine, so it costs nothing, spends no Gemini
-  // credits, and no audio leaves the machine. Upload stays for anything already
-  // recorded elsewhere.
-  // ---------------------------------------------------------------------------
-  const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
-  const dictWrap = document.getElementById('rec-dictate-wrap');
-  const dictBtn = document.getElementById('btn-dictate');
-  const dictLabel = document.getElementById('rec-dictate-label');
-  let recog = null;
-  let dictating = false;     // what the USER wants — survives the engine's own stops
-  let dictRestarts = 0;      // guards against an error loop restarting forever
-
-  // Only reveal the button where the API actually exists. Safari and Firefox
-  // get the upload path with no dead control to click.
-  if (SpeechRec && dictWrap) dictWrap.style.display = '';
-
-  function dictSetLive(on) {
-    if (!dictBtn) return;
-    dictBtn.classList.toggle('live', on);
-    if (dictLabel) dictLabel.textContent = on ? 'Stop dictating' : 'Dictate straight into the box';
-  }
-
-  function appendTranscript(text) {
-    const ta = document.getElementById('input-transcript');
-    if (!ta || !text) return;
-    const needsSpace = ta.value && !/\s$/.test(ta.value);
-    ta.value = ta.value + (needsSpace ? ' ' : '') + text;
-    ta.scrollTop = ta.scrollHeight;
-  }
-
-  function stopDictation(msg, cls) {
-    dictating = false;
-    dictRestarts = 0;
-    try { if (recog) { recog.onend = null; recog.stop(); } } catch (e) {}
-    recog = null;
-    dictSetLive(false);
-    recSay(msg || '', cls || '');
-  }
-
-  function startDictation() {
-    if (!SpeechRec) return;
-    recog = new SpeechRec();
-    recog.continuous = true;
-    recog.interimResults = true;
-    recog.lang = document.documentElement.lang || 'en-US';
-
-    recog.onstart = () => { dictRestarts = 0; recSay('Listening — just talk. Your words land in the box below.', 'live'); };
-
-    recog.onresult = (e) => {
-      let interim = '', settled = '';
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const t = e.results[i][0].transcript;
-        if (e.results[i].isFinal) settled += t; else interim += t;
-      }
-      if (settled.trim()) appendTranscript(settled.trim());
-      recSay(interim.trim() ? '… ' + interim.trim() : 'Listening — just talk. Your words land in the box below.', 'live');
-    };
-
-    recog.onerror = (e) => {
-      // no-speech and aborted are routine: the engine idles out, onend restarts it.
-      if (e.error === 'no-speech' || e.error === 'aborted') return;
-      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
-        return stopDictation('Microphone access is blocked. Allow it for this site in your browser settings, then try again — or upload a recording instead.', 'err');
-      }
-      if (e.error === 'audio-capture') {
-        return stopDictation('No microphone found. Plug one in, or upload a recording instead.', 'err');
-      }
-      if (e.error === 'network') {
-        return stopDictation('Speech recognition lost its connection. Try again, or upload a recording instead.', 'err');
-      }
-      stopDictation('Dictation stopped: ' + e.error, 'err');
-    };
-
-    // Chrome ends the session on its own after a stretch of silence. If the user
-    // never pressed stop, bring it back — but not forever, or a persistent
-    // failure becomes an invisible restart loop.
-    recog.onend = () => {
-      if (!dictating) return;
-      if (dictRestarts++ > 40) {
-        return stopDictation('Dictation kept dropping out — try again, or upload a recording instead.', 'err');
-      }
-      try { recog.start(); } catch (e) { /* already starting; ignore */ }
-    };
-
-    try {
-      recog.start();
-      dictating = true;
-      dictSetLive(true);
-    } catch (err) {
-      stopDictation('Could not start dictation: ' + err.message, 'err');
-    }
-  }
-
-  if (dictBtn) dictBtn.addEventListener('click', () => {
-    if (dictating) {
-      const ta = document.getElementById('input-transcript');
-      const words = ta && ta.value.trim() ? ta.value.trim().split(/\s+/).length : 0;
-      stopDictation(words ? `Stopped — ${words} words. Edit it if you like, then generate the article.` : 'Stopped.', words ? 'ok' : '');
-    } else {
-      startDictation();
-    }
-  });
-
-  // Leaving the tab mid-dictation would otherwise keep the mic hot in the
-  // background with nothing visible to explain why.
-  window.addEventListener('beforeunload', () => { if (dictating) stopDictation(); });
-
-  if (recDrop && recFile) {
-    recDrop.addEventListener('click', () => recFile.click());
-    recFile.addEventListener('change', () => transcribeFile(recFile.files[0]));
-    ['dragenter', 'dragover'].forEach(ev => recDrop.addEventListener(ev, e => {
-      e.preventDefault(); recDrop.classList.add('over');
-    }));
-    ['dragleave', 'drop'].forEach(ev => recDrop.addEventListener(ev, e => {
-      e.preventDefault(); recDrop.classList.remove('over');
-    }));
-    recDrop.addEventListener('drop', e => {
-      if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]) transcribeFile(e.dataTransfer.files[0]);
-    });
-  }
-
   // Claims the model produced that a human must check. Generated copy has
   // invented a wrong phone number before now, so this renders above the preview
   // rather than somewhere the owner has to go looking for it.
@@ -708,70 +578,6 @@ document.addEventListener('DOMContentLoaded', () => {
     host.parentNode.insertBefore(box, host);
   }
 
-  // ---------------------------------------------------------------------------
-  // Social pack. Lives beside the GBP post because that is the other place the
-  // owner produces short posts — GBP covers Google, this covers the rest.
-  // ---------------------------------------------------------------------------
-  const spBtn = document.getElementById('btn-social-pack');
-  const spOut = document.getElementById('sp-out');
-  let spState = { transcript: '', ideaIndex: 1, hookIndex: 1 };
-
-  function spEsc(v) {
-    return String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  }
-
-  async function buildSocialPack(ideaIndex, hookIndex) {
-    const ta = document.getElementById('sp-transcript');
-    const transcript = ta ? ta.value.trim() : '';
-    if (transcript.length < 200) {
-      spOut.innerHTML = '<div class="sp-err">Need a transcript of at least a couple of paragraphs.</div>';
-      return;
-    }
-    spState = { transcript, ideaIndex: ideaIndex || 1, hookIndex: hookIndex || 1 };
-    spBtn.disabled = true;
-    spOut.innerHTML = '<p class="text-muted" style="margin-top:14px;">Working through ideas, hooks and a script…</p>';
-    try {
-      const res = await authFetch('/api/social-pack', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(spState),
-      });
-      const j = await res.json();
-      if (!res.ok || !j.success) throw new Error(j.error || 'Could not build the pack.');
-      renderSocialPack(j);
-    } catch (err) {
-      spOut.innerHTML = '<div class="sp-err">' + spEsc(err.message) + '</div>';
-    } finally {
-      spBtn.disabled = false;
-    }
-  }
-
-  function renderSocialPack(p) {
-    const ideas = (p.ideas || []).map((t, i) =>
-      `<div class="sp-item${i + 1 === p.ideaIndex ? ' sel' : ''}" data-sp-idea="${i + 1}">${spEsc(t)}</div>`).join('');
-    const hooks = (p.hooks || []).map((t, i) =>
-      `<div class="sp-item${i + 1 === p.hookIndex ? ' sel' : ''}" data-sp-hook="${i + 1}">${spEsc(t)}</div>`).join('');
-    const plats = (p.platforms || []).map(t => `<span class="sp-plat" data-sp-plat>${spEsc(t)}</span>`).join('');
-    spOut.innerHTML =
-      `<div class="sp-sec"><h4>Five angles <span class="text-muted" style="font-weight:400;">— tap one to rebuild around it</span></h4>${ideas}</div>` +
-      `<div class="sp-sec"><h4>Five hooks <span class="text-muted" style="font-weight:400;">— tap one to rewrite the script</span></h4>${hooks}</div>` +
-      `<div class="sp-sec"><h4>30-second script</h4><div class="sp-script">${spEsc(p.script)}</div>` +
-      `<div class="sp-plats">${plats}</div>` +
-      `<p class="text-muted" style="font-size:var(--font-xs);margin-top:10px;">Record it once, post the same video to each — tap a platform to tick it off.</p></div>`;
-  }
-
-  if (spBtn) spBtn.addEventListener('click', () => buildSocialPack(1, 1));
-
-  if (spOut) spOut.addEventListener('click', (e) => {
-    const idea = e.target.closest('[data-sp-idea]');
-    if (idea) return buildSocialPack(Number(idea.dataset.spIdea), 1);
-    const hook = e.target.closest('[data-sp-hook]');
-    if (hook) return buildSocialPack(spState.ideaIndex, Number(hook.dataset.spHook));
-    const plat = e.target.closest('[data-sp-plat]');
-    if (plat) plat.classList.toggle('done');
-  });
-
-  // ---------------------------------------------------------------------------
   // Brand voice profile. Everything the AI features write reads from this, so
   // it is edited here rather than in eight places in the server source.
   // ---------------------------------------------------------------------------
