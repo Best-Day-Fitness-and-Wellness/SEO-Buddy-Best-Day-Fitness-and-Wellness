@@ -303,6 +303,7 @@ test('static assets compress, cache briefly, and keep PDF code off the critical 
   const aiVisibilityAsset = html.match(/data-ai-visibility-asset="(\/assets\/ai-visibility\.[a-f0-9]{12}\.js)"/)?.[1];
   const brandProfileAsset = html.match(/data-brand-profile-asset="(\/assets\/brand-profile\.[a-f0-9]{12}\.js)"/)?.[1];
   const ownerModeAsset = html.match(/data-owner-mode-asset="(\/assets\/owner-mode\.[a-f0-9]{12}\.js)"/)?.[1];
+  const searchOpportunitiesAsset = html.match(/data-search-opportunities-asset="(\/assets\/search-opportunities\.[a-f0-9]{12}\.js)"/)?.[1];
   assert.ok(reviewsAsset, 'reviews must have a versioned lazy asset');
   assert.ok(recordedContentAsset, 'recorded content must have a versioned lazy asset');
   assert.ok(pdfReportAsset, 'PDF reporting must have a versioned lazy asset');
@@ -313,6 +314,7 @@ test('static assets compress, cache briefly, and keep PDF code off the critical 
   assert.ok(aiVisibilityAsset, 'AI Visibility must have a versioned lazy asset');
   assert.ok(brandProfileAsset, 'Brand Voice must have a versioned lazy asset');
   assert.ok(ownerModeAsset, 'Owner mode must have a versioned lazy asset');
+  assert.ok(searchOpportunitiesAsset, 'Search opportunities must have a versioned lazy asset');
   assert.equal(hashedAssets.includes(reviewsAsset), false, 'reviews must not execute on the initial path');
   assert.equal(hashedAssets.includes(recordedContentAsset), false, 'recorded content must not execute on the initial path');
   assert.equal(hashedAssets.includes(pdfReportAsset), false, 'PDF reporting must not execute on the initial path');
@@ -323,13 +325,14 @@ test('static assets compress, cache briefly, and keep PDF code off the critical 
   assert.equal(hashedAssets.includes(aiVisibilityAsset), false, 'AI Visibility must not execute on the initial path');
   assert.equal(hashedAssets.includes(brandProfileAsset), false, 'Brand Voice must not execute on the initial path');
   assert.equal(hashedAssets.includes(ownerModeAsset), false, 'Owner mode must not execute on the initial path');
+  assert.equal(hashedAssets.includes(searchOpportunitiesAsset), false, 'Search opportunities must not execute on the initial path');
   for (const asset of hashedAssets) {
     assert.match(asset, /\.[a-f0-9]{12}\.(?:css|js)$/);
     const response = await request(asset, { auth: false, headers: { 'Accept-Encoding': 'gzip' } });
     assert.equal(response.status, 200, `${asset} must be served`);
     assert.match(response.headers.get('cache-control') || '', /max-age=31536000, immutable/);
   }
-  for (const asset of [reviewsAsset, recordedContentAsset, pdfReportAsset, citationAsset, localPresenceAsset, performanceAsset, siteOptimizationAsset, aiVisibilityAsset, brandProfileAsset, ownerModeAsset]) {
+  for (const asset of [reviewsAsset, recordedContentAsset, pdfReportAsset, citationAsset, localPresenceAsset, performanceAsset, siteOptimizationAsset, aiVisibilityAsset, brandProfileAsset, ownerModeAsset, searchOpportunitiesAsset]) {
     const response = await request(asset, { auth: false, headers: { 'Accept-Encoding': 'gzip' } });
     assert.equal(response.status, 200, `${asset} must be served lazily`);
     assert.match(response.headers.get('cache-control') || '', /max-age=31536000, immutable/);
@@ -345,7 +348,6 @@ test('static assets compress, cache briefly, and keep PDF code off the critical 
 
   const source = await (await request('/app.js', { auth: false })).text();
   assert.match(source, /setDataModeFromHealthScore\(hs\)/);
-  assert.match(source, /payload\.source === 'live_gsc' \? 'live'/);
   assert.match(source, /no demo data substituted/i);
   assert.match(source, /Building 7-day baseline/);
   assert.match(source, /Live today/);
@@ -360,6 +362,7 @@ test('static assets compress, cache briefly, and keep PDF code off the critical 
   assert.doesNotMatch(source, /AI SEARCH AUDIT & SCHEMA ASSET ENGINE|MULTI-ENGINE AI VISIBILITY DASHBOARD/);
   assert.doesNotMatch(source, /const BP_FIELDS|function bpCollect/);
   assert.doesNotMatch(source, /const OW_ICON|function owCard/);
+  assert.doesNotMatch(source, /GSC DATA & SYNC SYSTEM|function renderGSCTable/);
   assert.match(source, /ensureReviewsFeature/);
   assert.match(source, /ensureRecordedContentFeature/);
   assert.match(source, /ensurePdfReportFeature/);
@@ -370,8 +373,10 @@ test('static assets compress, cache briefly, and keep PDF code off the critical 
   assert.match(source, /ensureAiVisibilityFeature/);
   assert.match(source, /ensureBrandProfileFeature/);
   assert.match(source, /ensureOwnerModeFeature/);
+  assert.match(source, /ensureSearchOpportunitiesFeature/);
   assert.match(source, /btn-goto-brand/);
   assert.match(source, /btn-mode-switch/);
+  assert.match(source, /window\.loadKeywordIntoCreator/);
   assert.match(source, /fetch\('\/api\/performance'\)\.catch/);
 
   const coreSource = await (await request('/modules/core.js', { auth: false })).text();
@@ -386,6 +391,7 @@ test('static assets compress, cache briefly, and keep PDF code off the critical 
   const aiVisibilitySource = await (await request('/modules/ai-visibility.js', { auth: false })).text();
   const brandProfileSource = await (await request('/modules/brand-profile.js', { auth: false })).text();
   const ownerModeSource = await (await request('/modules/owner-mode.js', { auth: false })).text();
+  const searchOpportunitiesSource = await (await request('/modules/search-opportunities.js', { auth: false })).text();
   assert.match(coreSource, /global\.SeoBuddyCore/);
   assert.match(assistantSource, /SEO BUDDY ASSISTANT/);
   assert.match(reviewsSource, /REVIEWS SITE/);
@@ -436,6 +442,14 @@ test('static assets compress, cache briefly, and keep PDF code off the critical 
   assert.match(ownerModeSource, /seo:readiness-changed/);
   assert.doesNotMatch(ownerModeSource, /btn-mode-switch/);
   assert.doesNotMatch(ownerModeSource, /window\.loadToday|window\.loadGetStarted|window\.refreshReadinessBoard/);
+  assert.match(searchOpportunitiesSource, /global\.syncGSCData/);
+  assert.match(searchOpportunitiesSource, /global\.setDataMode/);
+  assert.match(searchOpportunitiesSource, /payload\.source === 'live_gsc' \? 'live'/);
+  assert.match(searchOpportunitiesSource, /global\.loadKeywordIntoCreator/);
+  assert.match(searchOpportunitiesSource, /\/api\/gsc-data/);
+  assert.match(searchOpportunitiesSource, /\/api\/onsite/);
+  assert.match(searchOpportunitiesSource, /btn-fanout-trigger/);
+  assert.doesNotMatch(searchOpportunitiesSource, /CASE_STUDY_TEMPLATES/);
 });
 
 test('every mutating or credit-spending route is password protected', async () => {

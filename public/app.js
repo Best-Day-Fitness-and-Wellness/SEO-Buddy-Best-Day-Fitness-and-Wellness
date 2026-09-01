@@ -3,8 +3,6 @@ document.addEventListener('DOMContentLoaded', () => {
   // --- APPLICATION STATE ---
   const state = {
     activeTab: 'today-tab',
-    gscData: [],
-    filterMode: 'leaks', // 'leaks' or 'all'
     generatedArticle: null, // { title, slug, content }
     editorMode: 'visual', // 'visual' or 'code'
     history: [
@@ -35,6 +33,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let aiVisibilityFeaturePromise = null;
   let brandProfileFeaturePromise = null;
   let ownerModeFeaturePromise = null;
+  let searchOpportunitiesFeaturePromise = null;
 
   function ensureReviewsFeature() {
     if (window.loadReviews) return Promise.resolve();
@@ -324,6 +323,35 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  function ensureSearchOpportunitiesFeature() {
+    if (window.syncGSCData) return Promise.resolve();
+    if (searchOpportunitiesFeaturePromise) return searchOpportunitiesFeaturePromise;
+    const assetUrl = document.body.dataset.searchOpportunitiesAsset;
+    if (!assetUrl || !assetUrl.startsWith('/assets/')) return Promise.reject(new Error('Search opportunities asset is unavailable.'));
+    searchOpportunitiesFeaturePromise = new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = assetUrl;
+      script.async = true;
+      script.addEventListener('load', resolve, { once: true });
+      script.addEventListener('error', () => reject(new Error('Could not load search opportunities.')), { once: true });
+      document.head.appendChild(script);
+    }).catch(error => {
+      searchOpportunitiesFeaturePromise = null;
+      throw error;
+    });
+    return searchOpportunitiesFeaturePromise;
+  }
+
+  async function loadSearchOpportunitiesFeature() {
+    try {
+      await ensureSearchOpportunitiesFeature();
+      if (window.syncGSCData) await window.syncGSCData();
+    } catch (error) {
+      const table = document.getElementById('gsc-table-body');
+      if (table) table.innerHTML = '<tr><td colspan="7" class="text-center text-rose-500">Could not load search opportunities. Refresh and try again.</td></tr>';
+    }
+  }
+
   function setDataMode(mode) {
     if (!modeStatus || !modeStatusText) return;
     const normalized = mode === true ? 'live' : mode === false ? 'demo' : mode;
@@ -338,6 +366,7 @@ document.addEventListener('DOMContentLoaded', () => {
       modeStatusText.innerText = 'Live Data Unavailable';
     }
   }
+  window.setDataMode = setDataMode;
 
   function setDataModeFromHealthScore(healthScore) {
     const pillars = healthScore && Array.isArray(healthScore.pillars) ? healthScore.pillars : [];
@@ -347,15 +376,6 @@ document.addEventListener('DOMContentLoaded', () => {
       setDataMode(searchPillar.measured === true ? 'live' : (demoAllowed ? 'demo' : 'unavailable'));
     }
   }
-
-  // GSC Selectors
-  const gscTableBody = document.getElementById('gsc-table-body');
-  const filterLeaksBtn = document.getElementById('filter-leaks');
-  const filterAllBtn = document.getElementById('filter-all');
-  const syncGscBtn = document.getElementById('btn-refresh-gsc');
-  const statGapCount = document.getElementById('stat-gap-count');
-  const statTotalImpressions = document.getElementById('stat-total-impressions');
-  const statAvgCtr = document.getElementById('stat-avg-ctr');
 
   // AI Creator Selectors
   const inputKeyword = document.getElementById('input-keyword');
@@ -532,7 +552,7 @@ document.addEventListener('DOMContentLoaded', () => {
     } else if (tabId === 'gsc-tab') {
       pageTitle.innerText = 'Searches You’re Missing';
       pageSubtitle.innerText = 'Search queries where you show up but get no clicks — your biggest quick wins';
-      if (!state.gscData.length) syncGSCData();
+      loadSearchOpportunitiesFeature();
     } else if (tabId === 'ai-tab') {
       pageTitle.innerText = 'Create a Post';
       pageSubtitle.innerText = 'Have AI write an authoritative, SEO-optimized article for you';
@@ -601,131 +621,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   };
 
-  // --- GSC DATA & SYNC SYSTEM ---
-  async function syncGSCData() {
-    gscTableBody.innerHTML = `<tr><td colspan="7" class="text-center">Syncing with Search Console... Please wait.</td></tr>`;
-    
-    try {
-      const res = await fetch('/api/gsc-data');
-      const payload = await res.json();
-      
-      state.gscData = payload.data || [];
-      
-      // Update GSC Badge
-      setDataMode(payload.source === 'live_gsc' ? 'live' : (payload.source === 'mock_data' ? 'demo' : 'unavailable'));
-
-      calculateStats();
-      renderGSCTable();
-    } catch (err) {
-      console.error('Error fetching GSC data:', err);
-      setDataMode('unavailable');
-      state.gscData = [];
-      calculateStats();
-      gscTableBody.innerHTML = `<tr><td colspan="7" class="text-center text-rose-500">Live Search Console data is unavailable. No demo numbers were substituted.</td></tr>`;
-    }
-  }
-
-  syncGscBtn.addEventListener('click', syncGSCData);
-
-  function calculateStats() {
-    const totalImpressions = state.gscData.reduce((acc, curr) => acc + curr.impressions, 0);
-    const totalClicks = state.gscData.reduce((acc, curr) => acc + curr.clicks, 0);
-    const avgCtr = totalImpressions > 0 ? ((totalClicks / totalImpressions) * 100).toFixed(1) : '0';
-    const leakCount = state.gscData.filter(item => item.leak).length;
-
-    statGapCount.innerText = leakCount;
-    statTotalImpressions.innerText = totalImpressions.toLocaleString();
-    statAvgCtr.innerText = `${avgCtr}%`;
-  }
-
-  function renderGSCTable() {
-    gscTableBody.innerHTML = '';
-    
-    const filtered = state.gscData.filter(item => {
-      if (state.filterMode === 'leaks') return item.leak;
-      return true;
-    });
-
-    if (filtered.length === 0) {
-      gscTableBody.innerHTML = `<tr><td colspan="7" class="text-center">No keywords match the selected filter.</td></tr>`;
-      return;
-    }
-
-    filtered.forEach(row => {
-      const tr = document.createElement('tr');
-      
-      const statusBadge = row.leak 
-        ? `<span class="status-badge leak">Content Gap</span>`
-        : `<span class="status-badge clean">Ranking</span>`;
-
-      const actionBtn = row.leak
-        ? `<button class="btn btn-secondary btn-xs btn-gen-trigger" data-query="${uiEsc(row.query)}">Generate Page</button><button class="btn btn-secondary btn-xs btn-fanout-trigger" data-query="${uiEsc(row.query)}" title="See the questions a citable page should answer">&#10067; Questions</button>`
-        : `<button class="btn btn-secondary btn-xs" disabled>Optimized</button>`;
-
-      tr.innerHTML = `
-        <td class="font-medium">${uiEsc(row.query)}</td>
-        <td>${row.impressions.toLocaleString()}</td>
-        <td>${row.clicks.toLocaleString()}</td>
-        <td>${row.ctr}%</td>
-        <td>${row.position}</td>
-        <td>${statusBadge}</td>
-        <td>${actionBtn}</td>
-      `;
-      gscTableBody.appendChild(tr);
-    });
-
-    // Add listeners to individual row "Generate Page" buttons
-    document.querySelectorAll('.btn-gen-trigger').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const query = btn.getAttribute('data-query');
-        loadKeywordIntoCreator(query);
-      });
-    });
-
-    // "❓ Questions" — reveal the query fan-out (sub-questions) for a gap.
-    document.querySelectorAll('.btn-fanout-trigger').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        const query = btn.getAttribute('data-query');
-        const tr = btn.closest('tr');
-        const next = tr.nextElementSibling;
-        if (next && next.classList.contains('fanout-row')) { next.remove(); return; } // toggle off
-        const detail = document.createElement('tr');
-        detail.className = 'fanout-row';
-        detail.innerHTML = `<td colspan="7"><div class="fanout-box"><div class="fanout-empty">Finding the questions people ask about &ldquo;${citEsc(query)}&rdquo;&hellip;</div></div></td>`;
-        tr.after(detail);
-        const box = detail.querySelector('.fanout-box');
-        const orig = btn.innerHTML; btn.disabled = true; btn.innerHTML = '&hellip;';
-        try {
-          const res = await authFetch('/api/onsite', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tool: 'fanout', query }) });
-          const d = await res.json();
-          if (!res.ok || !d.success) throw new Error(d.error || 'Request failed');
-          if (d.unavailable) { box.innerHTML = `<div class="fanout-empty">${citEsc(d.message || 'Add your Gemini key in Settings to use this.')}</div>`; return; }
-          const qs = (d.data && d.data.questions) || [];
-          box.innerHTML = qs.length
-            ? `<div class="fanout-title">&#10067; Questions a citable page on &ldquo;${citEsc(query)}&rdquo; should answer:</div><ul class="fanout-list">${qs.map(x => `<li>${citEsc(x)}</li>`).join('')}</ul><div class="fanout-hint">Cover several of these in one article &mdash; AI engines cite pages that answer a cluster of related questions, not just one.</div>`
-            : `<div class="fanout-empty">No related questions came back &mdash; try Generate Page instead.</div>`;
-        } catch (e) {
-          box.innerHTML = `<div class="fanout-empty">Couldn't load questions: ${citEsc(e.message)}</div>`;
-        } finally { btn.disabled = false; btn.innerHTML = orig; }
-      });
-    });
-  }
-
-  // Filter Buttons
-  filterLeaksBtn.addEventListener('click', () => {
-    state.filterMode = 'leaks';
-    filterLeaksBtn.classList.add('active');
-    filterAllBtn.classList.remove('active');
-    renderGSCTable();
-  });
-
-  filterAllBtn.addEventListener('click', () => {
-    state.filterMode = 'all';
-    filterAllBtn.classList.add('active');
-    filterLeaksBtn.classList.remove('active');
-    renderGSCTable();
-  });
-
+  // Search opportunity tools load only when their tab is opened.
   // --- AI CREATOR LOAD & TRIGGER SYSTEM ---
   const CASE_STUDY_TEMPLATES = {
     'senior fitness st petersburg fl': "At Best Day Fitness, our personal trainers created a custom posture and mobility program for Margaret (age 71). When she started, walking upstairs caused severe knee pain. Within 12 weeks of training barefoot on our balance mats, she rebuilt joint stabilization, eliminated pain, and is now actively walking 3 miles daily barefoot on the beach.",
@@ -755,6 +651,7 @@ document.addEventListener('DOMContentLoaded', () => {
     visualEditor.style.display = 'none';
     codeEditor.style.display = 'none';
   }
+  window.loadKeywordIntoCreator = loadKeywordIntoCreator;
 
   // Claims the model produced that a human must check. Generated copy has
   // invented a wrong phone number before now, so this renders above the preview
@@ -1470,7 +1367,7 @@ document.addEventListener('DOMContentLoaded', () => {
       alert(data.message);
       
       // Update GSC gaps, history, and log viewer
-      syncGSCData();
+      if (window.syncGSCData) window.syncGSCData();
       fetchHistory();
       fetchAutopilotStatus();
     } catch (err) {
