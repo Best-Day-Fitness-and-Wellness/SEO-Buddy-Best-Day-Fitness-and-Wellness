@@ -299,25 +299,28 @@ test('static assets compress, cache briefly, and keep PDF code off the critical 
   const citationAsset = html.match(/data-citation-asset="(\/assets\/citations\.[a-f0-9]{12}\.js)"/)?.[1];
   const localPresenceAsset = html.match(/data-local-presence-asset="(\/assets\/local-presence\.[a-f0-9]{12}\.js)"/)?.[1];
   const performanceAsset = html.match(/data-performance-asset="(\/assets\/performance\.[a-f0-9]{12}\.js)"/)?.[1];
+  const siteOptimizationAsset = html.match(/data-site-optimization-asset="(\/assets\/site-optimization\.[a-f0-9]{12}\.js)"/)?.[1];
   assert.ok(reviewsAsset, 'reviews must have a versioned lazy asset');
   assert.ok(recordedContentAsset, 'recorded content must have a versioned lazy asset');
   assert.ok(pdfReportAsset, 'PDF reporting must have a versioned lazy asset');
   assert.ok(citationAsset, 'Citations must have a versioned lazy asset');
   assert.ok(localPresenceAsset, 'Local Presence must have a versioned lazy asset');
   assert.ok(performanceAsset, 'Progress must have a versioned lazy asset');
+  assert.ok(siteOptimizationAsset, 'Site Optimization must have a versioned lazy asset');
   assert.equal(hashedAssets.includes(reviewsAsset), false, 'reviews must not execute on the initial path');
   assert.equal(hashedAssets.includes(recordedContentAsset), false, 'recorded content must not execute on the initial path');
   assert.equal(hashedAssets.includes(pdfReportAsset), false, 'PDF reporting must not execute on the initial path');
   assert.equal(hashedAssets.includes(citationAsset), false, 'Citations must not execute on the initial path');
   assert.equal(hashedAssets.includes(localPresenceAsset), false, 'Local Presence must not execute on the initial path');
   assert.equal(hashedAssets.includes(performanceAsset), false, 'Progress must not execute on the initial path');
+  assert.equal(hashedAssets.includes(siteOptimizationAsset), false, 'Site Optimization must not execute on the initial path');
   for (const asset of hashedAssets) {
     assert.match(asset, /\.[a-f0-9]{12}\.(?:css|js)$/);
     const response = await request(asset, { auth: false, headers: { 'Accept-Encoding': 'gzip' } });
     assert.equal(response.status, 200, `${asset} must be served`);
     assert.match(response.headers.get('cache-control') || '', /max-age=31536000, immutable/);
   }
-  for (const asset of [reviewsAsset, recordedContentAsset, pdfReportAsset, citationAsset, localPresenceAsset, performanceAsset]) {
+  for (const asset of [reviewsAsset, recordedContentAsset, pdfReportAsset, citationAsset, localPresenceAsset, performanceAsset, siteOptimizationAsset]) {
     const response = await request(asset, { auth: false, headers: { 'Accept-Encoding': 'gzip' } });
     assert.equal(response.status, 200, `${asset} must be served lazily`);
     assert.match(response.headers.get('cache-control') || '', /max-age=31536000, immutable/);
@@ -344,12 +347,14 @@ test('static assets compress, cache briefly, and keep PDF code off the critical 
   assert.doesNotMatch(source, /CITATION OUTREACH ENGINE/);
   assert.doesNotMatch(source, /LOCAL SEO TOOLS|LOCAL SEO AUTOPILOT/);
   assert.doesNotMatch(source, /PERFORMANCE \(measurement \/ ROI\)|function perfLineChart/);
+  assert.doesNotMatch(source, /ON-SITE & TECHNICAL SEO|function osPost/);
   assert.match(source, /ensureReviewsFeature/);
   assert.match(source, /ensureRecordedContentFeature/);
   assert.match(source, /ensurePdfReportFeature/);
   assert.match(source, /ensureCitationFeature/);
   assert.match(source, /ensureLocalPresenceFeature/);
   assert.match(source, /ensurePerformanceFeature/);
+  assert.match(source, /ensureSiteOptimizationFeature/);
   assert.match(source, /fetch\('\/api\/performance'\)\.catch/);
 
   const coreSource = await (await request('/modules/core.js', { auth: false })).text();
@@ -360,6 +365,7 @@ test('static assets compress, cache briefly, and keep PDF code off the critical 
   const citationSource = await (await request('/modules/citations.js', { auth: false })).text();
   const localPresenceSource = await (await request('/modules/local-presence.js', { auth: false })).text();
   const performanceSource = await (await request('/modules/performance.js', { auth: false })).text();
+  const siteOptimizationSource = await (await request('/modules/site-optimization.js', { auth: false })).text();
   assert.match(coreSource, /global\.SeoBuddyCore/);
   assert.match(assistantSource, /SEO BUDDY ASSISTANT/);
   assert.match(reviewsSource, /REVIEWS SITE/);
@@ -379,6 +385,11 @@ test('static assets compress, cache briefly, and keep PDF code off the critical 
   assert.match(performanceSource, /window\.loadPerformance/);
   assert.match(performanceSource, /window\.loadPerfDigest/);
   assert.match(performanceSource, /\/api\/performance-digest/);
+  assert.match(siteOptimizationSource, /window\.loadOnsiteAutopilot/);
+  assert.match(siteOptimizationSource, /\/api\/onsite-autopilot/);
+  assert.match(siteOptimizationSource, /\/api\/onsite-schema/);
+  assert.doesNotMatch(siteOptimizationSource, /window\._citCopy/);
+  assert.match(siteOptimizationSource, /data-copy-type/);
 });
 
 test('every mutating or credit-spending route is password protected', async () => {

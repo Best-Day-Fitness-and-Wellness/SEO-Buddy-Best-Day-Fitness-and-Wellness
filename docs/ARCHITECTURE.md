@@ -95,12 +95,13 @@ review monitoring, `recorded-content.js` owns transcription, dictation, and
 social-pack interactions, `citations.js` owns the citation worklist and outreach
 controls, `local-presence.js` owns local autopilot, NAP, review-response, Google-post,
 and checklist interactions, `performance.js` owns Progress rendering, charts, and
-weekly-digest controls, `pdf-report.js` owns report assembly and PDF-library loading,
+weekly-digest controls, `site-optimization.js` owns on-site autopilot, keyword,
+AEO, title/meta, internal-link, and schema interactions, `pdf-report.js` owns report assembly and PDF-library loading,
 and `theme.js` owns theme behavior. `public/app.js` remains the main feature coordinator.
 
 The browser loads only the visible dashboard work initially. Feature loaders
 use same-origin APIs and render escaped values. PDF reporting, Reviews, recorded
-content, Citations, Local Presence, and Progress load on demand; the PDF vendor libraries remain behind
+content, Citations, Local Presence, Progress, and Site Optimization load on demand; the PDF vendor libraries remain behind
 the report module's second-stage loader.
 Content-hashed assets prevent a deployment from combining new HTML with stale
 JavaScript.
