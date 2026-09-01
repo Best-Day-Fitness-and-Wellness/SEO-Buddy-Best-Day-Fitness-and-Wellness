@@ -60,6 +60,7 @@ const { LISTING_TYPES, registerCitationRoutes } = require('./lib/citation-routes
 const { buildCanonicalNap, mapNapListings, registerLocalSeoRoutes } = require('./lib/local-seo-routes');
 const { createPerformanceService, registerPerformanceRoutes } = require('./lib/performance-routes');
 const { registerOnsiteRoutes } = require('./lib/onsite-routes');
+const { registerAioCoreRoutes } = require('./lib/aio-core-routes');
 
 // Load UI-saved secrets from the durable storage root. Tenant state is isolated
 // below this root after configuration is loaded; host-provided variables still
@@ -2018,148 +2019,24 @@ registerAutopilotRoutes(app, {
   explainIndexError,
 });
 
-// 9. Run AI Search (AIO) Audit
-app.post('/api/aio-audit', requireAuth, async (req, res) => {
-  const { query } = req.body;
-  if (!query) {
-    return res.status(400).json({ error: 'Query is required for auditing' });
-  }
-
-  const geminiKey = process.env.GEMINI_API_KEY;
-
-  // No key → honest "unavailable" state. We do NOT fabricate audit data.
-  if (!geminiKey) {
-    return res.json({
-      success: true,
-      unavailable: true,
-      message: 'Real AI-search audits require a Gemini API key. Add yours in Settings to run a live, Google-grounded audit.',
-      latest: null,
-      history: aioAuditsDb
-    });
-  }
-
-  // Brand identity used to detect real mentions/citations.
-  const brandName = BUSINESS.name;            // "Best Day Fitness"
-  const brandDomainRoot = 'bestdayfitness';   // matches bestdayfitness.com in cited domains
-
-  if (usageOverBudget()) return budgetBlock(res);
-  try {
-
-    // --- Pass 1: REAL answer engine call, grounded in live Google Search. ---
-    const prompt = `A person searching online asks: "${query}".
-Acting as a helpful AI answer engine, recommend the best specific local businesses that fit this search in and around St. Petersburg, Florida. Name the actual businesses and briefly say why each is a good fit. Base your answer only on current web information.`;
-
-    const response = await geminiGenerate({
-      model: GEMINI_MODEL,
-      contents: prompt,
-      config: { tools: [{ googleSearch: {} }] }
-    });
-
-    const answerText = (response.text || '').trim();
-
-    // Real grounding metadata — the actual sources Google's AI used.
-    const gm = (response.candidates && response.candidates[0] && response.candidates[0].groundingMetadata) || {};
-    const chunks = gm.groundingChunks || [];
-    const searchQueries = gm.webSearchQueries || [];
-    const searchEntryPoint = (gm.searchEntryPoint && gm.searchEntryPoint.renderedContent) || '';
-
-    // Build the real cited-source list. chunk.web.uri is a Google redirect link;
-    // chunk.web.title is the real domain/site name — use title for identity.
-    const seen = new Set();
-    const citedSources = [];
-    for (const c of chunks) {
-      const web = c.web || {};
-      const title = (web.title || '').trim();
-      const uri = (web.uri || '').trim();
-      const key = (title || uri).toLowerCase();
-      if (!key || seen.has(key)) continue;
-      seen.add(key);
-      citedSources.push({ title, uri });
-    }
-
-    // REAL signal: brand actually mentioned in the answer, or present as a cited source.
-    const answerLower = answerText.toLowerCase();
-    const brandInAnswer = answerLower.includes(brandName.toLowerCase()) || answerLower.includes(brandDomainRoot);
-    const brandInSources = citedSources.some(s => {
-      const hay = (s.title + ' ' + s.uri).toLowerCase();
-      return hay.includes(brandDomainRoot) || hay.includes(brandName.toLowerCase());
-    });
-    const recommended = brandInAnswer || brandInSources;
-
-    // --- Pass 2 (best-effort): extract competitor NAMES + reasons from the REAL
-    // grounded answer. This only summarizes real text; it invents nothing. ---
-    let reasons = [];
-    let competitors = [];
-    if (answerText) {
-      try {
-        const extractPrompt = `Here is an AI answer engine's response to the query "${query}":
-"""
-${answerText}
-"""
-Return ONLY raw JSON (no markdown fences) shaped exactly as:
-{"reasons": ["short reasons the answer gave, if any"], "competitors": ["names of businesses OTHER THAN \\"${brandName}\\" that the answer recommends or mentions"]}`;
-        const extract = await geminiGenerate({
-          model: GEMINI_MODEL,
-          contents: extractPrompt
-        });
-        let raw = (extract.text || '').trim()
-          .replace(/^```json/i, '').replace(/^```/, '').replace(/```$/, '').trim();
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed.reasons)) reasons = parsed.reasons.filter(Boolean);
-        if (Array.isArray(parsed.competitors)) {
-          competitors = parsed.competitors
-            .filter(Boolean)
-            .filter(c => !c.toLowerCase().includes(brandName.toLowerCase()));
-        }
-      } catch (e) {
-        console.error('[AIO Audit] Competitor extraction failed (non-fatal):', e.message);
-      }
-    }
-
-    const responseSnippet = answerText.length > 360
-      ? answerText.slice(0, 357).trim() + '…'
-      : (answerText || 'The AI returned no answer text for this query.');
-
-    const fullAudit = {
-      timestamp: new Date().toISOString(),
-      query,
-      source: 'live_grounded',
-      engine: 'Google (Gemini + Google Search)',
-      recommended,
-      cited: brandInSources,
-      responseSnippet,
-      reasons,
-      citedSources,                                   // [{title, uri}] — real
-      citedUrls: citedSources.map(s => s.uri).filter(Boolean),
-      competitors,
-      searchQueries,                                  // real queries Gemini ran
-      searchEntryPoint                                // Google search-suggestions chip (HTML)
-    };
-
-    aioAuditsDb.unshift(fullAudit);
-    if (aioAuditsDb.length > 50) {
-      aioAuditsDb = aioAuditsDb.slice(0, 50);
-    }
-    try {
-      writeJsonFileSync(AIO_AUDITS_FILE, aioAuditsDb);
-    } catch (err) {
-      console.error('[AIO Audits File] Save failed:', err.message);
-    }
-
-    return res.json({ success: true, latest: fullAudit, history: aioAuditsDb });
-
-  } catch (err) {
-    console.error('[AIO Audit API] Grounded audit failed:', err.message);
-    return res.status(502).json({
-      success: false,
-      error: `The live audit could not be completed: ${err.message}`
-    });
-  }
-});
-
-// 10. Get AIO Audits History
-app.get('/api/aio-history', (req, res) => {
-  return res.json(aioAuditsDb);
+const aioCoreRouteState = {
+  get history() { return aioAuditsDb; },
+  set history(value) { aioAuditsDb = value; },
+};
+registerAioCoreRoutes(app, {
+  requireAuth,
+  hasGeminiKey: () => !!process.env.GEMINI_API_KEY,
+  usageOverBudget,
+  budgetBlock,
+  business: BUSINESS,
+  brandDomainRoot: 'bestdayfitness',
+  geminiGenerate,
+  model: GEMINI_MODEL,
+  state: aioCoreRouteState,
+  persistHistory: history => writeJsonFileSync(AIO_AUDITS_FILE, history),
+  getSiteUrl: () => process.env.GSC_SITE_URL,
+  buildLocalBusinessSchema,
+  logger: console,
 });
 
 // ============================================================
@@ -2838,46 +2715,6 @@ app.post('/api/assistant', requireAuth, async (req, res) => {
     console.error('[Assistant] failed:', e.message);
     return res.status(502).json({ success: false, error: e.message });
   }
-});
-
-// 11. Generate JSON-LD Schema Assets
-app.get('/api/aio-schema', (req, res) => {
-  let domain = process.env.GSC_SITE_URL || 'https://bestdayfitness.com';
-  domain = domain.trim();
-  if (domain.startsWith('sc-domain:')) {
-    domain = 'https://' + domain.substring(10);
-  }
-  domain = domain.replace(/\/$/, '');
-
-  const localBusinessSchema = buildLocalBusinessSchema(domain);
-
-  const faqSchema = {
-    "@context": "https://schema.org",
-    "@type": "FAQPage",
-    "mainEntity": [
-      {
-        "@type": "Question",
-        "name": "What is the Total Rank System?",
-        "answer": {
-          "@type": "Answer",
-          "text": "The Total Rank System is an SEO strategy designed to find search query leaks (where pages have high impressions but zero clicks) and rapidly build dedicated, E-E-A-T rich content pages to index and capture organic traffic."
-        }
-      },
-      {
-        "@type": "Question",
-        "name": "Do you offer specialized personal training for seniors in St. Petersburg?",
-        "answer": {
-          "@type": "Answer",
-          "text": "Yes, Best Day Fitness specializes in mobility, balance, strength, and posture correction programs tailored specifically for older adults and seniors in the St. Petersburg, FL area."
-        }
-      }
-    ]
-  };
-
-  return res.json({
-    localBusiness: JSON.stringify(localBusinessSchema, null, 2),
-    faq: JSON.stringify(faqSchema, null, 2)
-  });
 });
 
 // 15. Performance — period-over-period trends, durable snapshots, and leads

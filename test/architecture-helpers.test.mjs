@@ -52,6 +52,7 @@ const {
   isBlockedAddress,
   registerOnsiteRoutes,
 } = require('../lib/onsite-routes.js');
+const { buildAioSchemas, registerAioCoreRoutes } = require('../lib/aio-core-routes.js');
 const { ProviderRuntimeError, createProviderRuntime } = require('../lib/provider-runtime.js');
 const { createPostgresStateBridge, replayPostgresOutbox } = require('../lib/postgres-state-bridge.js');
 const { classifyContactSource, summarizeContactAttribution } = require('../lib/attribution.js');
@@ -1316,6 +1317,160 @@ test('local SEO routes preserve NAP, generation, validation, and reply-history c
   assert.equal(failed.statusCode, 502);
   assert.deepEqual(failed.body, { success: false, error: 'generation unavailable' });
   assert.deepEqual(errors.at(-1), ['[Local Generate] failed:', 'generation unavailable']);
+});
+
+test('core AIO routes preserve grounded citations, best-effort extraction, history, and schema contracts', async () => {
+  const schemas = buildAioSchemas({
+    siteUrl: 'sc-domain:bestdayfitness.com',
+    buildLocalBusinessSchema: domain => ({ '@type': 'LocalBusiness', url: domain }),
+  });
+  assert.deepEqual(schemas.localBusiness, { '@type': 'LocalBusiness', url: 'https://bestdayfitness.com' });
+  assert.equal(schemas.faq['@type'], 'FAQPage');
+  assert.equal(schemas.faq.mainEntity.length, 2);
+  assert.equal(schemas.faq.mainEntity[0].answer['@type'], 'Answer');
+
+  const routes = new Map();
+  const app = {
+    get(path, ...handlers) { routes.set(`GET ${path}`, handlers); },
+    post(path, ...handlers) { routes.set(`POST ${path}`, handlers); },
+  };
+  const requireAuth = () => {};
+  let hasKey = false;
+  let overBudget = false;
+  let persistError = null;
+  const state = { history: Array.from({ length: 50 }, (_, index) => ({ query: `old-${index}` })) };
+  const geminiQueue = [];
+  const requests = [];
+  const persisted = [];
+  const errors = [];
+  registerAioCoreRoutes(app, {
+    requireAuth,
+    hasGeminiKey: () => hasKey,
+    usageOverBudget: () => overBudget,
+    budgetBlock: res => res.status(429).json({ success: false, budgetReached: true }),
+    business: { name: 'Best Day Fitness' },
+    brandDomainRoot: 'bestdayfitness',
+    geminiGenerate: async request => {
+      requests.push(request);
+      const next = geminiQueue.shift();
+      if (next instanceof Error) throw next;
+      return next;
+    },
+    model: 'gemini-test',
+    state,
+    persistHistory: history => {
+      if (persistError) throw persistError;
+      persisted.push(structuredClone(history));
+    },
+    getSiteUrl: () => 'sc-domain:bestdayfitness.com',
+    buildLocalBusinessSchema: domain => ({ '@context': 'https://schema.org', '@type': 'LocalBusiness', url: domain }),
+    now: () => '2026-09-01T12:00:00.000Z',
+    logger: { error(...args) { errors.push(args); } },
+  });
+
+  const response = () => ({
+    statusCode: 200,
+    body: null,
+    status(code) { this.statusCode = code; return this; },
+    json(body) { this.body = body; return this; },
+  });
+  const audit = routes.get('POST /api/aio-audit').at(-1);
+  assert.equal(routes.get('POST /api/aio-audit')[0], requireAuth);
+
+  const history = response();
+  routes.get('GET /api/aio-history').at(-1)({}, history);
+  assert.equal(history.body.length, 50);
+  const schemaResponse = response();
+  routes.get('GET /api/aio-schema').at(-1)({}, schemaResponse);
+  assert.deepEqual(Object.keys(schemaResponse.body), ['localBusiness', 'faq']);
+  assert.equal(JSON.parse(schemaResponse.body.localBusiness).url, 'https://bestdayfitness.com');
+
+  const missingQuery = response();
+  await audit({ body: {} }, missingQuery);
+  assert.deepEqual([missingQuery.statusCode, missingQuery.body], [400, { error: 'Query is required for auditing' }]);
+  const unavailable = response();
+  await audit({ body: { query: 'senior fitness' } }, unavailable);
+  assert.equal(unavailable.body.unavailable, true);
+  assert.equal(unavailable.body.latest, null);
+  assert.strictEqual(unavailable.body.history, state.history);
+
+  hasKey = true;
+  overBudget = true;
+  const blocked = response();
+  await audit({ body: { query: 'senior fitness' } }, blocked);
+  assert.equal(blocked.statusCode, 429);
+  assert.equal(requests.length, 0);
+  overBudget = false;
+
+  geminiQueue.push({
+    text: 'Rival Gym is a strong option for mobility coaching.',
+    candidates: [{
+      groundingMetadata: {
+        groundingChunks: [
+          { web: { title: 'Best Day Fitness', uri: 'https://bestdayfitness.com' } },
+          { web: { title: 'Best Day Fitness', uri: 'https://duplicate.example' } },
+          { web: { title: 'Local Directory', uri: 'https://directory.example' } },
+          { web: { title: '', uri: '' } },
+        ],
+        webSearchQueries: ['senior fitness st petersburg'],
+        searchEntryPoint: { renderedContent: '<div>Search suggestions</div>' },
+      },
+    }],
+  });
+  geminiQueue.push({
+    text: '```json\n{"reasons":["Strong mobility coaching",""],"competitors":["Rival Gym","Best Day Fitness"]}\n```',
+  });
+  const completed = response();
+  await audit({ body: { query: 'senior fitness near me' } }, completed);
+  assert.equal(requests[0].model, 'gemini-test');
+  assert.deepEqual(requests[0].config, { tools: [{ googleSearch: {} }] });
+  assert.equal(requests[1].config, undefined);
+  assert.equal(completed.body.latest.recommended, true);
+  assert.equal(completed.body.latest.cited, true);
+  assert.deepEqual(completed.body.latest.citedSources, [
+    { title: 'Best Day Fitness', uri: 'https://bestdayfitness.com' },
+    { title: 'Local Directory', uri: 'https://directory.example' },
+  ]);
+  assert.deepEqual(completed.body.latest.citedUrls, ['https://bestdayfitness.com', 'https://directory.example']);
+  assert.deepEqual(completed.body.latest.reasons, ['Strong mobility coaching']);
+  assert.deepEqual(completed.body.latest.competitors, ['Rival Gym']);
+  assert.deepEqual(completed.body.latest.searchQueries, ['senior fitness st petersburg']);
+  assert.equal(completed.body.latest.searchEntryPoint, '<div>Search suggestions</div>');
+  assert.equal(completed.body.latest.timestamp, '2026-09-01T12:00:00.000Z');
+  assert.equal(state.history.length, 50);
+  assert.strictEqual(completed.body.history, state.history);
+  assert.equal(persisted.length, 1);
+  assert.equal(persisted[0].length, 50);
+
+  geminiQueue.push({ text: 'Best Day Fitness offers personalized coaching.', candidates: [] });
+  geminiQueue.push({ text: 'not valid json' });
+  const extractionFailed = response();
+  await audit({ body: { query: 'personal trainer' } }, extractionFailed);
+  assert.equal(extractionFailed.statusCode, 200);
+  assert.equal(extractionFailed.body.latest.recommended, true);
+  assert.deepEqual(extractionFailed.body.latest.reasons, []);
+  assert.deepEqual(extractionFailed.body.latest.competitors, []);
+
+  persistError = new Error('disk unavailable');
+  geminiQueue.push({ text: '', candidates: [] });
+  const saveFailed = response();
+  await audit({ body: { query: 'empty response' } }, saveFailed);
+  assert.equal(saveFailed.statusCode, 200);
+  assert.equal(saveFailed.body.latest.responseSnippet, 'The AI returned no answer text for this query.');
+
+  geminiQueue.push(new Error('grounding unavailable'));
+  const failed = response();
+  await audit({ body: { query: 'failed audit' } }, failed);
+  assert.equal(failed.statusCode, 502);
+  assert.deepEqual(failed.body, {
+    success: false,
+    error: 'The live audit could not be completed: grounding unavailable',
+  });
+  assert.deepEqual(errors, [
+    ['[AIO Audit] Competitor extraction failed (non-fatal):', 'Unexpected token \'o\', "not valid json" is not valid JSON'],
+    ['[AIO Audits File] Save failed:', 'disk unavailable'],
+    ['[AIO Audit API] Grounded audit failed:', 'grounding unavailable'],
+  ]);
 });
 
 test('on-site routes preserve URL safety, tool validation, generation, AEO, and schema contracts', async () => {

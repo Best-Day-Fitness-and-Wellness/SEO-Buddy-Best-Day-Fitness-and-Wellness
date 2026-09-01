@@ -202,6 +202,7 @@ so one production replica remains the supported topology.
 | `lib/content-routes.js` | Manual article generation, publishing, indexing, and history HTTP contracts |
 | `lib/ai-visibility-routes.js` | AI Visibility status, tracked prompts, schedule, and manual-run HTTP contracts |
 | `lib/ai-audit-routes.js` | Shared FactCheck, crawler-access, and Reddit status/run HTTP orchestration |
+| `lib/aio-core-routes.js` | Grounded AIO audit, bounded audit history, and schema HTTP contracts |
 | `lib/scheduled-feature-routes.js` | Shared state, toggle, run, and seen controls for scheduled dashboard features |
 | `lib/google-delivery.js` | Gmail and Google Business Profile OAuth and provider adapters |
 | `lib/delivery-routes.js` | Pitch, GBP post, and performance-digest delivery HTTP contracts |
@@ -235,7 +236,7 @@ so one production replica remains the supported topology.
 
 1. **`server.js` is still the main monolith.** Operations, profile, usage,
    Search Console, content autopilot, manual article lifecycle, AI Visibility,
-   AI audits, scheduled feature controls, Google delivery, Citation,
+   AI audits, core AIO auditing, scheduled feature controls, Google delivery, Citation,
    Local SEO, Performance, and On-Site SEO are extracted; continue one route family at a time into services, integrations,
    and repository interfaces. Keep contract tests around the existing HTTP boundary
    before every extraction.
