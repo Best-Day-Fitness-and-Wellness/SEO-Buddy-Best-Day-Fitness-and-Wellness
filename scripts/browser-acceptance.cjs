@@ -172,6 +172,9 @@ async function exercise(base, viewport) {
     await page.locator('#btn-generate').click();
     await page.getByText('AI Writing failed: Acceptance-test provider unavailable', { exact: true }).waitFor();
     assert.equal(await page.locator('#btn-generate').isEnabled(), true);
+    assert.equal(await page.locator('#visual-editor').isVisible(), true);
+    assert.match(await page.locator('#visual-editor').innerText(), /Edited test article/);
+    assert.equal(await page.locator('#editor-empty').isVisible(), false);
     generationFails = false;
     await nav('#nav-settings');
     await page.waitForFunction(() => typeof window.loadSettingsWorkspace === 'function');
@@ -201,10 +204,16 @@ async function exercise(base, viewport) {
     const carousel = page.locator('.sb-explore-step').first();
     await carousel.waitFor();
     const track = carousel.locator('.sb-track');
+    // Navigation and the async readiness response can replace the shelf before
+    // its first layout. Wait for usable geometry, not a machine-speed delay.
+    await page.waitForFunction(() => {
+      const track = document.querySelector('.sb-explore-step .sb-track');
+      return track && track.clientWidth > 0 && track.scrollWidth > track.clientWidth;
+    });
     assert.ok(await track.evaluate(el => el.scrollWidth > el.clientWidth));
     if (await carousel.locator('.next').isVisible()) await carousel.locator('.next').click();
     else await carousel.locator('.sb-stepdot[data-i="1"]').click();
-    await page.waitForTimeout(400);
+    await page.waitForFunction(() => /^2 of /.test(document.querySelector('.sb-explore-step .sb-step-pos')?.textContent || ''));
     assert.match(await carousel.locator('.sb-step-pos').innerText(), /^2 of /);
   });
 

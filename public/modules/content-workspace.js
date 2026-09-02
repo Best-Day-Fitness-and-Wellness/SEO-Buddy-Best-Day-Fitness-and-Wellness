@@ -186,7 +186,13 @@
     } catch (err) {
       alert(`AI Writing failed: ${err.message}`);
       editorLoader.style.display = 'none';
-      editorEmpty.style.display = 'flex';
+      // A failed replacement must not hide the last reviewed draft or leave
+      // its warnings floating over the empty-state illustration.
+      editorEmpty.style.display = state.generatedArticle ? 'none' : 'flex';
+      if (state.generatedArticle) {
+        visualEditor.style.display = state.editorMode === 'visual' ? 'block' : 'none';
+        codeEditor.style.display = state.editorMode === 'code' ? 'block' : 'none';
+      }
     } finally {
       btnGenerate.disabled = false;
     }

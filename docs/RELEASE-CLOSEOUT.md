@@ -10,7 +10,8 @@ rules, and job schedules are preserved.
 1. **Content workspace:** creation, editor state, claims/brand warnings,
    publishing, indexing, history, and content-autopilot controls now live in one
    lazy module. A search-to-article handoff loads it once; navigation preserves
-   the draft. Recording remains a separate lazy capability.
+   the draft. A failed replacement request keeps the previous draft visible.
+   Recording remains a separate lazy capability.
 2. **Shared coordination:** thirteen features use one bounded, retryable,
    same-origin loader. Job enqueue, recurring/daily scheduling, and timer
    shutdown share a tested dispatcher. Common time labels and keyboard/dialog
