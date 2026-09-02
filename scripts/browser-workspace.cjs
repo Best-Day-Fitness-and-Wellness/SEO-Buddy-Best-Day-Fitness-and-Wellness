@@ -40,6 +40,10 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
     assert.equal(await page.locator('.nav-menu:not(#workspace-nav):visible').count(), 0);
     assert.match(await page.locator('#ws-today').innerText(), /There are things to review/);
     assert.equal(await page.locator('.ws-automation details[open]').count(), 0);
+    assert.equal(await page.locator('.ws-overview .btn-primary').count(), 1, 'Briefing must have one clear primary action');
+    assert.equal(await page.locator('.ws-overview .sb-editorial-art[aria-hidden="true"]').count(), 1);
+    const listBounds = await page.locator('.ws-automations').boundingBox();
+    assert.ok(listBounds.height <= 430, 'Six collapsed automation rows must stay compact');
     await page.locator('.ws-automation summary').first().click();
     assert.match(await page.locator('.ws-automation').first().innerText(), /No publication is being claimed/);
     await audit('preview-today');
@@ -56,6 +60,32 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
       await page.setViewportSize({ width: 390, height: 844 });
       await page.waitForFunction(() => document.querySelector('body > #workspace-nav'));
     }
+  });
+
+  await journey(`${prefix}: polished layout stays readable at narrow widths and keyboard-operable`, async () => {
+    await open('#ws-nav-today');
+    await page.waitForFunction(() => document.querySelectorAll('.ws-automation').length === 6 && !document.getElementById('ws-today').hasAttribute('aria-busy'));
+    assert.equal(await page.locator('.ws-automation details[open]').count(), 0);
+    await page.locator('.ws-automation summary').first().focus();
+    await page.locator('.ws-automation summary:focus').waitFor();
+    await page.keyboard.press('Enter');
+    await page.locator('.ws-automation details[open]').waitFor();
+    await page.keyboard.press('Enter');
+    assert.equal(await page.locator('.ws-automation details[open]').count(), 0);
+    if (prefix === 'mobile') {
+      await page.setViewportSize({ width: 320, height: 640 });
+      const primary = await page.locator('.ws-overview .btn-primary').boundingBox();
+      assert.ok(primary.y + primary.height < 565, 'Primary action must be visible before scrolling on a small phone');
+      await audit('preview-320-today');
+      await page.setViewportSize({ width: 390, height: 844 });
+    }
+    await open('#ws-nav-tools');
+    await page.locator('#ws-tool-search').fill('');
+    await audit('preview-tools-directory');
+    const first = page.locator('.exp-row:visible').first();
+    await first.focus();
+    await page.keyboard.press('Enter');
+    await location('tools/search');
   });
 
   await journey(`${prefix}: unavailable preview checks never become an all-clear`, async () => {

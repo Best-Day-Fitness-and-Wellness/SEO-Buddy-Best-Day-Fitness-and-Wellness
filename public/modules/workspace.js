@@ -27,6 +27,19 @@
   const $ = id => document.getElementById(id);
   const pendingDraft = () => { const draft = global.SeoBuddyContent?.getDraftSummary?.(); return draft?.title && draft.publicationStatus !== 'published' ? draft : null; };
   const date = value => value && Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleString() : 'Not recorded';
+  const ICONS = {
+    today: '<path d="m3 10 9-7 9 7v10H3Z"/><path d="M9 20v-7h6v7"/>',
+    approvals: '<rect x="4" y="4" width="16" height="16" rx="4"/><path d="m8 12 3 3 5-6"/>',
+    results: '<path d="M4 4v16h16M8 15v-4m5 4V7m5 8V4"/>',
+    tools: '<rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/>',
+    content: '<path d="M14 3H5v18h14V8Z M14 3v5h5M8 12h8M8 16h6"/>',
+    ai: '<path d="M12 3 9 9l-6 3 6 3 3 6 3-6 6-3-6-3Z"/>',
+    local: '<path d="M19 10c0 5-7 11-7 11S5 15 5 10a7 7 0 0 1 14 0Z"/><circle cx="12" cy="10" r="2"/>',
+    citations: '<path d="m9 15 6-6M8 16l-1 1a4 4 0 0 1-6-6l4-4a4 4 0 0 1 6 0m2 10a4 4 0 0 0 6 0l4-4a4 4 0 0 0-6-6l-1 1"/>',
+    onsite: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 9h18M7 6h.1M10 6h.1m-2 7-2 2 2 2m8-4 2 2-2 2"/>',
+  };
+  const icon = key => `<svg class="ws-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${ICONS[key] || ICONS.results}</svg>`;
+  const art = key => `<div class="ws-art" aria-hidden="true">${global.SeoBuddyArtwork.render(key, true)}</div>`;
   const button = (tab, label) => `<button type="button" class="btn btn-secondary" data-ws-tab="${esc(tab)}">${esc(label)}</button>`;
   const errorBox = (label, retry) => `<div class="ow-note warn" role="alert"><b>${esc(label)}</b><p>This is a missing check, not an all-clear. No changes were made.</p><button class="btn btn-secondary" type="button" data-ws-retry="${retry}">Try again</button></div>`;
 
@@ -74,9 +87,12 @@
     $('ws-location').textContent = slug.includes('/') ? `${group === 'tools' ? 'Tools' : group === 'results' ? 'Results' : 'Business'} / ${title}` : title;
     $('ws-back').hidden = tab === 'workspace-today-tab' && depth === 0;
     updateJourney();
+    const previousFocus = document.activeElement;
     requestAnimationFrame(() => {
+      if (current !== tab) return;
       global.scrollTo({ top: replay ? history.state?.seoWorkspace?.scroll || 0 : 0, behavior: 'instant' });
-      $('page-title').focus({ preventScroll: true });
+      // A quick keyboard user may already have moved into the new page.
+      if (document.activeElement === previousFocus || document.activeElement === document.body) $('page-title').focus({ preventScroll: true });
     });
     return true;
   }
@@ -95,10 +111,10 @@
 
   function statusCard(feature) {
     const reason = feature.reason || 'Open the tool for details.';
-    return `<article class="ws-automation"><div><h3>${esc(feature.title)}</h3><span class="ws-status ${esc(feature.status)}">${esc(feature.label)}</span></div>
-      <details><summary>Evidence &amp; controls</summary><p>${esc(reason)}</p><dl><dt>Last recorded activity</dt><dd>${esc(date(feature.lastRecordedAt))}</dd>
+    return `<article class="ws-automation"><details><summary><span class="ws-row-icon">${icon(feature.key)}</span><span class="ws-row-title">${esc(feature.title)}</span><span class="ws-status ${esc(feature.status)}">${esc(feature.label)}</span><span class="ws-chevron" aria-hidden="true">›</span></summary>
+      <div class="ws-evidence"><h3>Evidence &amp; controls</h3><p>${esc(reason)}</p><dl><dt>Last recorded activity</dt><dd>${esc(date(feature.lastRecordedAt))}</dd>
       <dt>${feature.nextRunEstimated ? 'Next eligible check (estimated)' : 'Next scheduled check'}</dt><dd>${feature.nextRunAt ? esc(date(feature.nextRunAt)) : 'Not confirmed'}</dd></dl>
-      ${button(feature.status === 'needs-setup' ? 'settings-tab' : feature.tab, feature.status === 'needs-setup' ? 'Review connections' : 'View details')}</details></article>`;
+      ${button(feature.status === 'needs-setup' ? 'settings-tab' : feature.tab, feature.status === 'needs-setup' ? 'Review connections' : 'View details')}</div></details></article>`;
   }
 
   async function loadToday() {
@@ -119,18 +135,22 @@
     const verified = moves && automation && score;
     const headline = !verified ? 'Some checks are unavailable' : attention.length ? 'There are things to review' : decisionCount ? `${decisionCount} decision${decisionCount === 1 ? ' needs' : 's need'} you` : 'No decisions are waiting';
     $('ws-approval-count').textContent = moves ? (decisionCount || '') : '?';
-    $('ws-today').innerHTML = `<div class="ws-overview"><div><span class="ws-eyebrow">Your daily check-in</span><h2>${headline}</h2>
-      <p>${!verified ? 'We cannot give you an all-clear until these checks load.' : 'A quiet inbox does not mean every automation is running. Check the status evidence below.'}</p>
-      ${button('approvals-tab', moves ? `Review ${decisionCount} decision${decisionCount === 1 ? '' : 's'}` : 'Check approvals')}</div>
-      <div class="ws-score"><span>Optimization score</span><strong>${Number.isInteger(score?.overall) ? score.overall : '—'}<small> / 100</small></strong>${button('owner-results-tab', 'See measured results')}</div></div>
+    const priority = !verified ? '<button type="button" class="btn btn-primary" data-ws-retry="today">Retry checks <span aria-hidden="true">↗</span></button>'
+      : decisionCount ? `<button type="button" class="btn btn-primary" data-ws-tab="approvals-tab">Review ${decisionCount} decision${decisionCount === 1 ? '' : 's'} <span aria-hidden="true">↗</span></button>`
+      : attention.length ? `<button type="button" class="btn btn-primary" data-ws-tab="${esc(attention[0].status === 'needs-setup' ? 'settings-tab' : attention[0].tab)}">Review flagged area <span aria-hidden="true">↗</span></button>`
+      : '<button type="button" class="btn btn-primary" data-ws-tab="owner-results-tab">Explore your results <span aria-hidden="true">↗</span></button>';
+    $('ws-today').innerHTML = `<div class="ws-overview"><div class="ws-briefing"><span class="ws-eyebrow"><span class="ws-eyebrow-line" aria-hidden="true"></span>Your daily briefing</span><h2>${headline}</h2>
+      <p>${!verified ? 'Some checks did not load. Retry before relying on the status below.' : decisionCount ? 'Your next step is ready. Review what needs a decision, then see what is scheduled below.' : attention.length ? 'A recent check needs attention. Open the flagged area to see the evidence.' : 'Your decision list is clear. Review the latest evidence and see how your results are moving.'}</p>
+      ${priority}</div>${art('autopilot')}</div>
       ${!moves ? errorBox('Could not check your decisions', 'today') : ''}
       ${!automation ? errorBox('Could not verify automations', 'today') : ''}
       ${!score ? errorBox('Could not load your score', 'today') : ''}
-      <div class="ws-section-heading"><h2>What happens next</h2><span>${automation ? 'Checked ' + esc(date(automation.checkedAt)) : 'Status unverified'}</span><button type="button" class="btn btn-secondary" data-ws-retry="today">Refresh checks</button></div>
-      <div class="ws-automations">${features.map(statusCard).join('')}</div>
+      <div class="ws-dashboard"><section class="ws-operations" aria-label="Automation status"><div class="ws-section-heading"><div><h2>What happens next</h2><span>${automation ? 'Checked ' + esc(date(automation.checkedAt)) : 'Status unverified'}</span></div><button type="button" class="btn btn-secondary" data-ws-retry="today">Refresh checks</button></div>
+      <div class="ws-automations">${features.map(statusCard).join('')}</div><p class="ws-footnote">Open a row for evidence and controls. Scheduled does not mean completed.</p></section>
+      <aside class="ws-progress" aria-label="Score and activity"><div class="ws-score"><span class="ws-eyebrow">Your progress</span><div class="ws-score-reading"><div class="ws-score-ring" style="--ws-score:${Math.max(0, Math.min(100, score?.overall || 0))}"><div><strong>${score?.overall ?? '—'}</strong><small>/ 100</small></div></div><div><h2>Optimization score</h2><p>Measured SEO signals.<br>Not a ranking guarantee.</p></div></div>${button('owner-results-tab', 'See measured results')}</div>
       <details class="ws-details"><summary>Recent recorded work — drafts and completed actions</summary>${activityResult.status === 'fulfilled'
         ? `<p class="text-muted">These records can be older than this week. A draft or suggestion is not a published change.</p>${activityResult.value.items.map(item => `<div class="ws-activity"><div><b>${esc(item.label)}</b><p>${esc(item.text)}</p></div>${button(item.tab, 'Inspect record')}</div>`).join('') || '<p>No activity records were returned.</p>'}`
-        : errorBox('Could not load activity records', 'today')}</details>`;
+        : errorBox('Could not load activity records', 'today')}</details></aside></div>`;
     $('ws-today').removeAttribute('aria-busy');
   }
 
@@ -165,6 +185,7 @@
       const details = document.createElement('details'); details.className = 'ws-details';
       const summary = document.createElement('summary'); summary.textContent = 'Advanced reports and all actions';
       advanced.before(details); details.append(summary, advanced);
+      host.append(details);
     }
     filterTools();
   }
@@ -193,8 +214,18 @@
     renderTab = render;
     // Move, do not duplicate, the same four primary controls on phones.
     const primaryNav = $('workspace-nav'), sidebar = document.querySelector('.sidebar');
+    primaryNav.querySelectorAll('.nav-item').forEach(item => item.insertAdjacentHTML('afterbegin', icon(ROUTES[item.dataset.tab][2])));
+    const assistant = $('asst-fab'), assistantDock = assistant.parentElement;
     const mobile = global.matchMedia('(max-width: 860px)');
-    const positionNav = () => mobile.matches ? document.body.append(primaryNav) : sidebar.querySelector('.biz-chip').after(primaryNav);
+    const positionNav = () => {
+      if (mobile.matches) {
+        document.body.append(primaryNav);
+        document.querySelector('.header-actions').append(assistant);
+      } else {
+        sidebar.querySelector('.biz-chip').after(primaryNav);
+        assistantDock.append(assistant);
+      }
+    };
     positionNav(); mobile.addEventListener('change', positionNav);
     const bar = document.createElement('div'); bar.className = 'ws-orientation';
     bar.innerHTML = '<button type="button" id="ws-back" class="btn btn-secondary">← Back</button><nav id="ws-location" aria-label="Your location"></nav><a href="' + esc(global.location.pathname) + '">Exit preview</a><span class="ws-preview-label">Navigation preview</span>';

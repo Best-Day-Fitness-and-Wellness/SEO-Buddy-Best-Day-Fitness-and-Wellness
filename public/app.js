@@ -1371,6 +1371,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   window.loadGetStarted = loadGetStarted;
   window.__art = sbArt;   // test hook: render one illustration in isolation
+  window.SeoBuddyArtwork = Object.freeze({ render: sbArt });
 
   // Today shows exactly one. Nobody meets nine cards at once.
   // Today used to render exactly one card and silently swap it for the next one

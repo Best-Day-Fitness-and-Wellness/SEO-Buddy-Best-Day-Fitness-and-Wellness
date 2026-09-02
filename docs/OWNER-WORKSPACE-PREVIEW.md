@@ -28,6 +28,15 @@ on mobile. Tool routes retain their parent destination, title, breadcrumb,
 Back button, browser Back/Forward and `#/…` direct link. No mode switch is
 required to use a detailed tool.
 
+The visual refinement keeps the approved Direction A paper/ink/teal/coral
+artwork in the daily briefing, with one primary action. Automation status is
+a single compact list of keyboard-expandable rows, not six separate cards.
+The score is a secondary panel; the ring encodes the existing score only and
+does not imply improvement. Tool groups use a two-column desktop directory
+and a single-column phone layout. The browser suite checks a 320px phone
+width, row height, primary-action visibility, and keyboard disclosure controls
+in addition to the regular desktop/mobile and dark-mode coverage.
+
 The content journey links search opportunities → draft and review → publish
 and verify → results. One existing content state is retained across in-tab
 navigation. Reloading or closing the tab still discards an unsaved article;
