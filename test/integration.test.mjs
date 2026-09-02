@@ -189,6 +189,18 @@ test('the global JSON boundary rejects oversized requests before business logic'
   assert.equal(response.status, 413);
 });
 
+test('owner automation status is a read-only public summary without operational secrets', async () => {
+  const response = await request('/api/automation-status', { auth: false });
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(body.success, true);
+  assert.ok(Number.isFinite(Date.parse(body.checkedAt)));
+  assert.deepEqual(body.features.map(item => item.key), ['content', 'ai', 'local', 'citations', 'onsite', 'digest']);
+  assert.ok(body.features.every(item => item.status === 'needs-setup'));
+  assert.doesNotMatch(JSON.stringify(body), /lastError|payload|password|idempotencyKey|leaseUntil/);
+  assert.match(response.headers.get('cache-control'), /no-store/);
+});
+
 test('production mode never reports demo generation, publishing, indexing, or search data as live success', { timeout: 30000 }, async () => {
   const productionDir = mkdtempSync(join(tmpdir(), 'seo-buddy-production-mode-'));
   const port = await availablePort();

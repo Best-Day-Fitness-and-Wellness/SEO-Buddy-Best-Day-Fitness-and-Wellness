@@ -34,6 +34,7 @@ const { createSwitchableJobQueue } = require('./lib/job-queue');
 const { createPostgresJobQueue } = require('./lib/postgres-job-queue');
 const { createJobWorker } = require('./lib/job-worker');
 const { createJobDispatcher } = require('./lib/job-dispatcher');
+const { registerAutomationStatusRoute } = require('./lib/automation-status');
 const { ProviderRuntimeError, createProviderRuntime } = require('./lib/provider-runtime');
 const { assessArticleQuality } = require('./lib/content-quality');
 const { registerOperationsRoutes } = require('./lib/operations-routes');
@@ -115,6 +116,7 @@ const BROWSER_ASSETS = buildBrowserAssets(PUBLIC_DIR, [
   { token: 'SEARCH_OPPORTUNITIES_ASSET', file: 'modules/search-opportunities.js' },
   { token: 'SETTINGS_ASSET', file: 'modules/settings.js' },
   { token: 'CONTENT_WORKSPACE_ASSET', file: 'modules/content-workspace.js' },
+  { token: 'WORKSPACE_ASSET', file: 'modules/workspace.js' },
 ]);
 const INDEX_HTML = renderAssetIndex(fs.readFileSync(path.join(PUBLIC_DIR, 'index.html'), 'utf8'), BROWSER_ASSETS);
 
@@ -3428,6 +3430,36 @@ registerDashboardRoutes(app, {
     mockIntegrationsAllowed: ALLOW_MOCK_INTEGRATIONS,
   }),
   logger: console,
+});
+
+registerAutomationStatusRoute(app, {
+  queue: durableJobQueue, worker: jobWorker,
+  getFeatures: () => {
+    const aiReady = !!process.env.GEMINI_API_KEY;
+    const week = 7 * 86400000;
+    return [
+      { key: 'content', title: 'Content publishing', tab: 'publish-tab', jobType: 'content.autopilot',
+        configured: aiReady && !!process.env.GHL_ACCESS_TOKEN && !!process.env.GHL_LOCATION_ID,
+        setupReason: 'Connect AI writing and website publishing in Settings.',
+        enabled: autopilotEnabled, lastRun: lastAutopilotRun, nextRun: nextRunTime },
+      { key: 'ai', title: 'AI visibility checks', tab: 'aio-tab', jobType: 'ai.visibility',
+        configured: aiReady, enabled: aiVisDb.autoEnabled, running: aiVisRunning,
+        lastRun: aiVisDb.lastRun, intervalMs: (aiVisDb.intervalDays || 7) * 86400000 },
+      { key: 'local', title: 'Local listings and Google posts', tab: 'local-tab', jobType: 'local.autopilot',
+        configured: aiReady, enabled: localDb.enabled, running: localRunning,
+        lastRun: localDb.lastNapRun || localDb.lastGbpRun, intervalMs: week,
+        needsApproval: !!localDb.gbpDraft && !localDb.gbpDraft.posted, failed: !!localDb.gbpDraft?.postError },
+      { key: 'citations', title: 'Directory discovery', tab: 'citations-tab', jobType: 'citation.scan',
+        configured: aiReady, enabled: citationsDb.autoEnabled, running: citScanRunning,
+        lastRun: citationsDb.lastScanned, intervalMs: (citationsDb.intervalDays || 7) * 86400000 },
+      { key: 'onsite', title: 'Website improvement ideas', tab: 'onsite-tab', jobType: 'onsite.autopilot',
+        configured: aiReady, enabled: onsiteDb.enabled, running: onsiteRunning,
+        lastRun: onsiteDb.lastRun, intervalMs: (onsiteDb.intervalDays || 7) * 86400000 },
+      { key: 'digest', title: 'Results summary', tab: 'performance-tab', jobType: 'performance.digest',
+        configured: aiReady, enabled: perfDigestDb.enabled, running: perfDigestRunning,
+        lastRun: perfDigestDb.lastRun, intervalMs: (perfDigestDb.intervalDays || 7) * 86400000 },
+    ];
+  },
 });
 
 // Restore the autopilot schedule if it was enabled before a redeploy.

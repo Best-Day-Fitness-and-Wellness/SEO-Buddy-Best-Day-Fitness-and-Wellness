@@ -54,6 +54,7 @@ async function exercise(base, viewport) {
   page.setDefaultTimeout(6000);
   page.on('pageerror', error => results.errors.push({ viewport, message: error.message }));
   const writes = [];
+  const responses = new Map();
   let generationFails = false;
   let contentLoadFails = false;
   await page.route('**/*', async route => {
@@ -61,8 +62,9 @@ async function exercise(base, viewport) {
     if (url.origin !== base) { results.externalRequests.push(url.origin); return route.abort(); }
     if (contentLoadFails && /\/assets\/content-workspace\./.test(url.pathname)) return route.abort();
     if (url.pathname === '/__acceptance__/axe.js') return route.fulfill({ contentType: 'application/javascript', body: fs.readFileSync(require.resolve('axe-core/axe.min.js'), 'utf8') });
-    if (request.method() === 'GET') return route.continue();
+    if (request.method() === 'GET') return responses.has(url.pathname) ? route.fulfill(responses.get(url.pathname)) : route.continue();
     writes.push({ path: url.pathname, body: request.postData() ? request.postDataJSON() : null });
+    if (responses.has(url.pathname)) return route.fulfill(responses.get(url.pathname));
     const fulfill = (body, status = 200) => route.fulfill({ status, json: body });
     if (url.pathname === '/api/generate-article') return generationFails
       ? fulfill({ error: 'Acceptance-test provider unavailable' }, 503)
@@ -73,7 +75,7 @@ async function exercise(base, viewport) {
     if (url.pathname === '/api/autopilot-queue/add') return fulfill({ success: true, queue: [{ topic: request.postDataJSON().topic }] });
     if (url.pathname === '/api/autopilot-queue/remove') return fulfill({ success: true, queue: [] });
     if (url.pathname === '/api/autopilot-run-now') return fulfill({ success: true, message: 'Test-only run accepted' });
-    if (url.pathname === '/api/autopilot-toggle') return fulfill({ success: true });
+    if (url.pathname === '/api/autopilot-toggle') return fulfill({ success: true, enabled: true });
     return fulfill({ success: false, error: 'Unexpected mutation blocked by acceptance harness' }, 400);
   });
   await page.goto(base);
@@ -283,6 +285,7 @@ async function exercise(base, viewport) {
     await page.evaluate(id => window.switchTab(id), id);
     await audit('dark-' + id);
   }
+  await require('./browser-workspace.cjs')({ page, base, prefix, journey, audit, writes, responses });
   await context.close();
 }
 

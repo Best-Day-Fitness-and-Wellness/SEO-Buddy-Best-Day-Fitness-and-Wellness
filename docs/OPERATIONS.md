@@ -124,6 +124,12 @@ web replicas yet: feature mutations are still process-local during a run.
 
 ## Rollback
 
+The navigation release is opt-in at `/?workspace=preview`; the normal URL
+retains the existing interface pending real-owner testing. See
+`docs/OWNER-WORKSPACE-PREVIEW.md` for test tasks, status semantics and the
+rollout gate. Preview entry is read-only, but actions use the same live
+authenticated workflows: do not treat the preview as a vendor sandbox.
+
 Prefer a new revert commit on `main`, then let Railway deploy it. A code rollback
 must not delete the volume or replace tenant state. If the release introduced a
 new additive state field, older code must ignore it. If durable state itself is

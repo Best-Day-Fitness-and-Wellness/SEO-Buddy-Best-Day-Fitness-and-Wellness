@@ -10,6 +10,9 @@
 
   const state = {
     generatedArticle: null, // { title, slug, content }
+    publicationStatus: null,
+    publicationUrl: null,
+    indexRequested: false,
     editorMode: 'visual', // 'visual' or 'code'
     history: [
       {
@@ -24,6 +27,14 @@
   };
 
   // AI Creator Selectors
+  function contentChanged() { document.dispatchEvent(new CustomEvent('seo:content-changed')); }
+  function draftEdited() {
+    state.publicationStatus = null;
+    state.publicationUrl = null;
+    state.indexRequested = false;
+    contentChanged();
+  }
+
   const inputKeyword = document.getElementById('input-keyword');
   const inputCaseStudy = document.getElementById('input-case-study');
   const inputCtaText = document.getElementById('input-cta-text');
@@ -155,6 +166,10 @@
         content: safeContent,
         slug: data.slug
       };
+      state.publicationStatus = null;
+      state.publicationUrl = null;
+      state.indexRequested = false;
+      contentChanged();
 
       // Populate preview panes
       visualEditor.innerHTML = safeContent;
@@ -241,6 +256,7 @@
     if (state.generatedArticle) {
       state.generatedArticle.content = visualEditor.innerHTML;
       codeEditor.value = visualEditor.innerHTML;
+      draftEdited();
     }
   });
 
@@ -249,10 +265,17 @@
       const safeContent = sanitizeHtml(codeEditor.value);
       state.generatedArticle.content = safeContent;
       visualEditor.innerHTML = safeContent;
+      draftEdited();
     }
   });
 
   // --- CLIPBOARD ACTIONS ---
+  deployTitle.addEventListener('input', () => {
+    if (state.generatedArticle) {
+      state.generatedArticle.title = deployTitle.value;
+      draftEdited();
+    }
+  });
   btnCopyHtml.addEventListener('click', () => {
     if (!state.generatedArticle) {
       alert('Generate an article first!');
@@ -329,7 +352,7 @@
 
       const data = await res.json();
 
-      if (!res.ok) {
+      if (!res.ok || data.success === false) {
         throw new Error(data.message || 'Publish failed');
       }
 
@@ -349,6 +372,10 @@
       };
 
       state.history.unshift(newEntry);
+      state.publicationStatus = data.source === 'mock_ghl' ? 'simulated' : status;
+      state.publicationUrl = data.url || targetUrl;
+      state.indexRequested = false;
+      contentChanged();
       renderHistory();
 
     } catch (err) {
@@ -379,11 +406,15 @@
 
       const data = await res.json();
 
-      if (!res.ok) {
+      if (!res.ok || data.success === false) {
         throw new Error(data.error || 'Indexing API call failed');
       }
 
       alert(data.message || 'Crawl request sent successfully!');
+      if (state.publicationStatus === 'published' && url === state.publicationUrl) {
+        state.indexRequested = true;
+        contentChanged();
+      }
 
       // Update matches in history if any
       state.history.forEach(item => {
@@ -646,6 +677,8 @@
     await Promise.all([fetchHistory(), fetchAutopilotStatus()]);
   }
 
-  global.SeoBuddyContent = Object.freeze({ loadKeywordIntoCreator, loadPublishWorkspace });
+  global.SeoBuddyContent = Object.freeze({ loadKeywordIntoCreator, loadPublishWorkspace,
+    getDraftSummary: () => ({ title: state.generatedArticle?.title || null, publicationStatus: state.publicationStatus, indexRequested: state.indexRequested }),
+  });
   renderHistory();
 })(window);

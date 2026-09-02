@@ -2,6 +2,8 @@
 document.addEventListener('DOMContentLoaded', () => {
   // --- APPLICATION STATE ---
   const state = { activeTab: 'today-tab' };
+  const workspacePreview = new URLSearchParams(window.location.search).get('workspace') === 'preview';
+  document.body.classList.toggle('workspace-preview', workspacePreview);
 
   // --- DOM ELEMENT SELECTORS ---
   const tabButtons = document.querySelectorAll('.nav-item');
@@ -220,7 +222,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const normalized = mode === true ? 'live' : mode === false ? 'demo' : mode;
     if (normalized === 'live') {
       modeStatus.className = 'status-indicator live';
-      modeStatusText.innerText = 'Live Operations';
+      modeStatusText.innerText = workspacePreview ? 'Live Search Data' : 'Live Operations';
     } else if (normalized === 'demo') {
       modeStatus.className = 'status-indicator mock';
       modeStatusText.innerText = 'Demo Search Data';
@@ -297,7 +299,8 @@ document.addEventListener('DOMContentLoaded', () => {
     return who ? `${part}, ${who}` : part;
   }
 
-  function switchTab(tabId) {
+  function switchTab(tabId, options = {}) {
+    if (workspacePreview && window.SeoBuddyWorkspace && !options.render) return window.SeoBuddyWorkspace.navigate(tabId);
     state.activeTab = tabId;
     
     // Update active nav button
@@ -330,7 +333,15 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Update Header Text dynamically
-    if (tabId === 'today-tab') {
+    if (tabId === 'workspace-today-tab') {
+      pageTitle.innerText = 'Today';
+      pageSubtitle.innerText = 'What needs you, what is running, and what happens next';
+      window.SeoBuddyWorkspace?.loadToday();
+    } else if (tabId === 'approvals-tab') {
+      pageTitle.innerText = 'Approvals';
+      pageSubtitle.innerText = 'Priority decisions and your current article draft';
+      window.SeoBuddyWorkspace?.loadApprovals();
+    } else if (tabId === 'today-tab') {
       pageTitle.innerText = 'Today';
       pageSubtitle.innerText = 'What needs you — and what SEO Buddy handled on its own';
       if (window.loadToday) window.loadToday();
@@ -459,14 +470,14 @@ document.addEventListener('DOMContentLoaded', () => {
   // Restore the saved preference through the same lazy boundary used by the
   // mode switch. Full-interface users never download the owner workspace.
   try {
-    if (localStorage.getItem('seo_owner_mode') === '1') setOwnerModeFeature(true);
+    if (!workspacePreview && localStorage.getItem('seo_owner_mode') === '1') setOwnerModeFeature(true);
   } catch (error) {}
 
   // Readiness changes also refresh the always-available dashboard surfaces.
   // Owner-specific views subscribe inside their module once it is loaded.
   document.addEventListener('seo:readiness-changed', () => {
-    if (window.loadToday) window.loadToday();
-    if (window.loadGetStarted) window.loadGetStarted();
+    if (!workspacePreview && window.loadToday) window.loadToday();
+    if (!workspacePreview && window.loadGetStarted) window.loadGetStarted();
     if (window.refreshReadinessBoard) window.refreshReadinessBoard();
   });
 
@@ -743,7 +754,7 @@ document.addEventListener('DOMContentLoaded', () => {
     el.innerHTML = shown.map(m => `<div class="home-move ${m.impact === 'high' ? 'high' : ''}">
       <div class="home-move-top"><div class="home-move-title">${sumEsc(m.title)}</div><span class="mtag ${m.impact}">${tagLabel[m.impact] || ''}</span></div>
       <div class="home-move-why">${sumEsc(m.why)}</div>
-      <div class="home-move-act"><button class="btn btn-primary" type="button">${sumEsc(m.cta)}</button><span class="meff">${sumEsc(m.effort || '')}</span></div>
+      <div class="home-move-act"><button class="btn btn-primary" type="button">${sumEsc(m.cta || 'Review')}</button><span class="meff">${sumEsc(m.effort || '')}</span></div>
     </div>`).join('');
     el.querySelectorAll('.home-move-act .btn').forEach((b, i) => b.addEventListener('click', () => runMoveAction(shown[i], b)));
   }
@@ -1512,7 +1523,7 @@ document.addEventListener('DOMContentLoaded', () => {
       { icon: 'gear', b: 'Settings', s: 'Connections & account', tab: 'settings-tab' } ] }
   ];
   function loadExplore(){
-    loadGetStarted();
+    if (!workspacePreview) loadGetStarted();
     const host = document.getElementById('exp-groups'); if (!host) return;
     host.innerHTML = EXPLORE_GROUPS.map(function(grp){
       return '<div class="exp-group"><div class="exp-gl">' + grp.g + '</div><div class="exp-list">' + grp.items.map(function(it){
@@ -1528,6 +1539,7 @@ document.addEventListener('DOMContentLoaded', () => {
         else if (go === 'act:ask') { const b = document.getElementById('asst-fab'); if (b) b.click(); }
       });
     });
+    if (workspacePreview) window.SeoBuddyWorkspace?.enhanceTools();
   }
   window.loadExplore = loadExplore;
 
@@ -1542,7 +1554,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!moves.length) { el.innerHTML = '<div class="text-muted" style="font-size:var(--font-sm);">You’re all caught up — nothing needs your attention right now. </div>'; return; }
       el.innerHTML = moves.map(m => `<div class="gmove ${m.impact === 'high' ? 'high' : ''}">
         <div><div class="gmove-t">${sumEsc(m.title)}</div><div class="gmove-w">${sumEsc(m.why)}</div></div>
-        <div class="gmove-r"><span class="gmtag ${m.impact}">${tagLabel[m.impact] || ''}</span><button class="btn btn-primary" type="button">${sumEsc(m.cta)}</button></div>
+        <div class="gmove-r"><span class="gmtag ${m.impact}">${tagLabel[m.impact] || ''}</span><button class="btn btn-primary" type="button">${sumEsc(m.cta || 'Review')}</button></div>
       </div>`).join('');
       el.querySelectorAll('.gmove-r .btn').forEach((b, i) => b.addEventListener('click', () => runMoveAction(moves[i], b)));
     } catch (e) { el.innerHTML = '<div class="text-muted" style="font-size:var(--font-sm);">Couldn’t load your action list.</div>'; }
@@ -1718,7 +1730,11 @@ document.addEventListener('DOMContentLoaded', () => {
   // Load only the visible landing screen. Search Console, publish status, and
   // the full dashboard now initialize when their tabs are opened instead of
   // competing with first paint and duplicating hidden API work.
-  if (state.activeTab === 'today-tab') {
+  if (workspacePreview) {
+    window.SeoBuddyCore.loadFeature('workspaceAsset', () => !!window.SeoBuddyWorkspace, 'Owner workspace')
+      .then(() => window.SeoBuddyWorkspace.start(switchTab))
+      .catch(() => showToast('Could not load the preview. Reload to retry, or remove ?workspace=preview to return to the current interface.'));
+  } else if (state.activeTab === 'today-tab') {
     loadToday();
   } else {
     fetch('/api/health-score')

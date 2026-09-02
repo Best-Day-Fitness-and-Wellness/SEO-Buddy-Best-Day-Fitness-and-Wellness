@@ -293,10 +293,17 @@ so one production replica remains the supported topology.
    provider latency still consumes web-process memory and event-loop capacity.
    The transactional database queue is deployed. Moving handlers to a separate
    worker still requires removing process-local feature-state assumptions.
-4. **`public/app.js` still coordinates the shell.** Thirteen secondary feature
+4. **`public/app.js` still coordinates the shell.** Fourteen secondary feature
    modules now load on demand; the coordinator retains Today, Explore, the
    detailed dashboard, setup, and navigation. These shared projections are an
-   explicit boundary, not evidence that multi-tenant browser state is ready.
+  explicit boundary, not evidence that multi-tenant browser state is ready.
+
+   The opt-in `public/modules/workspace.js` owns preview route/history state,
+   the four-destination owner navigation, approvals, tool search and progressive
+   disclosure. Existing feature modules still own their workflows and data.
+   `lib/automation-status.js` is a read-only, secret-free status projection,
+   not a second scheduler. See `docs/OWNER-WORKSPACE-PREVIEW.md` for the rollout
+   gate and precise evidence limits.
 5. **Configuration still supports UI-saved secrets.** A managed secret store is
    preferable for multi-instance deployment and independent rotation. Until
    then, restrict Settings to owners and keep the volume private and backed up.

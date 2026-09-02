@@ -20,7 +20,7 @@
   <!-- Stylesheet -->
   <link rel="stylesheet" href="{{STYLE_ASSET}}">
 </head>
-<body data-reviews-asset="{{REVIEWS_ASSET}}" data-recorded-content-asset="{{RECORDED_CONTENT_ASSET}}" data-pdf-report-asset="{{PDF_REPORT_ASSET}}" data-citation-asset="{{CITATION_ASSET}}" data-local-presence-asset="{{LOCAL_PRESENCE_ASSET}}" data-performance-asset="{{PERFORMANCE_ASSET}}" data-site-optimization-asset="{{SITE_OPTIMIZATION_ASSET}}" data-ai-visibility-asset="{{AI_VISIBILITY_ASSET}}" data-brand-profile-asset="{{BRAND_PROFILE_ASSET}}" data-owner-mode-asset="{{OWNER_MODE_ASSET}}" data-search-opportunities-asset="{{SEARCH_OPPORTUNITIES_ASSET}}" data-settings-asset="{{SETTINGS_ASSET}}" data-content-workspace-asset="{{CONTENT_WORKSPACE_ASSET}}">
+<body data-reviews-asset="{{REVIEWS_ASSET}}" data-recorded-content-asset="{{RECORDED_CONTENT_ASSET}}" data-pdf-report-asset="{{PDF_REPORT_ASSET}}" data-citation-asset="{{CITATION_ASSET}}" data-local-presence-asset="{{LOCAL_PRESENCE_ASSET}}" data-performance-asset="{{PERFORMANCE_ASSET}}" data-site-optimization-asset="{{SITE_OPTIMIZATION_ASSET}}" data-ai-visibility-asset="{{AI_VISIBILITY_ASSET}}" data-brand-profile-asset="{{BRAND_PROFILE_ASSET}}" data-owner-mode-asset="{{OWNER_MODE_ASSET}}" data-search-opportunities-asset="{{SEARCH_OPPORTUNITIES_ASSET}}" data-settings-asset="{{SETTINGS_ASSET}}" data-content-workspace-asset="{{CONTENT_WORKSPACE_ASSET}}" data-workspace-asset="{{WORKSPACE_ASSET}}">
   <div class="app-container">
     <!-- Sidebar Navigation -->
     <aside class="sidebar">
@@ -50,6 +50,12 @@
         <span class="av"><img src="bd-mark.png" alt="" width="30" height="30"></span>
         <div><div class="nm" id="biz-chip-name">Best Day Fitness</div><div class="dm" id="display-site-url">bestdayfitness.com</div></div>
       </div>
+      <nav class="nav-menu workspace-only" id="workspace-nav" aria-label="Main navigation">
+        <button class="nav-item" data-tab="workspace-today-tab" id="ws-nav-today">Today</button>
+        <button class="nav-item" data-tab="approvals-tab" id="ws-nav-approvals">Approvals <span id="ws-approval-count"></span></button>
+        <button class="nav-item" data-tab="owner-results-tab" id="ws-nav-results">Results</button>
+        <button class="nav-item" data-tab="explore-tab" id="ws-nav-tools">Tools</button>
+      </nav>
       <nav class="nav-menu">
         <button class="nav-item active" data-tab="today-tab" id="nav-today">
           <svg viewBox="0 0 24 24" class="nav-icon" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -99,6 +105,7 @@
       </nav>
 
       <div class="sidebar-footer">
+        <button class="nav-item workspace-only" data-tab="owner-business-tab" id="ws-nav-business">Business</button>
         <button class="theme-toggle mode-switch" id="btn-mode-switch" type="button" title="Switch between Owner mode and the full interface">
           <span class="ti"><svg viewBox="0 0 24 24"><path d="M16 3h5v5M21 3l-7 7M8 21H3v-5M3 21l7-7"></path></svg></span>
           <span id="mode-switch-label">Owner mode</span>
@@ -122,7 +129,7 @@
       <header class="app-header">
         <button class="mobile-hamburger" id="mobile-hamburger" type="button" aria-label="Open menu">&#9776;</button>
         <div class="header-title-section">
-          <h1 id="page-title">Today</h1>
+          <h1 id="page-title" tabindex="-1">Today</h1>
           <p id="page-subtitle" class="text-muted">What needs you — and what SEO Buddy handled on its own</p>
         </div>
         <div class="header-actions">
@@ -149,9 +156,22 @@
         </div>
       </section>
 
+      <section class="tab-content" id="workspace-today-tab" aria-label="Today overview">
+        <div id="ws-today" aria-live="polite"><p>Checking what needs you…</p></div>
+      </section>
+      <section class="tab-content" id="approvals-tab" aria-label="Approvals and decisions">
+        <p class="text-muted">Review prepared work and decide what happens next. Opening a tool never publishes or approves anything.</p>
+        <div id="ws-approvals" aria-live="polite"></div>
+      </section>
+
       <!-- EXPLORE — grouped tool menu (new) -->
       <section class="tab-content" id="explore-tab">
         <div class="exp-wrap">
+          <div class="workspace-only ws-tool-search">
+            <label for="ws-tool-search">Find a tool or tell us what you want to do</label>
+            <input id="ws-tool-search" type="search" class="form-input" placeholder="Try: write a post, listings, reviews…" autocomplete="off">
+            <p id="ws-tool-count" class="text-muted" role="status"></p>
+          </div>
           <!-- Get-started cards first while there is anything left to do; the
                tool directory keeps its place underneath. -->
           <div id="exp-getstarted"></div>

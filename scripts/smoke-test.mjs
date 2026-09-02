@@ -10,13 +10,14 @@ async function read(path) {
   return { body, response };
 }
 
-const [liveResult, readyResult, deployResult, gscResult, scoreResult, storageResult] = await Promise.all([
+const [liveResult, readyResult, deployResult, gscResult, scoreResult, storageResult, automationResult] = await Promise.all([
   read('/health/live'),
   read('/health/ready'),
   read('/api/deploy-readiness'),
   read('/api/gsc-data'),
   read('/api/health-score'),
   read('/api/storage-status'),
+  read('/api/automation-status'),
 ]);
 
 const live = liveResult.body;
@@ -43,8 +44,11 @@ assert.ok(Array.isArray(healthScore.explainability?.opportunities));
 assert.equal(storage.persistent, true);
 assert.equal(typeof storage.backend, 'string');
 assert.equal(typeof storage.tenantId, 'string');
+assert.equal(automationResult.body.success, true);
+assert.equal(automationResult.body.features.length, 6);
+assert.ok(automationResult.body.features.every(item => ['needs-setup', 'scheduled', 'running', 'needs-approval', 'completed', 'failed', 'paused', 'unknown'].includes(item.status)));
 
-for (const result of [liveResult, readyResult, deployResult, gscResult, scoreResult, storageResult]) {
+for (const result of [liveResult, readyResult, deployResult, gscResult, scoreResult, storageResult, automationResult]) {
   assert.match(result.response.headers.get('cache-control') || '', /no-store/);
   assert.match(result.response.headers.get('x-content-type-options') || '', /nosniff/);
   assert.match(result.response.headers.get('x-frame-options') || '', /DENY/);
@@ -66,6 +70,7 @@ assert.equal(browserAssets.includes(reviewsAsset), false, 'Reviews must stay off
 const lazyAssets = [...indexHtml.matchAll(/data-[a-z-]+-asset="(\/assets\/[^\"]+)"/g)].map(match => match[1]);
 assert.equal(new Set(lazyAssets).size, lazyAssets.length, 'Lazy feature assets must be unique');
 assert.ok(lazyAssets.some(asset => /\/content-workspace\./.test(asset)), 'Content workspace must be available');
+assert.ok(lazyAssets.some(asset => /\/workspace\./.test(asset)), 'Navigation preview must be available');
 assert.ok(lazyAssets.every(asset => /\.[a-f0-9]{12}\.js$/.test(asset) && !browserAssets.includes(asset)));
 await Promise.all([...browserAssets, ...lazyAssets].map(async asset => {
   const response = await fetch(`${baseUrl}${asset}`, { signal: AbortSignal.timeout(15000) });

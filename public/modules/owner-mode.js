@@ -2,6 +2,13 @@
 
 (function exposeOwnerMode(global) {
   const { authFetch } = global.SeoBuddyCore;
+  async function readOwnerData(url) {
+    const response = await fetch(url, { signal: AbortSignal.timeout(15000) });
+    if (!response.ok) throw new Error('The server could not complete this check.');
+    const data = await response.json();
+    if (!data || data.success === false) throw new Error('The check returned no verified data.');
+    return data;
+  }
 
   // OWNER MODE — Today / Results / Business
   // ---------------------------------------------------------------------------
@@ -41,9 +48,9 @@
     if (blockers) parts.push(blockers === 1 ? '1 blocker' : blockers + ' blockers');
     head.textContent = t === 0 && !blockers ? 'Nothing needs you today' : parts.join(' · ');
     sub.textContent = t === 0 && !blockers
-      ? 'SEO Buddy is running everything on its own. Check back whenever.'
-      : (t === 0 ? 'Every task is done. The blocker is still open whenever you have a moment.'
-                 : 'We’ve prepared each one. Anything we can do ourselves, we already have.');
+      ? 'No tasks were returned. This does not confirm that every automation ran.'
+      : (t === 0 ? 'No tasks remain in this view. The setup blocker is still open.'
+                 : 'Review these decisions. A prepared draft is not a completed publication.');
     big.textContent = t;
     if (cnt) cnt.textContent = t ? String(t) : '';
   }
@@ -106,10 +113,11 @@
     if (!tasksEl) return;
     try {
       const [mv, dg, hs] = await Promise.all([
-        fetch('/api/next-moves').then(r => r.json()).catch(() => ({ moves: [] })),
-        fetch('/api/autopilot-digest').then(r => r.json()).catch(() => ({ items: [] })),
-        fetch('/api/health-score').then(r => r.json()).catch(() => null)
+        readOwnerData('/api/next-moves'),
+        readOwnerData('/api/autopilot-digest'),
+        readOwnerData('/api/health-score')
       ]);
+      if (!Array.isArray(mv.moves) || !Array.isArray(dg.items)) throw new Error('The task or activity list is unavailable.');
       const moves = (mv.moves || []);
       const tasks = moves.filter(m => m.capability !== 'blocked');
       const blockers = moves.filter(m => m.capability === 'blocked');
@@ -118,13 +126,13 @@
       tasksEl.innerHTML = tasks.length
         ? `<div class="ow-h">Needs you</div>` + tasks.map(owCard).join('')
         : `<div class="ow-h">Needs you</div><div class="ow-note"><b>Nothing on your plate.</b>
-             <p>Everything we could do ourselves this week, we did.</p></div>`;
+             <p>No tasks were returned. Check the activity records before assuming work completed.</p></div>`;
       blockEl.innerHTML = blockers.length
         ? `<div class="ow-h">Waiting on you</div>` + blockers.map(owCard).join('') : '';
 
       const items = (dg.items || []);
       document.getElementById('ow-hcount').textContent =
-        `SEO Buddy handled ${items.length} thing${items.length === 1 ? '' : 's'} this week`;
+        `${items.length} activity record${items.length === 1 ? '' : 's'} available`;
       document.getElementById('ow-hsub').textContent =
         items.map(i => i.label).slice(0, 5).join(', ');
       document.getElementById('ow-hlist').innerHTML = items.map(i =>
@@ -141,7 +149,16 @@
       }
       owHeadline();
     } catch (e) {
-      tasksEl.innerHTML = `<div class="ow-note warn"><b>Couldn’t load your list.</b><p>${owEsc(e.message)}</p></div>`;
+      document.getElementById('ow-sum-head').textContent = 'Unable to check what needs you';
+      document.getElementById('ow-sum-sub').textContent = 'This is not an all-clear. Try loading the checks again.';
+      document.getElementById('ow-sum-big').textContent = '?';
+      document.getElementById('owner-nav-count').textContent = '?';
+      document.getElementById('ow-hcount').textContent = 'Activity not verified';
+      document.getElementById('ow-hsub').textContent = '';
+      document.getElementById('ow-hlist').innerHTML = '';
+      document.getElementById('ow-score-note').innerHTML = '';
+      blockEl.innerHTML = '';
+      tasksEl.innerHTML = `<div class="ow-note warn" role="alert"><b>Couldn’t load your list.</b><p>${owEsc(e.message)}</p><button class="btn btn-secondary" data-ow-retry-today>Try again</button></div>`;
     }
   }
   global.loadOwnerToday = loadOwnerToday;
@@ -154,7 +171,7 @@
     const item = btn.closest('.ow-item'); const act = btn.dataset.ow;
     const key = item.dataset.key;
 
-    if (act === 'dismiss') { owFinish(item, 'Skipped — we’ll raise it again next week.'); return; }
+    if (act === 'dismiss') { owFinish(item, 'Hidden for this visit. No work was completed.'); return; }
 
     if (act === 'goto') {
       const t = item.dataset.tab;
@@ -165,15 +182,20 @@
     if (act === 'approve') {
       // The one class of action the server genuinely executes.
       item.classList.add('working');
+      btn.disabled = true;
       try {
-        if (key === 'autopilot') await authFetch('/api/autopilot-toggle', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ enabled:true }) });
-        else if (key === 'ai')   await authFetch('/api/ai-visibility/run', { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
-        owFinish(item, key === 'autopilot' ? 'Autopilot is on — we’ll publish for you from now on.' : 'Check complete — see Results.');
+        let response;
+        if (key === 'autopilot') response = await authFetch('/api/autopilot-toggle', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ enabled:true }) });
+        else if (key === 'ai') response = await authFetch('/api/ai-visibility/run', { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
+        else throw new Error('Open the tool to review this action.');
+        const result = await response.json();
+        if (!response.ok || !result.success || result.budgetReached || result.needsSetup || (key === 'ai' && !result.snapshot) || (key === 'autopilot' && result.enabled !== true)) throw new Error(result.error || result.message || 'Completion was not confirmed.');
+        owFinish(item, key === 'autopilot' ? 'Schedule enabled. No publication is being claimed.' : 'Check completed — open AI visibility for the recorded result.');
       } catch (err) {
         item.classList.remove('working');
         item.querySelector('.ow-row').insertAdjacentHTML('beforeend',
           `<span class="ow-mins" style="color:var(--color-danger)">Didn’t work: ${owEsc(err.message)}</span>`);
-      }
+      } finally { btn.disabled = false; }
       return;
     }
 
@@ -206,8 +228,14 @@
     }
 
     if (act === 'confirm') {
-      try { await authFetch('/api/gbp-mark-posted', { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' }); } catch (err) {}
-      owFinish(item, 'Marked as posted — we’ll confirm it on the next check.');
+      btn.disabled = true;
+      try {
+        const response = await authFetch('/api/gbp-mark-posted', { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
+        const data = await response.json();
+        if (!response.ok || !data.success) throw new Error(data.error || 'Your confirmation was not saved.');
+        owFinish(item, 'Saved as posted based on your confirmation; not independently verified.');
+      } catch (err) { global.SeoBuddyCore.showToast(err.message); }
+      finally { btn.disabled = false; }
       return;
     }
   });
@@ -234,26 +262,28 @@
     };
     try {
       const [pf, rv, hs] = await Promise.all([
-        fetch('/api/performance').then(r => r.json()).catch(() => null),
-        fetch('/api/reviews-stats').then(r => r.json()).catch(() => null),
-        fetch('/api/health-score').then(r => r.json()).catch(() => null)
+        readOwnerData('/api/performance').catch(() => null),
+        readOwnerData('/api/reviews-stats').catch(() => null),
+        readOwnerData('/api/health-score').catch(() => null)
       ]);
       if (!pf || !pf.current) {
         // Distinguish "never connected" from "connected, but this fetch didn't
         // come back". Telling an owner their Search Console isn't connected
         // when it demonstrably is sends them to fix something that isn't broken.
         find.innerHTML = '';
-        let connected = false;
+        let connected = null;
         try {
-          const rd = await fetch('/api/deploy-readiness').then(r => r.json());
-          connected = !!(rd.checks || []).find(c => c.key === 'gsc' && c.ok);
+          const rd = await readOwnerData('/api/deploy-readiness');
+          const check = (rd.checks || []).find(c => c.key === 'gsc');
+          connected = check ? !!check.ok : null;
         } catch (e) { /* if even that fails, fall through to the softer message */ }
         document.getElementById('ow-find-note').innerHTML = connected
           ? `<div class="ow-note warn"><b>We couldn’t load your search numbers just now.</b>
                <p>Google Search Console is connected — this looks like a hiccup fetching the figures, not a setup problem. Everything else on this page still works.
                <button class="btn btn-primary" style="width:auto;margin-top:10px" data-ow-retry>Try again</button></p></div>`
-          : `<div class="ow-note warn"><b>We can’t show your search numbers yet.</b>
-               <p>Google Search Console isn’t connected, so we have nothing real to compare. Everything else on this page still works — it’s on your Today list.</p></div>`;
+          : connected === false ? `<div class="ow-note warn"><b>We can’t show your search numbers yet.</b>
+               <p>Google Search Console isn’t connected, so we have nothing real to compare. Review your connections in Settings.</p></div>`
+          : `<div class="ow-note warn" role="alert"><b>Search figures and connection status are unavailable.</b><p>We could not verify the connection. This does not mean it is disconnected.</p><button class="btn btn-secondary" data-ow-retry>Try again</button></div>`;
       } else if (pf && pf.current) {
         const c = pf.current, p = pf.previous || {};
         find.innerHTML =
@@ -265,18 +295,18 @@
         const down = (c.clicks || 0) < (p.clicks || 0);
         document.getElementById('ow-find-note').innerHTML = down
           ? `<div class="ow-note warn"><b>This period went the wrong way, and we’re not going to dress that up.</b>
-               <p><b>What may be contributing</b> — we can’t prove any of these caused it, but each is true right now: details that don’t match across the web, the third-party sources you’re not listed on yet, and Google’s own results shifting for reasons nobody outside Google can see.</p></div>`
+               <p>This comparison does not identify the cause. Review the underlying searches and pages before deciding what to change.</p></div>`
           : `<div class="ow-note"><b>Holding steady or improving.</b><p>We’ll show you this same comparison next month either way.</p></div>`;
       }
       if (!rv || !rv.inventory) {
         document.getElementById('ow-rev').innerHTML =
-          `<div class="ow-note"><b>No reviews site connected.</b><p>Nothing to show here yet.</p></div>`;
+          `<div class="ow-note warn"><b>Review figures are unavailable.</b><p>We could not verify the review inventory. No connection or rating change is being claimed.</p><button class="btn btn-secondary" data-ow-retry>Try again</button></div>`;
       } else if (rv && rv.inventory) {
         const i = rv.inventory, bp = i.byPlatform || {};
         document.getElementById('ow-rev').innerHTML =
           tile('Shown on your reviews site', i.published,
                Object.entries(bp).map(([k, v]) => `${v} ${k}`).join(' · ')) +
-          tile('Average rating there', i.avgRating, '<span class="ow-flat">■ held</span>') +
+          tile('Average rating there', i.avgRating, 'Latest inventory · no trend comparison') +
           tile('Review page health', rv.score + '<small> / 100</small>',
                (rv.problems || 0) + ' small fix' + ((rv.problems || 0) === 1 ? '' : 'es') + ' suggested');
       }
@@ -290,16 +320,18 @@
         return;
       }
       document.getElementById('ow-worth').innerHTML =
-        tile('What you’re getting now', '$' + Math.round(visits * cr * cv).toLocaleString() + '<small>/mo</small>',
-             `from about ${visits} visits a month`) +
-        tile('A new client is worth', '$' + cv.toLocaleString(), 'your figure, editable in Business');
+        tile('Estimated opportunity value', '$' + Math.round(visits * cr * cv).toLocaleString() + '<small>/mo</small>',
+             `Modelled from ${visits} search clicks and a ${Math.round(cr * 1000) / 10}% conversion assumption. Not measured revenue.`) +
+        tile('Assumed new-client value', '$' + cv.toLocaleString(), 'editable in Settings');
     } catch (e) { /* leave the shells; better empty than wrong */ }
   }
   global.loadOwnerResults = loadOwnerResults;
 
   document.addEventListener('click', (e) => {
+    if (e.target.closest && e.target.closest('[data-ow-retry-today]')) loadOwnerToday();
     if (e.target.closest && e.target.closest('[data-ow-retry]')) loadOwnerResults();
     if (e.target.closest && e.target.closest('[data-ow-retry-business]')) loadOwnerBusiness();
+    if (e.target.closest && e.target.closest('[data-ow-brand]')) global.switchTab('brand-tab');
   });
 
   // Anything that records an owner decision fires this; every board that draws
@@ -307,7 +339,7 @@
   // on screen simply does nothing.
   document.addEventListener('seo:readiness-changed', () => {
     loadOwnerBusiness();
-    loadOwnerToday();
+    if (!document.body.classList.contains('workspace-preview')) loadOwnerToday();
   });
 
   // ── Business ──
@@ -317,12 +349,12 @@
     const f = (k, v) => `<div class="ow-f"><div class="k">${k}</div><div class="v">${owEsc(v)}</div></div>`;
     try {
       const [bp, br, rd] = await Promise.all([
-        fetch('/api/business-profile').then(r => r.json()).catch(() => null),
-        fetch('/api/brand-profile').then(r => r.json()).catch(() => null),
-        fetch('/api/deploy-readiness').then(r => r.json()).catch(() => null)
+        readOwnerData('/api/business-profile').catch(() => null),
+        readOwnerData('/api/brand-profile').catch(() => null),
+        readOwnerData('/api/deploy-readiness').catch(() => null)
       ]);
       const b = (bp && (bp.profile || bp.business)) || {};
-      basics.innerHTML =
+      basics.innerHTML = !bp ? '<div class="ow-note warn" role="alert">Business details could not be loaded. <button class="btn btn-secondary" data-ow-retry-business>Try again</button></div>' :
         f('Business name', b.name || 'Best Day Fitness') +
         f('Phone', b.phone || b.telephone || '—') +
         f('Address', [b.streetAddress, b.addressLocality, b.addressRegion, b.postalCode].filter(Boolean).join(', ') || '—') +
@@ -354,13 +386,13 @@
              <p>This badge clears when you open it and press <b>Save brand voice</b> — that press is what records that a human read it. Changing the wording is optional.</p></div>`}
            ${reviewed && !durable ? `<div class="ow-note warn" style="margin:0 0 14px"><b>This confirmation won’t survive the next update.</b>
              <p>Nothing is being stored permanently for this location, so the badge will ask again after the next deploy.</p></div>` : ''}
-           <button class="btn btn-primary" style="width:auto" onclick="window.switchTab &amp;&amp; window.switchTab('brand-tab')">Read it through</button>`;
+           <button class="btn btn-primary" style="width:auto" data-ow-brand>Read it through</button>`;
       } else if (voiceEl) {
         voiceEl.innerHTML = `<div class="ow-note warn"><b>Couldn’t load your brand voice just now.</b>
           <p>Nothing has changed — this is the page failing to read it, not the voice going missing.</p>
           <button class="btn btn-secondary" style="width:auto;margin-top:10px" data-ow-retry-business="1">Try again</button></div>`;
       }
-      if (rd) {
+      if (rd && Array.isArray(rd.checks)) {
         const row = (n, ok, txt) => `<div style="display:flex;align-items:center;gap:12px;padding:13px 16px;border-bottom:1px solid var(--border-color)">
           <span class="nm" style="font-weight:600">${owEsc(n)}</span>
           <span style="margin-left:auto" class="ow-chip ${ok ? 'auto' : 'blocked'}">${ok ? '&#10003; Connected' : '&#9650; ' + owEsc(txt)}</span></div>`;
@@ -372,15 +404,16 @@
           `<div style="display:flex;align-items:center;gap:12px;padding:13px 16px">
              <span style="font-weight:600">Google Business Profile</span>
              <span style="margin-left:auto" class="ow-chip manual">&#9679; Posts copied by hand</span></div>`;
-      }
-    } catch (e) { /* shells stay empty rather than showing invented values */ }
+      } else document.getElementById('ow-conn').innerHTML = '<div class="ow-note warn" role="alert">Connection status is unavailable. <button class="btn btn-secondary" data-ow-retry-business>Try again</button></div>';
+    } catch (e) { basics.innerHTML = '<div class="ow-note warn" role="alert">Business details are unavailable. <button class="btn btn-secondary" data-ow-retry-business>Try again</button></div>'; }
   }
   global.loadOwnerBusiness = loadOwnerBusiness;
 
   // ── the mode switch ──
   function setOwnerMode(on) {
+    if (document.body.classList.contains('workspace-preview')) return global.switchTab('workspace-today-tab');
     document.body.classList.toggle('owner-mode', on);
-    const full = document.querySelector('.nav-menu:not(#owner-nav)');
+    const full = document.querySelector('.nav-menu:not(#owner-nav):not(#workspace-nav)');
     const own = document.getElementById('owner-nav');
     if (full) full.style.display = on ? 'none' : '';
     if (own) own.style.display = on ? '' : 'none';
