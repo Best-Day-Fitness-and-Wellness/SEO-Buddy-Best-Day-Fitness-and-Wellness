@@ -105,6 +105,7 @@
       </nav>
 
       <div class="sidebar-footer">
+        <a class="theme-toggle classic-only" href="?" id="ws-return">Use redesigned workspace</a>
         <button class="nav-item workspace-only" data-tab="owner-business-tab" id="ws-nav-business">Business</button>
         <button class="theme-toggle mode-switch" id="btn-mode-switch" type="button" title="Switch between Owner mode and the full interface">
           <span class="ti"><svg viewBox="0 0 24 24"><path d="M16 3h5v5M21 3l-7 7M8 21H3v-5M3 21l7-7"></path></svg></span>
@@ -139,6 +140,12 @@
           </div>
         </div>
       </header>
+
+      <!-- Recovery is part of the shell, so it works if the workspace module fails. -->
+      <div class="ws-orientation workspace-only" id="ws-orientation">
+        <a href="?workspace=classic" id="ws-classic">Previous interface</a>
+        <p id="ws-load-error" role="alert" hidden></p>
+      </div>
 
       <!-- TODAY — calm landing (new) -->
       <section class="tab-content active" id="today-tab">

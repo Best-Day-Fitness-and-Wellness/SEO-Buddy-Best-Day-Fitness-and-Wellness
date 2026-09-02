@@ -21,7 +21,7 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
   const open = async id => { await page.locator(id).click(); };
   const location = slug => page.waitForFunction(slug => location.hash === '#/' + slug, slug);
   const load = async slug => {
-    await page.goto(base + '?workspace=preview#/' + slug);
+    await page.goto(base + '/#/' + slug);
     await page.waitForFunction(() => !!window.SeoBuddyWorkspace);
     await location(slug);
     await page.addScriptTag({ url: base + '/__acceptance__/axe.js' });
@@ -32,7 +32,48 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
     await page.locator(`.exp-row[data-go="tab:${tab}"]`).click();
   };
 
-  await journey(`${prefix}: preview has four persistent destinations and bounded status evidence`, async () => {
+  await journey(`${prefix}: default rollout preserves classic preferences and preview bookmarks`, async () => {
+    const before = writes.length;
+    await page.evaluate(() => localStorage.setItem('seo_owner_mode', '1'));
+    await page.goto(base);
+    await location('today');
+    assert.equal(await page.locator('body.workspace-preview:not(.owner-mode)').count(), 1);
+    assert.equal(await page.locator('#workspace-nav .nav-item:visible').count(), 4);
+    assert.equal(await page.getByText('Navigation preview', { exact: true }).count(), 0);
+    await page.locator('#ws-classic').click();
+    await page.waitForFunction(() => document.body.classList.contains('owner-mode'));
+    assert.equal(new URL(page.url()).searchParams.get('workspace'), 'classic');
+    assert.equal(await page.locator('body.workspace-preview').count(), 0);
+    assert.equal(await page.locator('script[src*="/workspace."]').count(), 0);
+    if (prefix === 'mobile') await page.locator('#mobile-hamburger').click();
+    await page.locator('#ws-return').click();
+    await location('today');
+    assert.notEqual(new URL(page.url()).searchParams.get('workspace'), 'classic');
+    assert.equal(await page.evaluate(() => localStorage.getItem('seo_owner_mode')), '1');
+    await page.goto(base + '?workspace=preview#/tools');
+    await page.locator('#ws-tool-search').waitFor();
+    assert.equal(await page.locator('#ws-nav-tools').getAttribute('aria-current'), 'page');
+    assert.equal(writes.length, before, 'Changing interfaces must not send a write');
+    await page.evaluate(() => localStorage.removeItem('seo_owner_mode'));
+  });
+
+  await journey(`${prefix}: failed default workspace still offers a working classic recovery link`, async () => {
+    const failWorkspace = route => route.abort();
+    await page.route('**/assets/workspace.*.js', failWorkspace);
+    try {
+      await page.goto(base);
+      await page.locator('#ws-load-error:visible').waitFor();
+      assert.match(await page.locator('#ws-load-error').innerText(), /Previous interface/);
+      await page.locator('#ws-classic').click();
+      await page.waitForFunction(() => document.getElementById('td-hero').textContent.trim().length > 0);
+      assert.equal(new URL(page.url()).searchParams.get('workspace'), 'classic');
+      assert.equal(await page.locator('body.workspace-preview').count(), 0);
+    } finally {
+      await page.unroute('**/assets/workspace.*.js', failWorkspace);
+    }
+  });
+
+  await journey(`${prefix}: default workspace has four persistent destinations and bounded status evidence`, async () => {
     await load('today');
     await page.waitForFunction(() => document.querySelectorAll('.ws-automation').length === 6);
     assert.equal(await page.locator('#workspace-nav .nav-item:visible').count(), 4);

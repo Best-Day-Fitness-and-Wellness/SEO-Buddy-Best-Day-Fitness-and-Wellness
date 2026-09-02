@@ -3048,11 +3048,13 @@ body:not(.dark) .status-indicator.mock { color: #874700; }
 body.dark .asst-fab { color: #111329; }
 body.dark .asst-fab svg { stroke: currentColor; }
 
-/* Opt-in owner workspace. Shared editorial artwork and brand tokens; default
-   navigation and tool behavior remain unchanged until the usability gate. */
+/* Default owner workspace. Keep the existing scope class so classic navigation
+   and shared tool styles remain available through ?workspace=classic. */
 .workspace-only { display: none !important; }
 body.workspace-preview .workspace-only { display: block !important; }
 body.workspace-preview #workspace-nav { display: flex !important; }
+body.workspace-preview .ws-orientation.workspace-only { display: flex !important; }
+body.workspace-preview .classic-only { display: none !important; }
 body.workspace-preview .nav-menu:not(#workspace-nav),
 body.workspace-preview #btn-mode-switch,
 body.workspace-preview #btn-open-setup,
@@ -3069,7 +3071,7 @@ body.workspace-preview #page-title:focus:not(:focus-visible) { outline: none; }
 .ws-orientation { display: flex; align-items: center; gap: 12px; margin: 0 0 22px; flex-wrap: wrap; font-size: 12px; color: var(--text-muted); }
 .ws-orientation .btn { padding: 6px 10px; min-height: 36px; }
 .ws-orientation a { margin-left: auto; color: var(--text-muted); text-underline-offset: 3px; }
-.ws-preview-label { padding-left: 12px; border-left: 1px solid var(--line); font-size: 11px; }
+#ws-load-error { flex-basis: 100%; margin: 0; }
 .ws-overview { position: relative; display: grid; grid-template-columns: minmax(0,1fr) minmax(180px,29%); align-items: center; gap: 20px; padding: 30px 32px; border: 1px solid var(--graphic-sand); border-radius: 20px; background: var(--graphic-backdrop); overflow: hidden; }
 .ws-briefing { position: relative; z-index: 1; }
 .ws-overview h2 { margin: 14px 0 10px; font-size: clamp(25px,2.3vw,32px); letter-spacing: -.045em; line-height: 1.14; max-width: 24ch; }
@@ -3181,7 +3183,6 @@ body.workspace-preview .ow-note { border-radius: 12px; }
   .ws-overview { grid-template-columns: minmax(0,1fr) 26%; padding: 24px; gap: 10px; }
   .ws-dashboard { gap: 18px; margin-top: 22px; }
   .ws-orientation { gap: 8px; margin-bottom: 16px; }
-  .ws-preview-label { display: none; }
   .ws-journey nav .btn { flex: 1 1 120px; }
 }
 @media(max-width:560px) {

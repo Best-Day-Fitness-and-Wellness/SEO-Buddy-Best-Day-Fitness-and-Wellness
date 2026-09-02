@@ -227,9 +227,8 @@
       }
     };
     positionNav(); mobile.addEventListener('change', positionNav);
-    const bar = document.createElement('div'); bar.className = 'ws-orientation';
-    bar.innerHTML = '<button type="button" id="ws-back" class="btn btn-secondary">← Back</button><nav id="ws-location" aria-label="Your location"></nav><a href="' + esc(global.location.pathname) + '">Exit preview</a><span class="ws-preview-label">Navigation preview</span>';
-    document.querySelector('.app-header').after(bar);
+    const bar = $('ws-orientation');
+    bar.insertAdjacentHTML('afterbegin', '<button type="button" id="ws-back" class="btn btn-secondary">← Back</button><nav id="ws-location" aria-label="Your location"></nav>');
     const journey = document.createElement('section'); journey.id = 'ws-journey'; journey.className = 'ws-journey'; journey.setAttribute('aria-label', 'Content workspace'); bar.after(journey);
     // Keep the same form and controls; tuck occasional technical settings
     // behind a native, keyboard-accessible disclosure without changing saves.

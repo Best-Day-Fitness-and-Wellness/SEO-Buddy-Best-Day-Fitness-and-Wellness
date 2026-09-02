@@ -78,7 +78,7 @@ async function exercise(base, viewport) {
     if (url.pathname === '/api/autopilot-toggle') return fulfill({ success: true, enabled: true });
     return fulfill({ success: false, error: 'Unexpected mutation blocked by acceptance harness' }, 400);
   });
-  await page.goto(base);
+  await page.goto(base + '?workspace=classic');
   await page.waitForFunction(() => typeof window.switchTab === 'function');
   const prefix = viewport.width < 600 ? 'mobile' : 'desktop';
   const journey = async (name, action) => {

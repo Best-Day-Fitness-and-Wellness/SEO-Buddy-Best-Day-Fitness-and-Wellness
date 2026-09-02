@@ -1,14 +1,17 @@
-# Owner workspace preview
+# Owner workspace
 
 ## Release boundary
 
-Open `/?workspace=preview` on the existing SEO Buddy deployment. This is an
-opt-in navigation release, not a second application or a separate data store.
-The normal URL and saved Owner mode preference remain unchanged. **Exit preview**
-returns to the current interface. Nothing about entering the preview enables
-an automation, changes a connection, or publishes content.
+The normal deployment URL now opens the redesigned workspace. This is a
+navigation release, not a second application or a separate data store.
+**Previous interface** opens `/?workspace=classic`; **Use redesigned workspace**
+returns to the default. The saved Owner mode preference is preserved and used
+only in the classic interface. Existing `/?workspace=preview` bookmarks still
+work. Entering either interface never enables an automation, changes a
+connection, or publishes content. The classic recovery link is part of the
+initial shell and remains available if the workspace module fails to load.
 
-The preview uses live data and the existing authenticated write routes.
+The workspace uses live data and the existing authenticated write routes.
 It is **not a sandbox**. Browser acceptance tests use a separate local server,
 fake responses for every mutation, and an external-request firewall.
 
@@ -40,7 +43,7 @@ in addition to the regular desktop/mobile and dark-mode coverage.
 The content journey links search opportunities → draft and review → publish
 and verify → results. One existing content state is retained across in-tab
 navigation. Reloading or closing the tab still discards an unsaved article;
-the preview states that limitation explicitly. Editing after publication
+the workspace states that limitation explicitly. Editing after publication
 marks the edited copy as needing review again; it does not undo the prior
 publication. An indexing request is not proof that Google indexed a page.
 
@@ -66,9 +69,13 @@ Estimated next eligible checks are labelled separately from explicit times.
 Use **Refresh checks** to obtain a new observation. A blank inbox is never
 treated as evidence that all automation is healthy.
 
-## Real-owner usability gate — pending
+## Real-owner usability feedback — pending
 
-Ask 2–3 owners who have not used SEO Buddy to try the preview individually.
+The project owner explicitly approved making the redesign the default before
+first-time-user testing, with feedback to follow. That approval is a rollout
+decision, not evidence that usability testing has passed.
+
+Ask 2–3 owners who have not used SEO Buddy to try the workspace individually.
 Include phone and desktop users. Do not coach them or name the destination
 they should click. Record time, wrong turns, requests for help, and their own
 description of what happened. Test the interface, not the participant.
@@ -96,27 +103,30 @@ had already done for you?” No leading questions or suggested answers.
 | --- | --- | --- | --- | --- |
 | Pending | 1–5 | Not tested | — | — |
 
-Suggested rollout gate: each participant completes at least 4 of 5 tasks
+Suggested post-release target: each participant completes at least 4 of 5 tasks
 without help, with no mistaken belief that a draft, schedule or estimate is
 a completed publication or measured revenue. Fix repeated navigation failures
 and retest. This small study is directional evidence, not statistical proof.
 
 Automated acceptance covers browser behavior, accessibility, safe failures
-and in-tab draft continuity. It **cannot** satisfy this real-owner gate.
-Do not make the preview the default until the findings have been reviewed.
+and in-tab draft continuity. It **cannot** replace real-owner testing.
+Collect and review the findings after rollout; repeated failures still need
+fixes and retesting. No participant results have been recorded yet.
 
 ## Verification and rollback
 
 Run `npm run check`, `npm test`, and `npm run test:browser` before release.
-The browser runner covers the existing interface and every preview route in
+The browser runner covers the classic interface and every default workspace route in
 desktop/mobile, with core destinations also checked in dark mode. CI retains
-the screenshots and machine-readable report for 14 days.
+the screenshots and machine-readable report for 14 days. It also verifies bare
+URL entry, classic return links, saved-mode preservation, old preview bookmarks,
+and recovery when the workspace module cannot load.
 
 After deployment, run the strict production smoke suite. It checks the six
-automation summaries and the content-hashed preview asset as well as the
+automation summaries and the content-hashed workspace asset as well as the
 existing readiness, storage and live-search contracts. Verify the exact
 deployed commit; a successful local test is not deployment evidence.
 
-For an individual user, remove `workspace=preview` or use **Exit preview**.
+For an individual user, use **Previous interface** or `/?workspace=classic`.
 For a code rollback, revert the release commit without touching business
 state, job history, configuration, or the production volume.

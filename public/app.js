@@ -2,8 +2,9 @@
 document.addEventListener('DOMContentLoaded', () => {
   // --- APPLICATION STATE ---
   const state = { activeTab: 'today-tab' };
-  const workspacePreview = new URLSearchParams(window.location.search).get('workspace') === 'preview';
-  document.body.classList.toggle('workspace-preview', workspacePreview);
+  // Keep old preview bookmarks working; only an explicit classic link opts out.
+  const workspaceEnabled = new URLSearchParams(window.location.search).get('workspace') !== 'classic';
+  document.body.classList.toggle('workspace-preview', workspaceEnabled);
 
   // --- DOM ELEMENT SELECTORS ---
   const tabButtons = document.querySelectorAll('.nav-item');
@@ -222,7 +223,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const normalized = mode === true ? 'live' : mode === false ? 'demo' : mode;
     if (normalized === 'live') {
       modeStatus.className = 'status-indicator live';
-      modeStatusText.innerText = workspacePreview ? 'Live Search Data' : 'Live Operations';
+      modeStatusText.innerText = workspaceEnabled ? 'Live Search Data' : 'Live Operations';
     } else if (normalized === 'demo') {
       modeStatus.className = 'status-indicator mock';
       modeStatusText.innerText = 'Demo Search Data';
@@ -300,7 +301,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function switchTab(tabId, options = {}) {
-    if (workspacePreview && window.SeoBuddyWorkspace && !options.render) return window.SeoBuddyWorkspace.navigate(tabId);
+    if (workspaceEnabled && window.SeoBuddyWorkspace && !options.render) return window.SeoBuddyWorkspace.navigate(tabId);
     state.activeTab = tabId;
     
     // Update active nav button
@@ -470,14 +471,14 @@ document.addEventListener('DOMContentLoaded', () => {
   // Restore the saved preference through the same lazy boundary used by the
   // mode switch. Full-interface users never download the owner workspace.
   try {
-    if (!workspacePreview && localStorage.getItem('seo_owner_mode') === '1') setOwnerModeFeature(true);
+    if (!workspaceEnabled && localStorage.getItem('seo_owner_mode') === '1') setOwnerModeFeature(true);
   } catch (error) {}
 
   // Readiness changes also refresh the always-available dashboard surfaces.
   // Owner-specific views subscribe inside their module once it is loaded.
   document.addEventListener('seo:readiness-changed', () => {
-    if (!workspacePreview && window.loadToday) window.loadToday();
-    if (!workspacePreview && window.loadGetStarted) window.loadGetStarted();
+    if (!workspaceEnabled && window.loadToday) window.loadToday();
+    if (!workspaceEnabled && window.loadGetStarted) window.loadGetStarted();
     if (window.refreshReadinessBoard) window.refreshReadinessBoard();
   });
 
@@ -1524,7 +1525,7 @@ document.addEventListener('DOMContentLoaded', () => {
       { icon: 'gear', b: 'Settings', s: 'Connections & account', tab: 'settings-tab' } ] }
   ];
   function loadExplore(){
-    if (!workspacePreview) loadGetStarted();
+    if (!workspaceEnabled) loadGetStarted();
     const host = document.getElementById('exp-groups'); if (!host) return;
     host.innerHTML = EXPLORE_GROUPS.map(function(grp){
       return '<div class="exp-group"><div class="exp-gl">' + grp.g + '</div><div class="exp-list">' + grp.items.map(function(it){
@@ -1540,7 +1541,7 @@ document.addEventListener('DOMContentLoaded', () => {
         else if (go === 'act:ask') { const b = document.getElementById('asst-fab'); if (b) b.click(); }
       });
     });
-    if (workspacePreview) window.SeoBuddyWorkspace?.enhanceTools();
+    if (workspaceEnabled) window.SeoBuddyWorkspace?.enhanceTools();
   }
   window.loadExplore = loadExplore;
 
@@ -1731,10 +1732,14 @@ document.addEventListener('DOMContentLoaded', () => {
   // Load only the visible landing screen. Search Console, publish status, and
   // the full dashboard now initialize when their tabs are opened instead of
   // competing with first paint and duplicating hidden API work.
-  if (workspacePreview) {
+  if (workspaceEnabled) {
     window.SeoBuddyCore.loadFeature('workspaceAsset', () => !!window.SeoBuddyWorkspace, 'Owner workspace')
       .then(() => window.SeoBuddyWorkspace.start(switchTab))
-      .catch(() => showToast('Could not load the preview. Reload to retry, or remove ?workspace=preview to return to the current interface.'));
+      .catch(() => {
+        const error = document.getElementById('ws-load-error');
+        error.textContent = 'Could not load the workspace. Reload to retry, or use the Previous interface link.';
+        error.hidden = false;
+      });
   } else if (state.activeTab === 'today-tab') {
     loadToday();
   } else {
