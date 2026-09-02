@@ -17,8 +17,11 @@
   const settingsClientValue = document.getElementById('settings-client-value');
   const settingsConvRate = document.getElementById('settings-conv-rate');
   const settingsCaptureRate = document.getElementById('settings-capture-rate');
+  let populated = false;
 
   function loadSettingsWorkspace() {
+    // Opening another tab must not discard an unsaved connection or author edit.
+    if (populated) return;
     const creds = global.getStoredCredentials();
     settingsGeminiKey.value = creds.geminiKey;
     settingsGhlToken.value = creds.ghlToken;
@@ -34,6 +37,7 @@
     if (settingsConvRate) settingsConvRate.value = creds.convRate;
     if (settingsCaptureRate) settingsCaptureRate.value = creds.captureRate;
     global.updateSiteUrlBadge(creds.siteUrl);
+    populated = true;
   }
 
   // Turns "not connected" into the actual reason. The server does the work;

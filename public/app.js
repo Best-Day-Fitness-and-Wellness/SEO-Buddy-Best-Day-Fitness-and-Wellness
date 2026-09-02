@@ -1,21 +1,7 @@
 // SEO Buddy - Application Logic
 document.addEventListener('DOMContentLoaded', () => {
   // --- APPLICATION STATE ---
-  const state = {
-    activeTab: 'today-tab',
-    generatedArticle: null, // { title, slug, content }
-    editorMode: 'visual', // 'visual' or 'code'
-    history: [
-      {
-        title: 'The Ultimate Guide to Senior Mobility Training',
-        keyword: 'mobility training st pete',
-        platform: 'GoHighLevel (Draft)',
-        date: '2026-07-16',
-        indexed: 'Asked Google to list it',
-        url: 'https://bestdayfitness.com/post/mobility-training-st-pete'
-      }
-    ]
-  };
+  const state = { activeTab: 'today-tab' };
 
   // --- DOM ELEMENT SELECTORS ---
   const tabButtons = document.querySelectorAll('.nav-item');
@@ -24,35 +10,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const pageSubtitle = document.getElementById('page-subtitle');
   const modeStatus = document.getElementById('mode-status');
   const modeStatusText = document.getElementById('mode-status-text');
-  let reviewsFeaturePromise = null;
-  let recordedContentFeaturePromise = null;
-  let citationFeaturePromise = null;
-  let localPresenceFeaturePromise = null;
-  let performanceFeaturePromise = null;
-  let siteOptimizationFeaturePromise = null;
-  let aiVisibilityFeaturePromise = null;
-  let brandProfileFeaturePromise = null;
-  let ownerModeFeaturePromise = null;
-  let searchOpportunitiesFeaturePromise = null;
-  let settingsFeaturePromise = null;
 
   function ensureReviewsFeature() {
-    if (window.loadReviews) return Promise.resolve();
-    if (reviewsFeaturePromise) return reviewsFeaturePromise;
-    const assetUrl = document.body.dataset.reviewsAsset;
-    if (!assetUrl || !assetUrl.startsWith('/assets/')) return Promise.reject(new Error('Reviews feature asset is unavailable.'));
-    reviewsFeaturePromise = new Promise((resolve, reject) => {
-      const script = document.createElement('script');
-      script.src = assetUrl;
-      script.async = true;
-      script.addEventListener('load', resolve, { once: true });
-      script.addEventListener('error', () => reject(new Error('Could not load the Reviews feature.')), { once: true });
-      document.head.appendChild(script);
-    }).catch(error => {
-      reviewsFeaturePromise = null;
-      throw error;
-    });
-    return reviewsFeaturePromise;
+    return window.SeoBuddyCore.loadFeature('reviewsAsset', () => !!(window.loadReviews), 'Reviews');
   }
 
   async function loadReviewsFeature() {
@@ -66,22 +26,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function ensureRecordedContentFeature() {
-    if (window.initializeRecordedContent) return Promise.resolve();
-    if (recordedContentFeaturePromise) return recordedContentFeaturePromise;
-    const assetUrl = document.body.dataset.recordedContentAsset;
-    if (!assetUrl || !assetUrl.startsWith('/assets/')) return Promise.reject(new Error('Recorded-content feature asset is unavailable.'));
-    recordedContentFeaturePromise = new Promise((resolve, reject) => {
-      const script = document.createElement('script');
-      script.src = assetUrl;
-      script.async = true;
-      script.addEventListener('load', resolve, { once: true });
-      script.addEventListener('error', () => reject(new Error('Could not load the recorded-content feature.')), { once: true });
-      document.head.appendChild(script);
-    }).catch(error => {
-      recordedContentFeaturePromise = null;
-      throw error;
-    });
-    return recordedContentFeaturePromise;
+    return window.SeoBuddyCore.loadFeature('recordedContentAsset', () => !!(window.initializeRecordedContent), 'RecordedContent');
   }
 
   async function loadRecordedContentFeature() {
@@ -108,22 +53,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function ensureCitationFeature() {
-    if (window.loadCitationWorklist) return Promise.resolve();
-    if (citationFeaturePromise) return citationFeaturePromise;
-    const assetUrl = document.body.dataset.citationAsset;
-    if (!assetUrl || !assetUrl.startsWith('/assets/')) return Promise.reject(new Error('Citation feature asset is unavailable.'));
-    citationFeaturePromise = new Promise((resolve, reject) => {
-      const script = document.createElement('script');
-      script.src = assetUrl;
-      script.async = true;
-      script.addEventListener('load', resolve, { once: true });
-      script.addEventListener('error', () => reject(new Error('Could not load the citation feature.')), { once: true });
-      document.head.appendChild(script);
-    }).catch(error => {
-      citationFeaturePromise = null;
-      throw error;
-    });
-    return citationFeaturePromise;
+    return window.SeoBuddyCore.loadFeature('citationAsset', () => !!(window.loadCitationWorklist), 'Citation');
   }
 
   async function loadCitationFeature() {
@@ -137,22 +67,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function ensureLocalPresenceFeature() {
-    if (window.loadLocalAutopilot) return Promise.resolve();
-    if (localPresenceFeaturePromise) return localPresenceFeaturePromise;
-    const assetUrl = document.body.dataset.localPresenceAsset;
-    if (!assetUrl || !assetUrl.startsWith('/assets/')) return Promise.reject(new Error('Local Presence asset is unavailable.'));
-    localPresenceFeaturePromise = new Promise((resolve, reject) => {
-      const script = document.createElement('script');
-      script.src = assetUrl;
-      script.async = true;
-      script.addEventListener('load', resolve, { once: true });
-      script.addEventListener('error', () => reject(new Error('Could not load Local Presence.')), { once: true });
-      document.head.appendChild(script);
-    }).catch(error => {
-      localPresenceFeaturePromise = null;
-      throw error;
-    });
-    return localPresenceFeaturePromise;
+    return window.SeoBuddyCore.loadFeature('localPresenceAsset', () => !!(window.loadLocalAutopilot), 'LocalPresence');
   }
 
   async function loadLocalPresenceFeature() {
@@ -166,22 +81,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function ensurePerformanceFeature() {
-    if (window.loadPerformance && window.loadPerfDigest) return Promise.resolve();
-    if (performanceFeaturePromise) return performanceFeaturePromise;
-    const assetUrl = document.body.dataset.performanceAsset;
-    if (!assetUrl || !assetUrl.startsWith('/assets/')) return Promise.reject(new Error('Progress asset is unavailable.'));
-    performanceFeaturePromise = new Promise((resolve, reject) => {
-      const script = document.createElement('script');
-      script.src = assetUrl;
-      script.async = true;
-      script.addEventListener('load', resolve, { once: true });
-      script.addEventListener('error', () => reject(new Error('Could not load Progress.')), { once: true });
-      document.head.appendChild(script);
-    }).catch(error => {
-      performanceFeaturePromise = null;
-      throw error;
-    });
-    return performanceFeaturePromise;
+    return window.SeoBuddyCore.loadFeature('performanceAsset', () => !!(window.loadPerformance && window.loadPerfDigest), 'Performance');
   }
 
   async function loadPerformanceFeature() {
@@ -198,22 +98,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function ensureSiteOptimizationFeature() {
-    if (window.loadOnsiteAutopilot) return Promise.resolve();
-    if (siteOptimizationFeaturePromise) return siteOptimizationFeaturePromise;
-    const assetUrl = document.body.dataset.siteOptimizationAsset;
-    if (!assetUrl || !assetUrl.startsWith('/assets/')) return Promise.reject(new Error('Site Optimization asset is unavailable.'));
-    siteOptimizationFeaturePromise = new Promise((resolve, reject) => {
-      const script = document.createElement('script');
-      script.src = assetUrl;
-      script.async = true;
-      script.addEventListener('load', resolve, { once: true });
-      script.addEventListener('error', () => reject(new Error('Could not load Site Optimization.')), { once: true });
-      document.head.appendChild(script);
-    }).catch(error => {
-      siteOptimizationFeaturePromise = null;
-      throw error;
-    });
-    return siteOptimizationFeaturePromise;
+    return window.SeoBuddyCore.loadFeature('siteOptimizationAsset', () => !!(window.loadOnsiteAutopilot), 'SiteOptimization');
   }
 
   async function loadSiteOptimizationFeature() {
@@ -227,22 +112,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function ensureAiVisibilityFeature() {
-    if (window.loadAiVisibilitySuite) return Promise.resolve();
-    if (aiVisibilityFeaturePromise) return aiVisibilityFeaturePromise;
-    const assetUrl = document.body.dataset.aiVisibilityAsset;
-    if (!assetUrl || !assetUrl.startsWith('/assets/')) return Promise.reject(new Error('AI Visibility asset is unavailable.'));
-    aiVisibilityFeaturePromise = new Promise((resolve, reject) => {
-      const script = document.createElement('script');
-      script.src = assetUrl;
-      script.async = true;
-      script.addEventListener('load', resolve, { once: true });
-      script.addEventListener('error', () => reject(new Error('Could not load AI Visibility.')), { once: true });
-      document.head.appendChild(script);
-    }).catch(error => {
-      aiVisibilityFeaturePromise = null;
-      throw error;
-    });
-    return aiVisibilityFeaturePromise;
+    return window.SeoBuddyCore.loadFeature('aiVisibilityAsset', () => !!(window.loadAiVisibilitySuite), 'AiVisibility');
   }
 
   async function loadAiVisibilityFeature() {
@@ -256,22 +126,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function ensureBrandProfileFeature() {
-    if (window.loadBrandProfile) return Promise.resolve();
-    if (brandProfileFeaturePromise) return brandProfileFeaturePromise;
-    const assetUrl = document.body.dataset.brandProfileAsset;
-    if (!assetUrl || !assetUrl.startsWith('/assets/')) return Promise.reject(new Error('Brand Voice asset is unavailable.'));
-    brandProfileFeaturePromise = new Promise((resolve, reject) => {
-      const script = document.createElement('script');
-      script.src = assetUrl;
-      script.async = true;
-      script.addEventListener('load', resolve, { once: true });
-      script.addEventListener('error', () => reject(new Error('Could not load Brand Voice.')), { once: true });
-      document.head.appendChild(script);
-    }).catch(error => {
-      brandProfileFeaturePromise = null;
-      throw error;
-    });
-    return brandProfileFeaturePromise;
+    return window.SeoBuddyCore.loadFeature('brandProfileAsset', () => !!(window.loadBrandProfile), 'BrandProfile');
   }
 
   async function loadBrandProfileFeature() {
@@ -288,22 +143,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function ensureOwnerModeFeature() {
-    if (window.setOwnerMode && window.loadOwnerToday && window.loadOwnerResults && window.loadOwnerBusiness) return Promise.resolve();
-    if (ownerModeFeaturePromise) return ownerModeFeaturePromise;
-    const assetUrl = document.body.dataset.ownerModeAsset;
-    if (!assetUrl || !assetUrl.startsWith('/assets/')) return Promise.reject(new Error('Owner mode asset is unavailable.'));
-    ownerModeFeaturePromise = new Promise((resolve, reject) => {
-      const script = document.createElement('script');
-      script.src = assetUrl;
-      script.async = true;
-      script.addEventListener('load', resolve, { once: true });
-      script.addEventListener('error', () => reject(new Error('Could not load Owner mode.')), { once: true });
-      document.head.appendChild(script);
-    }).catch(error => {
-      ownerModeFeaturePromise = null;
-      throw error;
-    });
-    return ownerModeFeaturePromise;
+    return window.SeoBuddyCore.loadFeature('ownerModeAsset', () => !!(window.setOwnerMode && window.loadOwnerToday && window.loadOwnerResults && window.loadOwnerBusiness), 'OwnerMode');
   }
 
   async function loadOwnerModeView(loaderName) {
@@ -325,22 +165,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function ensureSearchOpportunitiesFeature() {
-    if (window.syncGSCData) return Promise.resolve();
-    if (searchOpportunitiesFeaturePromise) return searchOpportunitiesFeaturePromise;
-    const assetUrl = document.body.dataset.searchOpportunitiesAsset;
-    if (!assetUrl || !assetUrl.startsWith('/assets/')) return Promise.reject(new Error('Search opportunities asset is unavailable.'));
-    searchOpportunitiesFeaturePromise = new Promise((resolve, reject) => {
-      const script = document.createElement('script');
-      script.src = assetUrl;
-      script.async = true;
-      script.addEventListener('load', resolve, { once: true });
-      script.addEventListener('error', () => reject(new Error('Could not load search opportunities.')), { once: true });
-      document.head.appendChild(script);
-    }).catch(error => {
-      searchOpportunitiesFeaturePromise = null;
-      throw error;
-    });
-    return searchOpportunitiesFeaturePromise;
+    return window.SeoBuddyCore.loadFeature('searchOpportunitiesAsset', () => !!(window.syncGSCData), 'SearchOpportunities');
   }
 
   async function loadSearchOpportunitiesFeature() {
@@ -354,22 +179,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function ensureSettingsFeature() {
-    if (window.loadSettingsWorkspace) return Promise.resolve();
-    if (settingsFeaturePromise) return settingsFeaturePromise;
-    const assetUrl = document.body.dataset.settingsAsset;
-    if (!assetUrl || !assetUrl.startsWith('/assets/')) return Promise.reject(new Error('Settings asset is unavailable.'));
-    settingsFeaturePromise = new Promise((resolve, reject) => {
-      const script = document.createElement('script');
-      script.src = assetUrl;
-      script.async = true;
-      script.addEventListener('load', resolve, { once: true });
-      script.addEventListener('error', () => reject(new Error('Could not load Settings.')), { once: true });
-      document.head.appendChild(script);
-    }).catch(error => {
-      settingsFeaturePromise = null;
-      throw error;
-    });
-    return settingsFeaturePromise;
+    return window.SeoBuddyCore.loadFeature('settingsAsset', () => !!(window.loadSettingsWorkspace), 'Settings');
   }
 
   async function loadSettingsFeature() {
@@ -382,6 +192,28 @@ document.addEventListener('DOMContentLoaded', () => {
       showToast('Could not load Settings. Refresh and try again.');
     }
   }
+
+  async function ensureContentWorkspaceFeature() {
+    await window.SeoBuddyCore.loadFeature('contentWorkspaceAsset', () => !!window.SeoBuddyContent, 'Content workspace');
+  }
+
+  async function loadContentWorkspaceFeature(publish) {
+    try {
+      await ensureContentWorkspaceFeature();
+      if (publish) await window.SeoBuddyContent.loadPublishWorkspace();
+    } catch (error) {
+      showToast('Could not load the content workspace. Refresh or reopen it to try again.');
+    }
+  }
+
+  window.loadKeywordIntoCreator = async keyword => {
+    try {
+      await ensureContentWorkspaceFeature();
+      window.SeoBuddyContent.loadKeywordIntoCreator(keyword);
+    } catch (error) {
+      showToast('Could not open the content creator. Please try again.');
+    }
+  };
 
   function setDataMode(mode) {
     if (!modeStatus || !modeStatusText) return;
@@ -408,36 +240,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // AI Creator Selectors
-  const inputKeyword = document.getElementById('input-keyword');
-  const inputCaseStudy = document.getElementById('input-case-study');
-  const inputCtaText = document.getElementById('input-cta-text');
-  const inputCtaUrl = document.getElementById('input-cta-url');
-  const btnGenerate = document.getElementById('btn-generate');
-  
-  // Editor Selectors
-  const editorEmpty = document.getElementById('editor-empty');
-  const editorLoader = document.getElementById('editor-loader');
-  const visualEditor = document.getElementById('visual-editor');
-  const codeEditor = document.getElementById('code-editor');
-  const editorTabs = document.querySelectorAll('.editor-tab');
-  
-  const btnCopyHtml = document.getElementById('btn-copy-html');
-  const btnCopyText = document.getElementById('btn-copy-text');
-  const btnProceedPublish = document.getElementById('btn-proceed-publish');
-
-  // Publish / Index Selectors
-  const deployTitle = document.getElementById('deploy-title');
-  const deployStatus = document.getElementById('deploy-status');
-  const btnPublishGhlNow = document.getElementById('btn-publish-ghl-now');
-  const indexingUrlInput = document.getElementById('indexing-url');
-  const btnIndexNow = document.getElementById('btn-index-now');
-  const historyTableBody = document.getElementById('history-table-body');
 
   const displaySiteUrlBadge = document.getElementById('display-site-url');
 
   // --- SHARED BROWSER CORE ---
-  const { authFetch, confirmAction, safeExternalUrl, sanitizeHtml, showToast, uiEsc } = window.SeoBuddyCore;
+  const { authFetch, bindAction, confirmAction, trapDialogFocus, showToast, uiEsc } = window.SeoBuddyCore;
   const citEsc = uiEsc;
 
   // Existing call sites intentionally use this local name; shadowing the
@@ -448,7 +255,6 @@ document.addEventListener('DOMContentLoaded', () => {
   // --- INITIALIZATION ---
   migrateLegacyBrowserSecrets();
   updateSiteUrlBadge(getStoredCredentials().siteUrl);
-  renderHistory();
 
   // --- TAB SWAP SYSTEM ---
   tabButtons.forEach(btn => {
@@ -573,12 +379,12 @@ document.addEventListener('DOMContentLoaded', () => {
     } else if (tabId === 'ai-tab') {
       pageTitle.innerText = 'Create a Post';
       pageSubtitle.innerText = 'Have AI write an authoritative, SEO-optimized article for you';
+      loadContentWorkspaceFeature(false);
       loadRecordedContentFeature();
     } else if (tabId === 'publish-tab') {
       pageTitle.innerText = 'Publish';
       pageSubtitle.innerText = 'Publish to your site, request Google indexing, and run the content autopilot';
-      fetchHistory();
-      fetchAutopilotStatus();
+      loadContentWorkspaceFeature(true);
     } else if (tabId === 'aio-tab') {
       pageTitle.innerText = 'AI Visibility Check';
       pageSubtitle.innerText = 'See whether AI assistants recommend and cite you, and build schema';
@@ -638,76 +444,10 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   // Search opportunity tools load only when their tab is opened.
-  // --- AI CREATOR LOAD & TRIGGER SYSTEM ---
-  const CASE_STUDY_TEMPLATES = {
-    'senior fitness st petersburg fl': "At Best Day Fitness, our personal trainers created a custom posture and mobility program for Margaret (age 71). When she started, walking upstairs caused severe knee pain. Within 12 weeks of training barefoot on our balance mats, she rebuilt joint stabilization, eliminated pain, and is now actively walking 3 miles daily barefoot on the beach.",
-    'mobility training st pete': "We worked with Arthur (age 64), who suffered from shoulder stiffness that prevented him from playing tennis. Our physical therapy integration allowed us to combine myofascial release with trainer-led rotational mobility work. Arthur returned to the tennis court in 6 weeks with full range of motion.",
-    'longevity fitness coach st petersburg': "One of our most inspiring clients, David (age 82), wanted to maintain his independence. We built a customized strength and gait training routine focusing on barefoot stability and posture. David successfully climbed the stairs at St. Pete pier and carries his own groceries with ease.",
-    'posture correction exercises senior': "Elena (age 69) came to us with a noticeable forward-head posture and frequent lower back pain. We implemented wall-alignments, thoracic mobility rotations, and barefoot glute stabilization. Not only did her posture score improve by 30%, but her chronic back stiffness also disappeared completely.",
-    'barefoot training older adults balance': "Barefoot training is a staple at Best Day Fitness. By training without thick rubber shoes, our client Richard (age 75) activated dormant sensory receptors in his feet. This directly improved his gait, posture, and balance, dropping his fall-risk profile from high to zero."
-  };
-
-  function loadKeywordIntoCreator(keyword) {
-    inputKeyword.value = keyword;
-    
-    // Select template case study or write a custom placeholder
-    const template = CASE_STUDY_TEMPLATES[keyword.toLowerCase()] || 
-      `At Best Day Fitness, we helped a St. Petersburg client (age 69) recover their mobility and core posture. Through a tailored balance and strength program, they went from being fearful of falls to hiking outdoors comfortably. Our trainer-led sessions focus on joint-safety and longevity.`;
-    
-    inputCaseStudy.value = template;
-    
-    // Auto CTA Text based on query
-    inputCtaText.value = 'Schedule Longevity Assessment';
-    
-    // Switch tabs to AI Creator
-    switchTab('ai-tab');
-    
-    // Clean preview state
-    editorEmpty.style.display = 'flex';
-    visualEditor.style.display = 'none';
-    codeEditor.style.display = 'none';
-  }
-  window.loadKeywordIntoCreator = loadKeywordIntoCreator;
-
-  // Claims the model produced that a human must check. Generated copy has
-  // invented a wrong phone number before now, so this renders above the preview
-  // rather than somewhere the owner has to go looking for it.
-  function renderClaims(claims) {
-    const host = document.getElementById('visual-editor');
-    const old = document.getElementById('claims-box');
-    if (old) old.remove();
-    if (!host || !claims || !claims.length) return;
-    const box = document.createElement('div');
-    box.id = 'claims-box';
-    box.className = 'claims-box';
-    box.innerHTML = '<h4>Check these before publishing</h4><ul>' +
-      claims.map(c => '<li>' + String(c).replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch])) + '</li>').join('') +
-      '</ul>';
-    host.parentNode.insertBefore(box, host);
-  }
-
   // Brand Voice navigation stays available before its editor module loads.
   const bpGoto = document.getElementById('btn-goto-brand');
   if (bpGoto) bpGoto.addEventListener('click', () => switchTab('brand-tab'));
   // Brand Voice editor tools load only when their tab is opened.
-  // Off-brand words that survived the prompt. Rendered next to the fact-check
-  // list so both hazards are visible in the same glance, before publishing.
-  function renderBrandViolations(violations) {
-    const host = document.getElementById('visual-editor');
-    const old = document.getElementById('brand-violations');
-    if (old) old.remove();
-    if (!host || !violations || !violations.length) return;
-    const esc = v => String(v).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-    const box = document.createElement('div');
-    box.id = 'brand-violations';
-    box.className = 'claims-box';
-    box.style.borderColor = 'rgba(244,63,94,.45)';
-    box.style.background = 'rgba(244,63,94,.08)';
-    box.innerHTML = '<h4 style="color:var(--color-danger);">Off-brand language found — fix before publishing</h4><ul>' +
-      violations.map(v => `<li>Uses <b>"${esc(v.found)}"</b> — on your never-use list.</li>`).join('') +
-      '</ul>';
-    host.parentNode.insertBefore(box, host);
-  }
 
   // ===========================================================================
   // Owner mode views load only when the saved preference or mode switch requests them.
@@ -730,323 +470,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (window.refreshReadinessBoard) window.refreshReadinessBoard();
   });
 
-  // Generate Article Trigger
-  btnGenerate.addEventListener('click', async () => {
-    const keyword = inputKeyword.value.trim();
-    const caseStudy = inputCaseStudy.value.trim();
-    const ctaText = inputCtaText.value.trim();
-    const ctaUrl = inputCtaUrl.value.trim();
-    const transcriptEl = document.getElementById('input-transcript');
-    const transcript = transcriptEl ? transcriptEl.value.trim() : '';
-
-    if (!keyword) {
-      alert('Please enter a target keyword.');
-      return;
-    }
-
-    // Enter Loading State
-    editorEmpty.style.display = 'none';
-    visualEditor.style.display = 'none';
-    codeEditor.style.display = 'none';
-    editorLoader.style.display = 'flex';
-    btnGenerate.disabled = true;
-
-    try {
-      const res = await authFetch('/api/generate-article', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ keyword, caseStudy, ctaText, ctaUrl, transcript })
-      });
-
-      const data = await res.json();
-
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Server failed to write article');
-      }
-
-      const safeContent = sanitizeHtml(data.content);
-      state.generatedArticle = {
-        title: data.title,
-        content: safeContent,
-        slug: data.slug
-      };
-
-      // Populate preview panes
-      visualEditor.innerHTML = safeContent;
-      codeEditor.value = safeContent;
-      renderClaims(data.claimsToCheck);
-      renderBrandViolations(data.brandViolations);
-
-      // Populate publish hub fields
-      deployTitle.value = data.title;
-      
-      const credentials = getStoredCredentials();
-      let baseSiteUrl = credentials.siteUrl ? credentials.siteUrl.trim() : 'https://bestdayfitness.com';
-      if (baseSiteUrl.startsWith('sc-domain:')) {
-        baseSiteUrl = 'https://' + baseSiteUrl.substring(10);
-      }
-      baseSiteUrl = baseSiteUrl.replace(/\/$/, '');
-      const cleanBlogPrefix = credentials.blogPrefix ? (credentials.blogPrefix.startsWith('/') ? credentials.blogPrefix : `/${credentials.blogPrefix}`) : '/post';
-      const formattedBlogPrefix = cleanBlogPrefix.endsWith('/') ? cleanBlogPrefix.slice(0, -1) : cleanBlogPrefix;
-      indexingUrlInput.value = `${baseSiteUrl}${formattedBlogPrefix}/${data.slug}`;
-
-      // Update visibility
-      editorLoader.style.display = 'none';
-      if (state.editorMode === 'visual') {
-        visualEditor.style.display = 'block';
-      } else {
-        codeEditor.style.display = 'block';
-      }
-
-    } catch (err) {
-      alert(`AI Writing failed: ${err.message}`);
-      editorLoader.style.display = 'none';
-      editorEmpty.style.display = 'flex';
-    } finally {
-      btnGenerate.disabled = false;
-    }
-  });
-
-  // --- EDITOR VIEW MODES & CONTENT SYNC ---
-  editorTabs.forEach(tab => {
-    tab.addEventListener('click', () => {
-      const mode = tab.getAttribute('data-editor-mode');
-      setEditorMode(mode);
-    });
-  });
-
-  function setEditorMode(mode) {
-    state.editorMode = mode;
-    
-    // Toggle active tab header
-    editorTabs.forEach(t => {
-      if (t.getAttribute('data-editor-mode') === mode) {
-        t.classList.add('active');
-      } else {
-        t.classList.remove('active');
-      }
-    });
-
-    if (!state.generatedArticle) return; // No content yet
-
-    if (mode === 'visual') {
-      // Sync code changes to visual preview
-      const safeContent = sanitizeHtml(codeEditor.value);
-      visualEditor.innerHTML = safeContent;
-      codeEditor.value = safeContent;
-      state.generatedArticle.content = safeContent;
-      codeEditor.style.display = 'none';
-      visualEditor.style.display = 'block';
-    } else {
-      // Sync visual changes to code preview
-      codeEditor.value = visualEditor.innerHTML;
-      visualEditor.style.display = 'none';
-      codeEditor.style.display = 'block';
-    }
-  }
-
-  // Keep both visual and code views synced during manual editing
-  visualEditor.addEventListener('input', () => {
-    if (state.generatedArticle) {
-      state.generatedArticle.content = visualEditor.innerHTML;
-      codeEditor.value = visualEditor.innerHTML;
-    }
-  });
-
-  codeEditor.addEventListener('input', () => {
-    if (state.generatedArticle) {
-      const safeContent = sanitizeHtml(codeEditor.value);
-      state.generatedArticle.content = safeContent;
-      visualEditor.innerHTML = safeContent;
-    }
-  });
-
-  // --- CLIPBOARD ACTIONS ---
-  btnCopyHtml.addEventListener('click', () => {
-    if (!state.generatedArticle) {
-      alert('Generate an article first!');
-      return;
-    }
-    const html = sanitizeHtml(codeEditor.value);
-    navigator.clipboard.writeText(html).then(() => {
-      showTemporaryButtonText(btnCopyHtml, 'HTML Copied!');
-    });
-  });
-
-  btnCopyText.addEventListener('click', () => {
-    if (!state.generatedArticle) {
-      alert('Generate an article first!');
-      return;
-    }
-    // Simple HTML strip utility
-    const tempDiv = document.createElement('div');
-    tempDiv.innerHTML = visualEditor.innerHTML;
-    const text = tempDiv.innerText || tempDiv.textContent || '';
-    
-    navigator.clipboard.writeText(text).then(() => {
-      showTemporaryButtonText(btnCopyText, 'Text Copied!');
-    });
-  });
-
-  function showTemporaryButtonText(button, text) {
-    const originalText = button.innerHTML;
-    button.innerText = text;
-    button.style.borderColor = 'var(--color-success)';
-    button.style.color = 'var(--color-success)';
-    
-    setTimeout(() => {
-      button.innerHTML = originalText;
-      button.style.borderColor = '';
-      button.style.color = '';
-    }, 1800);
-  }
-
-  // Navigation from AI Creator to Publish tab
-  btnProceedPublish.addEventListener('click', () => {
-    if (!state.generatedArticle) {
-      alert('Please generate an article first!');
-      return;
-    }
-    switchTab('publish-tab');
-  });
-
-  // --- PUBLISHING & INDEXING EXECUTION ---
-  btnPublishGhlNow.addEventListener('click', async () => {
-    if (!state.generatedArticle) {
-      alert('No article loaded in publishing workspace.');
-      return;
-    }
-
-    const title = deployTitle.value;
-    const content = sanitizeHtml(codeEditor.value);
-    codeEditor.value = content;
-    const status = deployStatus.value;
-
-    btnPublishGhlNow.disabled = true;
-    btnPublishGhlNow.innerText = 'Publishing to GHL...';
-
-    try {
-      const res = await authFetch('/api/publish-ghl', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title,
-          content,
-          status
-        })
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.message || 'Publish failed');
-      }
-
-      alert(data.message || 'Article deployed successfully!');
-
-      // Add to deployment history state
-      const targetUrl = indexingUrlInput.value;
-      const platformName = data.source === 'mock_ghl' ? 'GHL (Mock Dev)' : `GoHighLevel (${status})`;
-      
-      const newEntry = {
-        title,
-        keyword: inputKeyword.value,
-        platform: platformName,
-        date: new Date().toISOString().split('T')[0],
-        indexed: 'Indexing Available',
-        url: targetUrl
-      };
-
-      state.history.unshift(newEntry);
-      renderHistory();
-
-    } catch (err) {
-      alert(`Publishing Error: ${err.message}`);
-    } finally {
-      btnPublishGhlNow.disabled = false;
-      btnPublishGhlNow.innerText = 'Publish to GoHighLevel';
-    }
-  });
-
-  btnIndexNow.addEventListener('click', async () => {
-    const url = indexingUrlInput.value.trim();
-
-    if (!url) {
-      alert('Please provide a URL to submit for indexing.');
-      return;
-    }
-
-    btnIndexNow.disabled = true;
-    btnIndexNow.innerText = 'Requesting Crawl...';
-
-    try {
-      const res = await authFetch('/api/index-url', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url })
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error || 'Indexing API call failed');
-      }
-
-      alert(data.message || 'Crawl request sent successfully!');
-
-      // Update matches in history if any
-      state.history.forEach(item => {
-        if (item.url === url) {
-          // Canonical stored value, matching what the server writes. Four other
-          // call sites count submissions with /requested|indexed/i against it.
-          item.indexed = 'Indexing Requested';
-        }
-      });
-      renderHistory();
-
-    } catch (err) {
-      alert(`Indexing Error: ${err.message}`);
-    } finally {
-      btnIndexNow.disabled = false;
-      btnIndexNow.innerText = 'Ask Google to list this page';
-    }
-  });
-
-  function renderHistory() {
-    historyTableBody.innerHTML = '';
-
-  // Stored statuses stay machine-readable; this is the only place a person
-  // sees them, so the plain-English wording lives here rather than in the data.
-  function sbIndexLabel(s) {
-    // The full set the server can write, read off production rather than guessed:
-    // 'Indexing Requested' (13 records) and 'Indexing Available' (3). The second
-    // means the page is live on the site but Google has not been told yet, which
-    // is exactly why the /requested|indexed/i submission count does not match it
-    // — the label has to keep that distinction, not blur it.
-    return ({ 'Indexing Requested': 'Asked Google to list it',
-              'Indexing Available': 'Live, not sent to Google',
-              'Indexed': 'Listed on Google',
-              'Not Submitted': 'Not sent yet' })[s] || s || '\u2014';
-  }
-
-    state.history.forEach(item => {
-      const tr = document.createElement('tr');
-      
-      let statusClass = 'pending';
-      if (item.indexed === 'Indexed') statusClass = 'clean';
-      else statusClass = 'pending';
-
-      tr.innerHTML = `
-        <td class="font-medium">${uiEsc(item.title)}</td>
-        <td><span class="keyword-tag">${uiEsc(item.keyword)}</span></td>
-        <td>${uiEsc(item.platform)}</td>
-        <td>${uiEsc(item.date)}</td>
-        <td><span class="status-badge ${statusClass}">${uiEsc(sbIndexLabel(item.indexed))}</span></td>
-        <td><a href="${uiEsc(safeExternalUrl(item.url))}" target="_blank" rel="noopener noreferrer" class="live-link">${uiEsc(String(item.url || '').replace(/^https?:\/\//, ''))}</a></td>
-      `;
-      historyTableBody.appendChild(tr);
-    });
-  }
+  // The editor, publication history, and content autopilot share one lazy workspace.
 
   // --- SETTINGS STORAGE SYSTEM ---
   function getStoredCredentials() {
@@ -1085,208 +509,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Settings form and diagnostics load only when their tab is opened.
 
-  // --- PERSISTENT HISTORY & AUTOPILOT CONTROLLER ---
-  const autopilotToggle = document.getElementById('autopilot-toggle');
-  const autopilotToggleLabel = document.getElementById('autopilot-toggle-label');
-  const autopilotInterval = document.getElementById('autopilot-interval');
-  const autopilotNextRun = document.getElementById('autopilot-next-run');
-  const btnRunAutopilotNow = document.getElementById('btn-run-autopilot-now');
-  const autopilotLogsContainer = document.getElementById('autopilot-logs-container');
-
-  // Turns autopilot log lines into something an owner can act on. The single
-  // most common failure in this app is the Indexing API returning 403 because
-  // the service account has "Full" rather than "Owner" in Search Console — as
-  // a monospace line people scroll past it, so it gets a cause and a fix.
-  const SB_LOG_RULES = [
-    { re: /permission denied|403|failed to verify url ownership/i, tone: 'warn', icon: '!',
-      title: 'Google wouldn’t accept the indexing request',
-      note: 'Your service account needs <b>Owner</b> access in Search Console, not “Full”. Everything else published fine.' },
-    { re: /autopilot run complete|deployed and indexed/i, tone: 'ok', icon: '✓',
-      title: 'Published a new article', note: 'Written and posted to your website on its own.' },
-    { re: /requesting instant google indexing/i, tone: 'ok', icon: '✓',
-      title: 'Asked Google to index it', note: '' },
-    { re: /publishing article to gohighlevel/i, tone: 'ok', icon: '✓',
-      title: 'Published to your website', note: '' },
-    { re: /generating structural seo article|generating/i, tone: 'ok', icon: '✓',
-      title: 'Wrote a new article', note: '' },
-    { re: /background autopilot enabled|schedule/i, tone: '', icon: '○',
-      title: 'Schedule set', note: '' },
-    { re: /disabled|standing by/i, tone: '', icon: '○',
-      title: 'Autopilot is off', note: 'Turn it on and it writes, publishes and indexes without you.' },
-    { re: /error|failed/i, tone: 'warn', icon: '!',
-      title: 'Something didn’t finish', note: '' }
-  ];
-  function renderAutopilotFeed(logs) {
-    const host = document.getElementById('autopilot-feed'); if (!host) return;
-    if (!Array.isArray(logs) || !logs.length) {
-      host.innerHTML = '<div class="sb-feed-row"><span class="sb-fi">○</span><div class="sb-ft"><b>Nothing yet</b>'
-        + '<span>Turn the autopilot on and it will find a gap, write the page, publish it and ask Google to list it.</span></div></div>';
-      return;
-    }
-    const seen = new Set(), rows = [];
-    for (const log of logs) {
-      const msg = String(log.message || '');
-      const rule = SB_LOG_RULES.find(r => r.re.test(msg));
-      if (!rule) continue;
-      if (seen.has(rule.title)) continue;      // one row per kind, newest wins
-      seen.add(rule.title);
-      rows.push('<div class="sb-feed-row ' + rule.tone + '"><span class="sb-fi">' + rule.icon + '</span>'
-        + '<div class="sb-ft"><b>' + rule.title + '</b>' + (rule.note ? '<span>' + rule.note + '</span>' : '') + '</div>'
-        + '<span class="sb-fw">' + tdAgo(log.timestamp) + '</span></div>');
-      if (rows.length >= 5) break;
-    }
-    host.innerHTML = rows.length ? rows.join('')
-      : '<div class="sb-feed-row"><span class="sb-fi">○</span><div class="sb-ft"><b>Running</b><span>Nothing needing your attention.</span></div></div>';
-  }
-
-
-
-  async function fetchHistory() {
-    try {
-      const res = await fetch('/api/history');
-      const data = await res.json();
-      state.history = Array.isArray(data) ? data : (data && Array.isArray(data.history) ? data.history : []);
-      renderHistory();
-    } catch (err) {
-      console.error('[History] Sync failed:', err.message);
-    }
-  }
-
-  async function fetchAutopilotStatus() {
-    try {
-      const res = await fetch('/api/autopilot-status');
-      const data = await res.json();
-      
-      autopilotToggle.checked = data.enabled;
-      autopilotToggleLabel.innerText = `Autopilot: ${data.enabled ? 'ON' : 'OFF'}`;
-      autopilotToggleLabel.style.color = data.enabled ? 'var(--color-success)' : 'var(--text-muted)';
-      
-      const terminalDot = document.querySelector('.terminal-dot');
-      if (terminalDot) {
-        if (data.enabled) terminalDot.classList.add('active');
-        else terminalDot.classList.remove('active');
-      }
-
-      autopilotInterval.value = data.intervalHours;
-      renderAutopilotQueue(data.queue || []);
-
-      if (data.enabled && data.nextRunTime) {
-        const nextDate = new Date(data.nextRunTime);
-        autopilotNextRun.innerText = nextDate.toLocaleString();
-        autopilotNextRun.style.color = 'var(--color-secondary)';
-      } else {
-        autopilotNextRun.innerText = 'Not Scheduled';
-        autopilotNextRun.style.color = 'var(--text-muted)';
-      }
-
-      // Plain-English feed first; the raw log is unchanged behind the disclosure.
-      renderAutopilotFeed(data.logs);
-
-      // Render logs
-      autopilotLogsContainer.innerHTML = '';
-      if (!Array.isArray(data.logs) || data.logs.length === 0) {
-        autopilotLogsContainer.innerHTML = `<div class="terminal-log-line text-sm">[System] Standing by. Enable Autopilot to schedule checks.</div>`;
-      } else {
-        data.logs.forEach(log => {
-          const div = document.createElement('div');
-          div.className = 'terminal-log-line';
-          const localTime = new Date(log.timestamp).toLocaleTimeString();
-          const time = document.createElement('span');
-          time.className = 'timestamp';
-          time.textContent = localTime;
-          div.append(time, document.createTextNode(` ${String(log.message || '')}`));
-          autopilotLogsContainer.appendChild(div);
-        });
-      }
-    } catch (err) {
-      console.error('[Autopilot Status] Fetch failed:', err.message);
-    }
-  }
-
-  async function updateAutopilotSchedule() {
-    const enabled = autopilotToggle.checked;
-    const intervalHours = parseFloat(autopilotInterval.value);
-    
-    try {
-      await authFetch('/api/autopilot-toggle', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled, intervalHours })
-      });
-      fetchAutopilotStatus();
-    } catch (err) {
-      console.error('[Autopilot Toggle] Failed:', err.message);
-    }
-  }
-
-  autopilotToggle.addEventListener('change', updateAutopilotSchedule);
-  autopilotInterval.addEventListener('change', updateAutopilotSchedule);
-
-  // Content queue (topics the autopilot writes first)
-  function renderAutopilotQueue(queue) {
-    const el = document.getElementById('autopilot-queue-list');
-    if (!el) return;
-    if (!queue || !queue.length) {
-      el.innerHTML = '<div class="text-muted" style="font-size:var(--font-xs);">Nothing queued — the autopilot will find the next search worth writing for.</div>';
-      return;
-    }
-    el.innerHTML = queue.map((q, i) => `<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 10px;background:rgba(0,0,0,.2);border:1px solid var(--border-color);border-radius:8px;margin-bottom:6px;font-size:var(--font-sm);">
-      <span><span style="color:var(--color-secondary);font-weight:700;">${i + 1}.</span> ${sumEsc(q.topic)}</span>
-      <button class="apq-remove" data-i="${i}" title="Remove" style="background:none;border:none;color:var(--color-accent);cursor:pointer;font-size:18px;line-height:1;padding:0 4px;">&times;</button>
-    </div>`).join('');
-    el.querySelectorAll('.apq-remove').forEach(b => b.addEventListener('click', () => apQueueRemove(+b.dataset.i)));
-  }
-  async function apQueueAdd() {
-    const inp = document.getElementById('autopilot-queue-input');
-    if (!inp) return;
-    const topic = (inp.value || '').trim();
-    if (!topic) { alert('Enter a topic or keyword.'); return; }
-    try {
-      const r = await authFetch('/api/autopilot-queue/add', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ topic }) });
-      const d = await r.json();
-      if (!r.ok || !d.success) { alert(d.error || 'Could not add.'); return; }
-      inp.value = '';
-      renderAutopilotQueue(d.queue);
-    } catch (e) { alert('Error: ' + e.message); }
-  }
-  async function apQueueRemove(i) {
-    try {
-      const r = await authFetch('/api/autopilot-queue/remove', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ index: i }) });
-      const d = await r.json();
-      renderAutopilotQueue(d.queue);
-    } catch (e) { alert('Error: ' + e.message); }
-  }
-  const btnApQueueAdd = document.getElementById('btn-autopilot-queue-add');
-  if (btnApQueueAdd) btnApQueueAdd.addEventListener('click', apQueueAdd);
-  const apQueueInput = document.getElementById('autopilot-queue-input');
-  if (apQueueInput) apQueueInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); apQueueAdd(); } });
-
-  btnRunAutopilotNow.addEventListener('click', async () => {
-    btnRunAutopilotNow.disabled = true;
-    const originalContent = btnRunAutopilotNow.innerHTML;
-    btnRunAutopilotNow.innerText = 'Agent Operating...';
-
-    try {
-      const res = await authFetch('/api/autopilot-run-now', { method: 'POST' });
-      const data = await res.json();
-      
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Server error during autopilot run');
-      }
-      
-      alert(data.message);
-      
-      // Update GSC gaps, history, and log viewer
-      if (window.syncGSCData) window.syncGSCData();
-      fetchHistory();
-      fetchAutopilotStatus();
-    } catch (err) {
-      alert(`Autopilot Run failed: ${err.message}`);
-    } finally {
-      btnRunAutopilotNow.disabled = false;
-      btnRunAutopilotNow.innerHTML = originalContent;
-    }
-  });
 
   // --- SUMMARY DASHBOARD (default landing tab) ---
   // Aggregates the app's existing live data into a plain-English snapshot.
@@ -1556,7 +778,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (t === 'local-tab') return 'phone';
     return 'edit';
   }
-  function tdAgo(iso){ const t = new Date(iso).getTime(); if (isNaN(t)) return ''; const s = Math.max(0, (Date.now() - t) / 1000); if (s < 90) return 'just now'; const m = s / 60; if (m < 60) return Math.round(m) + ' min ago'; const h = m / 60; if (h < 24) return Math.round(h) + 'h ago'; return Math.round(h / 24) + 'd ago'; }
+  const tdAgo = window.SeoBuddyCore.relativeTime;
   function renderTodayHero(hs, nm){
     const hero = document.getElementById('td-hero'); if (!hero) return;
     const moves = ((nm && nm.moves) || []).slice(0, 3);
@@ -2196,6 +1418,11 @@ document.addEventListener('DOMContentLoaded', () => {
   // lets the arrows and dots drive the same scroll. Deriving the index from
   // scrollLeft (rather than tracking it separately) means a native swipe, an
   // arrow click and a dot click can never disagree.
+  // One window listener serves the current tracks. Re-rendered carousels can be
+  // collected instead of being retained by a new global listener every visit.
+  window.addEventListener('resize', () => {
+    document.querySelectorAll('.sb-track').forEach(track => track.dispatchEvent(new Event('sb:resize')));
+  });
   function sbWireStepper(host, total) {
     const track = host.querySelector('.sb-track');
     const prev  = host.querySelector('.sb-step-nav.prev');
@@ -2211,7 +1438,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const index = () => Math.round(track.scrollLeft / step());
     const goTo = (i) => {
       const n = Math.max(0, Math.min(total - 1, i));
-      track.scrollTo({ left: n * step(), behavior: 'smooth' });
+      track.scrollTo({ left: n * step(), behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
     };
 
     function sync() {
@@ -2237,7 +1464,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // A resize changes the slide width, so the saved scroll offset would land
     // between two cards. Re-snap to whichever one was showing.
     let rt = 0;
-    window.addEventListener('resize', () => {
+    track.addEventListener('sb:resize', () => {
       clearTimeout(rt);
       const i = index();
       rt = setTimeout(() => { track.scrollTo({ left: i * step() }); sync(); }, 150);
@@ -2294,7 +1521,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }).join('') + '</div></div>';
     }).join('');
     host.querySelectorAll('.exp-row').forEach(function(row){
-      row.addEventListener('click', function(){
+      bindAction(row, function(){
         const go = row.getAttribute('data-go') || '';
         if (go.indexOf('tab:') === 0) { switchTab(go.slice(4)); }
         else if (go === 'act:setup') { const b = document.getElementById('btn-open-setup'); if (b) b.click(); }
@@ -2321,7 +1548,7 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (e) { el.innerHTML = '<div class="text-muted" style="font-size:var(--font-sm);">Couldn’t load your action list.</div>'; }
   }
   window.loadGrow = loadGrow;
-  document.querySelectorAll('#grow-tab .grow-tool').forEach(c => c.addEventListener('click', () => homeGoTab(c.dataset.tab)));
+  document.querySelectorAll('#grow-tab .grow-tool').forEach(c => bindAction(c, () => homeGoTab(c.dataset.tab)));
 
   async function loadSummary() {
     const [aioRes, gscRes, histRes] = await Promise.allSettled([
@@ -2506,8 +1733,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   setInterval(() => {
     if (state.activeTab === 'publish-tab') {
-      fetchAutopilotStatus();
-      fetchHistory();
+      if (window.SeoBuddyContent) window.SeoBuddyContent.loadPublishWorkspace();
     }
   }, 12000);
 
@@ -2568,25 +1794,9 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // --- PDF REPORT (loaded only when requested) ---
-  let pdfReportFeaturePromise = null;
 
   function ensurePdfReportFeature() {
-    if (window.SeoBuddyPdfReport && window.SeoBuddyPdfReport.generate) return Promise.resolve();
-    if (pdfReportFeaturePromise) return pdfReportFeaturePromise;
-    const assetUrl = document.body.dataset.pdfReportAsset;
-    if (!assetUrl || !assetUrl.startsWith('/assets/')) return Promise.reject(new Error('PDF report asset is unavailable.'));
-    pdfReportFeaturePromise = new Promise((resolve, reject) => {
-      const script = document.createElement('script');
-      script.src = assetUrl;
-      script.async = true;
-      script.addEventListener('load', resolve, { once: true });
-      script.addEventListener('error', () => reject(new Error('Could not load the PDF report feature.')), { once: true });
-      document.head.appendChild(script);
-    }).catch(error => {
-      pdfReportFeaturePromise = null;
-      throw error;
-    });
-    return pdfReportFeaturePromise;
+    return window.SeoBuddyCore.loadFeature('pdfReportAsset', () => !!(window.SeoBuddyPdfReport && window.SeoBuddyPdfReport.generate), 'PdfReport');
   }
 
   async function generateSeoReportPdf() {
@@ -2675,6 +1885,10 @@ document.addEventListener('DOMContentLoaded', () => {
     window.refreshReadinessBoard = loadReadinessBoard;
     function render() {
       bodyEl.innerHTML = stepHTML(step);
+      bodyEl.querySelectorAll('.setup-field').forEach(field => {
+        const input = field.querySelector('input'), label = field.querySelector('label');
+        if (input && label) label.htmlFor = input.id;
+      });
       dotsEl.innerHTML = Array.from({ length: TOTAL }, (_, i) => `<span class="setup-dot ${i === step ? 'on' : ''}"></span>`).join('');
       backBtn.style.visibility = step === 0 ? 'hidden' : 'visible';
       nextBtn.innerText = step === TOTAL - 1 ? 'Finish' : (step === 0 ? "Let’s go" : 'Next');
@@ -2701,11 +1915,21 @@ document.addEventListener('DOMContentLoaded', () => {
       closeWiz();
       if (window.loadSummary) window.loadSummary();
     }
-    function openWiz() {
-      fetch('/api/business-profile').then(r => r.json()).then(d => { profile = Object.assign({}, (d && d.profile) || {}); step = 0; render(); overlay.style.display = 'flex'; })
-        .catch(() => { profile = {}; step = 0; render(); overlay.style.display = 'flex'; });
+    let releaseWizardFocus;
+    function showWiz(data) {
+      profile = Object.assign({}, data || {}); step = 0; render();
+      releaseWizardFocus?.();
+      overlay.style.display = 'flex';
+      releaseWizardFocus = trapDialogFocus(overlay, closeWiz);
     }
-    function closeWiz() { overlay.style.display = 'none'; try { localStorage.setItem('seo_wizard_seen', '1'); } catch (e) {} }
+    function openWiz() {
+      fetch('/api/business-profile').then(r => r.json()).then(d => showWiz(d && d.profile))
+        .catch(() => showWiz());
+    }
+    function closeWiz() {
+      overlay.style.display = 'none'; releaseWizardFocus?.(); releaseWizardFocus = null;
+      try { localStorage.setItem('seo_wizard_seen', '1'); } catch (e) {}
+    }
     window.openSetupWizard = openWiz;
     const btnOpen = document.getElementById('btn-open-setup');
     if (btnOpen) btnOpen.addEventListener('click', openWiz);

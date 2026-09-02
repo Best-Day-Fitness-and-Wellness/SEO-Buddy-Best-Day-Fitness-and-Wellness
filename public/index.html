@@ -20,7 +20,7 @@
   <!-- Stylesheet -->
   <link rel="stylesheet" href="{{STYLE_ASSET}}">
 </head>
-<body data-reviews-asset="{{REVIEWS_ASSET}}" data-recorded-content-asset="{{RECORDED_CONTENT_ASSET}}" data-pdf-report-asset="{{PDF_REPORT_ASSET}}" data-citation-asset="{{CITATION_ASSET}}" data-local-presence-asset="{{LOCAL_PRESENCE_ASSET}}" data-performance-asset="{{PERFORMANCE_ASSET}}" data-site-optimization-asset="{{SITE_OPTIMIZATION_ASSET}}" data-ai-visibility-asset="{{AI_VISIBILITY_ASSET}}" data-brand-profile-asset="{{BRAND_PROFILE_ASSET}}" data-owner-mode-asset="{{OWNER_MODE_ASSET}}" data-search-opportunities-asset="{{SEARCH_OPPORTUNITIES_ASSET}}" data-settings-asset="{{SETTINGS_ASSET}}">
+<body data-reviews-asset="{{REVIEWS_ASSET}}" data-recorded-content-asset="{{RECORDED_CONTENT_ASSET}}" data-pdf-report-asset="{{PDF_REPORT_ASSET}}" data-citation-asset="{{CITATION_ASSET}}" data-local-presence-asset="{{LOCAL_PRESENCE_ASSET}}" data-performance-asset="{{PERFORMANCE_ASSET}}" data-site-optimization-asset="{{SITE_OPTIMIZATION_ASSET}}" data-ai-visibility-asset="{{AI_VISIBILITY_ASSET}}" data-brand-profile-asset="{{BRAND_PROFILE_ASSET}}" data-owner-mode-asset="{{OWNER_MODE_ASSET}}" data-search-opportunities-asset="{{SEARCH_OPPORTUNITIES_ASSET}}" data-settings-asset="{{SETTINGS_ASSET}}" data-content-workspace-asset="{{CONTENT_WORKSPACE_ASSET}}">
   <div class="app-container">
     <!-- Sidebar Navigation -->
     <aside class="sidebar">
@@ -554,7 +554,7 @@
               </div>
               <div class="autopilot-toggle-wrapper">
                 <label class="switch">
-                  <input type="checkbox" id="autopilot-toggle">
+                  <input type="checkbox" id="autopilot-toggle" aria-labelledby="autopilot-toggle-label">
                   <span class="slider round"></span>
                 </label>
                 <span class="toggle-label" id="autopilot-toggle-label">Autopilot: OFF</span>
@@ -622,11 +622,11 @@
             <div class="deploy-grid">
               <div class="deploy-group">
                 <label>Article Title</label>
-                <input type="text" id="deploy-title" readonly class="form-input disabled">
+                <input type="text" id="deploy-title" readonly class="form-input disabled" aria-label="Article title">
               </div>
               <div class="deploy-group">
                 <label>GHL Status</label>
-                <select id="deploy-status" class="form-input">
+                <select id="deploy-status" class="form-input" aria-label="Publication status">
                   <option value="draft">Save as Draft</option>
                   <option value="published">Publish Immediately</option>
                 </select>
@@ -864,7 +864,7 @@
                 <span>Business details code</span>
                 <button class="btn btn-secondary btn-xs" id="btn-copy-schema" style="padding: 2px 8px; font-size: 10px;">Copy code</button>
               </div>
-              <textarea id="schema-code-output" readonly style="width: 100%; height: 280px; background: transparent; border: none; padding: 12px; color: var(--ink); font-family: monospace; font-size: 11px; line-height: 1.5; resize: none; outline: none;"></textarea>
+              <textarea id="schema-code-output" readonly aria-label="Generated structured data" style="width: 100%; height: 280px; background: transparent; border: none; padding: 12px; color: var(--ink); font-family: monospace; font-size: 11px; line-height: 1.5; resize: none; outline: none;"></textarea>
             </div>
           </div>
         </div>
@@ -874,7 +874,7 @@
         <div class="content-card mt-4">
           <h2>AI Recommendation History Audit Log</h2>
           <div class="table-responsive">
-            <table class="data-table">
+            <table class="data-table" tabindex="0" aria-label="AI audit history">
               <thead>
                 <tr>
                   <th>Audit Date</th>
@@ -1531,7 +1531,7 @@
 
   <!-- Onboarding Setup Wizard -->
   <div class="setup-overlay" id="setup-overlay" style="display:none;">
-    <div class="setup-card">
+    <div class="setup-card" role="dialog" aria-modal="true" aria-label="Business setup">
       <div class="setup-head"><div class="setup-dots" id="setup-dots"></div><button class="setup-close" id="setup-close" type="button" aria-label="Close">&times;</button></div>
       <div class="setup-body" id="setup-body"></div>
       <div class="setup-foot"><button class="btn btn-secondary" id="setup-back" type="button">Back</button><button class="btn btn-primary" id="setup-next" type="button">Next</button></div>

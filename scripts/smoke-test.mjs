@@ -63,6 +63,16 @@ assert.ok(browserAssets.every(asset => /\.[a-f0-9]{12}\.(?:css|js)$/.test(asset)
 const reviewsAsset = indexHtml.match(/data-reviews-asset="(\/assets\/reviews\.[a-f0-9]{12}\.js)"/)?.[1];
 assert.ok(reviewsAsset, 'Expected a content-hashed lazy Reviews asset');
 assert.equal(browserAssets.includes(reviewsAsset), false, 'Reviews must stay off the initial script path');
+const lazyAssets = [...indexHtml.matchAll(/data-[a-z-]+-asset="(\/assets\/[^\"]+)"/g)].map(match => match[1]);
+assert.equal(new Set(lazyAssets).size, lazyAssets.length, 'Lazy feature assets must be unique');
+assert.ok(lazyAssets.some(asset => /\/content-workspace\./.test(asset)), 'Content workspace must be available');
+assert.ok(lazyAssets.every(asset => /\.[a-f0-9]{12}\.js$/.test(asset) && !browserAssets.includes(asset)));
+await Promise.all([...browserAssets, ...lazyAssets].map(async asset => {
+  const response = await fetch(`${baseUrl}${asset}`, { signal: AbortSignal.timeout(15000) });
+  assert.equal(response.ok, true, `${asset} failed to load`);
+  assert.match(response.headers.get('cache-control') || '', /immutable/);
+  assert.ok((await response.arrayBuffer()).byteLength > 0, `${asset} was empty`);
+}));
 if (process.env.REQUIRE_LIVE_GSC === '1') assert.equal(gsc.source, 'live_gsc');
 
 console.log(JSON.stringify({
@@ -73,5 +83,7 @@ console.log(JSON.stringify({
   score: healthScore.overall,
   scoreVersion: healthScore.scoreVersion,
   storage: storage.backend,
-  assetCount: browserAssets.length + 1,
+  assetCount: browserAssets.length + lazyAssets.length,
+  initialAssetCount: browserAssets.length,
+  lazyAssetCount: lazyAssets.length,
 }));

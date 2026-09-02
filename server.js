@@ -33,6 +33,7 @@ const { createDurableJobQueue } = require('./lib/durable-job-queue');
 const { createSwitchableJobQueue } = require('./lib/job-queue');
 const { createPostgresJobQueue } = require('./lib/postgres-job-queue');
 const { createJobWorker } = require('./lib/job-worker');
+const { createJobDispatcher } = require('./lib/job-dispatcher');
 const { ProviderRuntimeError, createProviderRuntime } = require('./lib/provider-runtime');
 const { assessArticleQuality } = require('./lib/content-quality');
 const { registerOperationsRoutes } = require('./lib/operations-routes');
@@ -113,6 +114,7 @@ const BROWSER_ASSETS = buildBrowserAssets(PUBLIC_DIR, [
   { token: 'OWNER_MODE_ASSET', file: 'modules/owner-mode.js' },
   { token: 'SEARCH_OPPORTUNITIES_ASSET', file: 'modules/search-opportunities.js' },
   { token: 'SETTINGS_ASSET', file: 'modules/settings.js' },
+  { token: 'CONTENT_WORKSPACE_ASSET', file: 'modules/content-workspace.js' },
 ]);
 const INDEX_HTML = renderAssetIndex(fs.readFileSync(path.join(PUBLIC_DIR, 'index.html'), 'utf8'), BROWSER_ASSETS);
 
@@ -181,35 +183,8 @@ const jobWorker = createJobWorker({
   isShuttingDown: () => isShuttingDown,
 });
 
-function durableJobKey(type, windowMs, timestamp = Date.now()) {
-  return `${type}:${Math.floor(timestamp / windowMs)}`;
-}
-
-async function enqueueDurableJob(type, payload, options) {
-  try {
-    const queued = await durableJobQueue.enqueue(type, payload, options);
-    if (queued.created) {
-      logger.info('job.enqueued', { jobId: queued.job.id, jobType: queued.job.type, runAt: queued.job.runAt });
-      if (jobWorker.status().running) setImmediate(jobWorker.drain);
-    }
-    return queued;
-  } catch (error) {
-    logger.error('job.enqueue_failed', { jobType: type, error });
-    return { created: false, job: null, error: error.message };
-  }
-}
-
-function scheduleDurableCheck(type, initialDelayMs, intervalMs) {
-  const enqueue = () => enqueueDurableJob(type, {}, {
-    idempotencyKey: durableJobKey(type, intervalMs),
-    maxAttempts: 5,
-  });
-  const startup = setTimeout(enqueue, initialDelayMs);
-  const recurring = setInterval(enqueue, intervalMs);
-  startup.unref?.();
-  recurring.unref?.();
-  return { startup, recurring };
-}
+const jobDispatcher = createJobDispatcher({ queue: durableJobQueue, worker: jobWorker, logger });
+const { key: durableJobKey, enqueue: enqueueDurableJob, scheduleCheck: scheduleDurableCheck } = jobDispatcher;
 let postgresMirror = null;
 let postgresStateBridge = null;
 const postgresStatus = {
@@ -3414,22 +3389,7 @@ async function recordDailyHealthSnapshot(recordedAt = new Date().toISOString()) 
 }
 
 function scheduleDailyHealthSnapshots() {
-  const enqueue = () => enqueueDurableJob('health.snapshot', {}, {
-    idempotencyKey: `health.snapshot:${new Date().toISOString().slice(0, 10)}`,
-    maxAttempts: 5,
-  });
-  const startupTimer = setTimeout(enqueue, 60000);
-  if (startupTimer.unref) startupTimer.unref();
-
-  const now = new Date();
-  const next = new Date(now);
-  next.setUTCHours(24, 5, 0, 0);
-  const dailyTimer = setTimeout(() => {
-    enqueue();
-    const interval = setInterval(enqueue, 24 * 60 * 60 * 1000);
-    if (interval.unref) interval.unref();
-  }, next.getTime() - now.getTime());
-  if (dailyTimer.unref) dailyTimer.unref();
+  jobDispatcher.scheduleDaily('health.snapshot', 60000, 5);
 }
 
 // Home/Reports dashboard projection. The module keeps response shaping pure;
@@ -3584,14 +3544,7 @@ registerRecordedContentRoutes(app, {
 });
 
 function scheduleDailyStateBackups() {
-  const enqueue = () => enqueueDurableJob('storage.backup', {}, {
-    idempotencyKey: `storage.backup:${new Date().toISOString().slice(0, 10)}`,
-    maxAttempts: 5,
-  });
-  const startup = setTimeout(enqueue, 2 * 60 * 1000);
-  const daily = setInterval(enqueue, 24 * 60 * 60 * 1000);
-  startup.unref?.();
-  daily.unref?.();
+  jobDispatcher.scheduleDaily('storage.backup', 2 * 60 * 1000);
 }
 
 function registerDurableJobHandlers() {
@@ -3659,6 +3612,7 @@ const server = app.listen(PORT, () => {
 function gracefulShutdown(signal) {
   if (isShuttingDown) return;
   isShuttingDown = true;
+  jobDispatcher.stop();
   logger.info('server.shutdown_started', { signal });
   const forceExit = setTimeout(() => {
     logger.error('server.shutdown_timeout', { signal, timeoutMs: 10000 });

@@ -121,6 +121,11 @@ npm test
 ```
 
 Every push to `main` and every pull request runs both commands in GitHub Actions.
+CI also runs a dependency advisory gate and isolated desktop/mobile browser
+acceptance. Run it locally with `npx playwright install chromium` followed by
+`npm run test:browser`; reports are written to ignored `test-results/`.
+See [the closeout checklist](docs/RELEASE-CLOSEOUT.md) for scope, verification,
+and the boundary before the larger scaling phase.
 
 ---
 

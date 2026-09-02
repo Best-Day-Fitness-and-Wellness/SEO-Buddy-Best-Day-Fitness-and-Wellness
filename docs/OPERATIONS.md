@@ -7,10 +7,12 @@ untested working tree.
 
 1. Run `npm run check`.
 2. Run `npm test`.
-3. Commit and push the exact tested revision to `main`.
-4. Wait until Railway marks that commit Active. Do not treat a successful Git
+3. Run `npm run test:browser` and `npm audit --omit=dev --audit-level=moderate`.
+   Install the test browser once with `npx playwright install --with-deps chromium`.
+4. Commit and push the exact tested revision to `main`.
+5. Wait until Railway marks that commit Active. Do not treat a successful Git
    push as a successful deployment.
-5. Run:
+6. Run:
 
    ```bash
    REQUIRE_LIVE_GSC=1 npm run smoke -- https://your-service.up.railway.app
@@ -18,7 +20,16 @@ untested working tree.
 
 The smoke check is read-only. It verifies liveness, readiness, all deployment
 checks, production/no-mock mode, score contract, persistent storage, security
-headers, content-hashed assets, and live Search Console when required.
+headers, every initial and lazy content-hashed asset (including immutable cache
+headers), and live Search Console when required. Compare the boot timestamp and
+deployed asset hashes to the release; healthy old code is not release evidence.
+
+GitHub Actions runs source/contract/security tests, a dependency advisory gate,
+and an isolated Chromium acceptance job. Browser reports and screenshots are
+retained as CI artifacts for 14 days. Locally, `BROWSER_EXECUTABLE` can point to
+an installed Chrome executable. Acceptance uses a new temporary data directory,
+fake credentials, and intercepted writes; it cannot publish/send/index to a
+real provider. It does not use an existing personal browser session.
 
 ## Routine checks
 
@@ -66,22 +77,37 @@ lease so the replacement process can reclaim it.
 - Failed after maximum attempts: fix the provider, configuration, or root cause,
   then use the normal authenticated trigger to enqueue a new idempotent run.
 
-Do not edit `jobs.json` by hand while the server is running.
+In production, jobs live in PostgreSQL `durable_jobs`; `jobs.json` is a legacy
+import/local-development artifact. Do not edit either queue by hand while the
+worker is running. Shared scheduling stops before worker shutdown.
 
 ## Backup and restore
 
 The daily backup job stores secret-free, tenant-scoped, checksummed snapshots.
 An owner can create and verify backups through `/api/storage-backups`.
 
-For an offline restore:
+For an offline **filesystem-mode** restore:
 
 1. Stop the application so no writer is active.
 2. Verify the chosen backup.
-3. Run the restore command with the exact confirmation string shown by the
-   tool. Restore creates another safety backup first.
+3. Run `node scripts/restore-backup.mjs --backup <id> --confirm "RESTORE <id>"`
+   with the correct `DATA_DIR` and `TENANT_ID`. Restore creates another safety
+   backup first. This command does not itself stop a running application.
 4. Start the application, check readiness, verify state, and run smoke.
 
 Never restore from an unverified directory or across tenant IDs.
+
+Production currently uses `STATE_BACKEND=postgres`. File snapshots do **not**
+back up the transactional job table, configuration secrets, or pending outbox.
+Do not treat a successful file restore as database recovery: prestart hydrates
+from PostgreSQL and replays the volume outbox. Preserve the database and volume
+as a coordinated recovery set. For a production database incident, stop all
+writers, preserve the current database/volume, and rehearse the chosen database
+restore and outbox reconciliation in an isolated environment before cutover.
+Never replay stale pending writes blindly onto a restored database. Establish
+an approved managed-database backup/PITR policy before the larger scale phase.
+The automated closeout drill exercises only file restore, checksum refusal,
+safety snapshots, and isolated outbox/queue recovery tests, not live PITR.
 
 ## Database migration
 

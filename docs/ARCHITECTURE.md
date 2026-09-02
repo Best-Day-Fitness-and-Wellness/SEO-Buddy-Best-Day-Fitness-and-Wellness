@@ -10,7 +10,9 @@ without an explicit product decision.
 
 SEO Buddy is a Node.js 20 and Express application. One Railway service serves a
 vanilla-JavaScript dashboard, exposes 89 HTTP routes, executes integration
-workflows, and runs a durable local job worker.
+workflows, and runs an in-process worker backed by a durable queue. Production
+uses PostgreSQL recovery and transactional job claiming; local development can
+use the filesystem adapter. One application replica remains supported.
 
 ```text
 Browser
@@ -43,16 +45,18 @@ Domain workflows                                         Operations APIs
                    |
                    v
        Tenant state repository
-       atomic JSON on DATA_DIR volume
+       local atomic cache + durable outbox on DATA_DIR
                    |
                    +-> checksummed backups
-                   +-> optional PostgreSQL mirror/migrations
+                   +-> PostgreSQL recovery authority + transactional jobs
 ```
 
 ## Boot flow
 
-1. The process selects `DATA_DIR` and loads server-side saved configuration.
-   Host environment values remain the deployment authority.
+1. `npm start` runs `scripts/prepare-state.mjs` first. In PostgreSQL mode it
+   migrates under an advisory lock, replays pending outbox writes, hydrates the
+   tenant cache, and imports legacy jobs before the HTTP process starts. Do not
+   bypass prestart for production startup.
 2. `lib/state-repository.js` resolves `TENANT_ID`, creates the tenant boundary,
    and safely copies legacy root state on the first tenant-aware boot.
 3. Browser assets are hashed from their content and injected into the cached
@@ -60,13 +64,15 @@ Domain workflows                                         Operations APIs
 4. Express installs same-origin security policy, lifecycle probes, correlation
    IDs, bounded metrics, compression, route-specific upload limits, global JSON
    limits, access control, and mutation auditing.
-5. Feature state is loaded from the tenant repository. Missing files receive
-   explicit defaults; writes use atomic file replacement.
+5. Saved configuration is read from `DATA_DIR`; host variables take precedence
+   at boot. Feature state is loaded from the hydrated tenant repository. Missing
+   files receive explicit defaults; writes use atomic file replacement and a
+   durable outbox sends document changes to PostgreSQL.
 6. Job handlers and the leased job worker start. Timers enqueue idempotent jobs
    instead of running expensive workflows directly.
-7. Optional PostgreSQL migrations run under an advisory lock, then tenant state
-   is mirrored periodically. A PostgreSQL failure is visible but does not make
-   the current filesystem-backed service unavailable.
+7. PostgreSQL mode initializes the transactional queue before starting its
+   worker. Filesystem mode can optionally mirror state to PostgreSQL; this
+   optional mirror is not the same as the production PostgreSQL recovery mode.
 8. Railway sends traffic only after `/health/ready` confirms traffic acceptance
    and writable persistent storage.
 
@@ -104,6 +110,8 @@ interactions, `brand-profile.js` owns the Brand Voice editor and readiness event
 question fan-out,
 `settings.js` owns connection fields, secure settings submission, and Search
 Console diagnostics,
+`content-workspace.js` owns the shared draft/editor, publishing, indexing,
+history, and content-autopilot interactions,
 `pdf-report.js` owns report assembly and PDF-library loading,
 and `theme.js` owns theme behavior. `public/app.js` remains the main feature coordinator.
 
@@ -113,8 +121,14 @@ content, Citations, Local Presence, Progress, Site Optimization, AI Visibility,
 Brand Voice, and Owner mode load on demand; the PDF vendor libraries remain
 behind the report module's second-stage loader. Search opportunities also load
 only when opened, while their content-creation handoff stays in the coordinator.
-Settings form wiring and diagnostics load only when Settings is opened; legacy
-browser-secret cleanup still runs at startup.
+Settings form wiring and diagnostics load only when Settings is opened; unsaved
+form edits survive navigation and legacy browser-secret cleanup still runs at
+startup. Content creation and publishing share one lazy module so switching
+between them cannot create a second draft state or duplicate event handlers.
+All secondary feature loads use `SeoBuddyCore.loadFeature`: same-origin hashed
+asset validation, one in-flight promise per asset, API readiness verification,
+a bounded timeout, and retry after failure. Core also owns common keyboard
+actions, dialog focus handling, and relative-time labels.
 Content-hashed assets prevent a deployment from combining new HTML with stale
 JavaScript.
 
@@ -159,14 +173,16 @@ digest, score snapshots, and backups follow one path:
 ```text
 timer or authenticated trigger
   -> enqueue with stable idempotency key
-  -> persist jobs.json atomically
+  -> persist transactional durable_jobs rows (or jobs.json in filesystem mode)
   -> claim lease
   -> heartbeat during work
   -> provider/domain workflow
   -> succeed, retry with bounded backoff, or fail terminally
 ```
 
-On deployment shutdown, active work is released for the replacement process.
+`lib/job-dispatcher.js` centralizes scheduling and enqueue policy without
+changing schedule windows, job identifiers, or retry counts. On deployment
+shutdown, scheduled timers stop and active work is released for the replacement process.
 The protected queue endpoint reports bounded status and never returns payloads.
 
 ### Provider calls
@@ -181,12 +197,15 @@ retried.
 
 ### Persistence and backup
 
-The production source of truth is atomic JSON under
+Runtime feature objects are cached in atomic JSON under
 `DATA_DIR/tenants/<TENANT_ID>/`. The repository prevents path escape and leaves
-legacy files intact after checksum-verified migration. Daily backups exclude
-secrets and contain a manifest checksum for every file. Restore verifies the
-manifest and creates a safety backup; it is intentionally available only while
-the application is stopped.
+legacy files intact after checksum-verified migration. Production uses
+PostgreSQL as startup recovery authority plus the durable volume outbox for
+pending writes. This is not transactional multi-replica feature state.
+Daily file snapshots exclude configuration secrets and contain checksums.
+The offline file-restore CLI verifies the manifest and creates a safety backup;
+it is not a PostgreSQL database or transactional job-queue restore. See
+OPERATIONS.md before any recovery operation.
 
 `DATABASE_URL` enables immutable SQL migrations and an immediate, durable
 outbox-backed PostgreSQL mirror with periodic reconciliation. With
@@ -205,6 +224,8 @@ so one production replica remains the supported topology.
 | `lib/provider-runtime.js` | All outbound reliability, concurrency, caching, and spend policy |
 | `lib/durable-job-queue.js` | Durable job state, leases, idempotency, retries, bounded history |
 | `lib/job-worker.js` | Queue-agnostic claiming, heartbeats, handler execution, and shutdown |
+| `lib/job-dispatcher.js` | Shared idempotent enqueue, recurring/daily timers, and scheduling shutdown |
+| `lib/postgres-job-queue.js` | Transactional claims, leases, idempotency, and durable job history |
 | `lib/state-repository.js` | Tenant containment and legacy state migration |
 | `lib/json-file-store.js` | Atomic document replacement |
 | `lib/backup-service.js` | Secret-free checksummed backup and restore |
@@ -270,11 +291,12 @@ so one production replica remains the supported topology.
    time-series tables.
 3. **The worker shares the web process.** Durable state prevents lost work, but
    provider latency still consumes web-process memory and event-loop capacity.
-   The database queue is ready for the PostgreSQL cutover; move the same handlers
-   to a separate worker service after that cutover is verified.
-4. **`public/app.js` is still large.** Reviews, recorded content, Citations, Local Presence, Progress, PDF reporting, assistant, theme, and core are
-   separate modules; Reviews, recorded content, Citations, Local Presence, Progress, and PDF reporting are lazy loaded. Continue feature-by-feature extraction
-   and dynamic import while preserving DOM IDs and response contracts.
+   The transactional database queue is deployed. Moving handlers to a separate
+   worker still requires removing process-local feature-state assumptions.
+4. **`public/app.js` still coordinates the shell.** Thirteen secondary feature
+   modules now load on demand; the coordinator retains Today, Explore, the
+   detailed dashboard, setup, and navigation. These shared projections are an
+   explicit boundary, not evidence that multi-tenant browser state is ready.
 5. **Configuration still supports UI-saved secrets.** A managed secret store is
    preferable for multi-instance deployment and independent rotation. Until
    then, restrict Settings to owners and keep the volume private and backed up.

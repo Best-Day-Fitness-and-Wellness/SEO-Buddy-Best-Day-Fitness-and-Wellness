@@ -1608,7 +1608,7 @@ body.dark .sum-ap-new{color:#ffb3ac;}
   #aio-tab .av-chip .dot{width:8px;height:8px;border-radius:50%;background:var(--text-dark);}
   #aio-tab .av-chip.on{color:var(--text-main);border-color:rgba(16,185,129,.4);}
   #aio-tab .av-chip.on .dot{background:var(--color-success);box-shadow:0 0 0 3px rgba(16,185,129,.15);}
-  #aio-tab .av-chip.off{opacity:.7;}
+  #aio-tab .av-chip.off{opacity:1;}
   #aio-tab .av-toolbar-right{display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
   #aio-tab .av-updated{font-size:12px;color:var(--text-dark);}
   #aio-tab .av-main{display:grid;grid-template-columns:1fr 320px;gap:16px;margin-bottom:22px;}
@@ -2613,7 +2613,8 @@ body.asst-open .sb-dock-wrap { display: none; }
   padding: 17px 19px;
 }
 .sb-card.protect { background: var(--surface-2); box-shadow: none; }
-.sb-card.locked { opacity: .62; }
+.sb-card.locked { opacity: 1; }
+.sb-card.locked .sb-art { opacity: .62; }
 .sb-card .r1 { display: flex; align-items: center; gap: 11px; margin-bottom: 8px; flex-wrap: wrap; }
 .sb-card .ic {
   width: 34px; height: 34px; border-radius: 10px; flex: 0 0 34px;
@@ -2890,16 +2891,21 @@ body.asst-open .sb-dock-wrap { display: none; }
      hold the whole page open on its own. Let it wrap on a phone. */
   .rv-split-val { white-space: normal; overflow-wrap: anywhere; text-align: right; }
 
-  /* The stepper dots are deliberately small — they are a position indicator,
-     not a button — but they are tappable, so they need a real hit area.
-     A transparent inset pseudo-element gives them 44px without changing how
-     they look or how they sit in the row. */
-  .sb-stepdot { position: relative; }
-  .sb-stepdot::after {
+  /* Each dot owns its whole tap area; oversized overlapping pseudo-elements
+     used to let the next dot intercept a tap. Wrap unusually long dot rows. */
+  .sb-dots { gap: 0; flex-wrap: wrap; }
+  .sb-stepdot, .sb-stepdot.on {
+    position: relative; flex: 0 0 44px; width: 44px; height: 44px;
+    background: transparent; border-radius: 8px;
+  }
+  .sb-stepdot:hover { background: transparent; }
+  .sb-stepdot::before {
     content: ''; position: absolute;
     top: 50%; left: 50%; transform: translate(-50%, -50%);
-    width: 44px; height: 44px;
+    width: 10px; height: 10px; border-radius: 50%; background: var(--line);
   }
+  .sb-stepdot.on::before { width: 26px; border-radius: 4px; background: var(--action); }
+  .sb-stepdot:hover::before { background: var(--ink-3); }
 }
 
 /* --------------------------------------------------------------------------
@@ -3035,3 +3041,12 @@ body.asst-open .sb-dock-wrap { display: none; }
 .gsc-fix b { color: #4d3706; }
 .gsc-email { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
   background: var(--line-2); padding: 2px 6px; border-radius: 5px; overflow-wrap: anywhere; }
+
+/* Keep status text readable without changing the approved illustration palette. */
+body:not(.dark) .ow-chip.approve { color: #185bae; }
+body:not(.dark) .status-indicator.mock { color: #874700; }
+body.dark .asst-fab { color: #111329; }
+body.dark .asst-fab svg { stroke: currentColor; }
+[role="button"]:focus-visible, .data-table:focus-visible {
+  outline: 2px solid var(--action); outline-offset: 3px;
+}

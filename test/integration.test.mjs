@@ -293,6 +293,15 @@ test('static assets compress, cache briefly, and keep PDF code off the critical 
   assert.doesNotMatch(html, /{{[A-Z0-9_]+}}/);
   const hashedAssets = [...html.matchAll(/(?:href|src)="(\/assets\/[^"]+)"/g)].map(match => match[1]);
   assert.equal(hashedAssets.length, 5, 'stylesheet, theme, core, app, and assistant must be on the initial path');
+  const lazyAssets = [...html.matchAll(/data-[a-z-]+-asset="(\/assets\/[^"]+)"/g)].map(match => match[1]);
+  assert.equal(new Set(lazyAssets).size, lazyAssets.length, 'feature asset declarations must be unique');
+  assert.ok(lazyAssets.some(asset => /\/content-workspace\./.test(asset)));
+  for (const asset of lazyAssets) {
+    assert.equal(hashedAssets.includes(asset), false, `${asset} must remain lazy`);
+    const response = await request(asset, { auth: false });
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get('cache-control') || '', /immutable/);
+  }
   const reviewsAsset = html.match(/data-reviews-asset="(\/assets\/reviews\.[a-f0-9]{12}\.js)"/)?.[1];
   const recordedContentAsset = html.match(/data-recorded-content-asset="(\/assets\/recorded-content\.[a-f0-9]{12}\.js)"/)?.[1];
   const pdfReportAsset = html.match(/data-pdf-report-asset="(\/assets\/pdf-report\.[a-f0-9]{12}\.js)"/)?.[1];
@@ -379,6 +388,9 @@ test('static assets compress, cache briefly, and keep PDF code off the critical 
   assert.match(source, /ensureOwnerModeFeature/);
   assert.match(source, /ensureSearchOpportunitiesFeature/);
   assert.match(source, /ensureSettingsFeature/);
+  assert.match(source, /ensureContentWorkspaceFeature/);
+  assert.doesNotMatch(source, /CASE_STUDY_TEMPLATES|PUBLISHING & INDEXING EXECUTION|PERSISTENT HISTORY & AUTOPILOT CONTROLLER/);
+  assert.doesNotMatch(source, /document\.createElement\('script'\)/, 'feature loading belongs to the shared core');
   assert.match(source, /migrateLegacyBrowserSecrets\(\)/);
   assert.match(source, /window\.getStoredCredentials/);
   assert.match(source, /btn-goto-brand/);
@@ -400,6 +412,13 @@ test('static assets compress, cache briefly, and keep PDF code off the critical 
   const ownerModeSource = await (await request('/modules/owner-mode.js', { auth: false })).text();
   const searchOpportunitiesSource = await (await request('/modules/search-opportunities.js', { auth: false })).text();
   const settingsSource = await (await request('/modules/settings.js', { auth: false })).text();
+  const contentSource = await (await request('/modules/content-workspace.js', { auth: false })).text();
+  assert.match(contentSource, /global\.SeoBuddyContent/);
+  for (const endpoint of ['/api/generate-article', '/api/publish-ghl', '/api/index-url', '/api/history', '/api/autopilot-status', '/api/autopilot-run-now']) {
+    assert.ok(contentSource.includes(endpoint));
+  }
+  assert.match(contentSource, /sanitizeHtml\(codeEditor\.value\)/);
+  assert.match(contentSource, /loadKeywordIntoCreator/);
   assert.match(coreSource, /global\.SeoBuddyCore/);
   assert.match(assistantSource, /SEO BUDDY ASSISTANT/);
   assert.match(reviewsSource, /REVIEWS SITE/);
