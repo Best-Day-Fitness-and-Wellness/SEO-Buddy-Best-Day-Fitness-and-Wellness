@@ -20,8 +20,8 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
   responses.set('/api/automation-status', { json: { success: true, checkedAt: '2026-09-02T12:00:00Z', features } });
   const open = async id => { await page.locator(id).click(); };
   const location = slug => page.waitForFunction(slug => location.hash === '#/' + slug, slug);
-  const load = async slug => {
-    await page.goto(base + '/#/' + slug);
+  const load = async (slug, search = '') => {
+    await page.goto(base + '/' + search + '#/' + slug);
     await page.waitForFunction(() => !!window.SeoBuddyWorkspace);
     await location(slug);
     await page.addScriptTag({ url: base + '/__acceptance__/axe.js' });
@@ -31,6 +31,31 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
     await page.locator('#ws-tool-search').fill(term);
     await page.locator(`.exp-row[data-go="tab:${tab}"]`).click();
   };
+
+  await journey(`${prefix}: refresh leaves headings unfocused while keyboard navigation keeps its focus cue`, async () => {
+    const heading = page.locator('#page-title');
+    const assertNoStartupFocus = async () => {
+      // The router restores scroll/focus on the next animation frame.
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      assert.equal(await heading.evaluate(el => el === document.activeElement), false, 'Startup must not autofocus the heading');
+      assert.equal(await heading.evaluate(el => getComputedStyle(el).outlineStyle), 'none', 'Refresh must not draw a heading box');
+    };
+    for (const slug of ['today', 'tools']) {
+      // A different query forces a fresh document on the app's own origin;
+      // hash-only changes are navigation, and blank pages cannot use storage.
+      await load(slug, '?refresh-check=' + slug);
+      await assertNoStartupFocus();
+      await page.reload();
+      await page.waitForFunction(() => !!window.SeoBuddyWorkspace);
+      await location(slug);
+      await assertNoStartupFocus();
+    }
+    await page.locator('#ws-nav-today').focus();
+    await page.keyboard.press('Enter');
+    await location('today');
+    await page.locator('#page-title:focus-visible').waitFor();
+    assert.notEqual(await heading.evaluate(el => getComputedStyle(el).outlineStyle), 'none', 'Keyboard navigation must retain its focus cue');
+  });
 
   await journey(`${prefix}: default rollout preserves classic preferences and preview bookmarks`, async () => {
     const before = writes.length;

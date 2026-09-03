@@ -61,6 +61,7 @@
     const tab = aliases[requested] || requested;
     if (!ROUTES[tab] || !document.getElementById(tab)) return false;
     const replay = options.replay === true;
+    const moveFocus = current !== null;
     if (!replay && current) {
       history.replaceState({ ...history.state, seoWorkspace: { tab: current, depth, scroll: global.scrollY } }, '', global.location.href);
     }
@@ -91,8 +92,9 @@
     requestAnimationFrame(() => {
       if (current !== tab) return;
       global.scrollTo({ top: replay ? history.state?.seoWorkspace?.scroll || 0 : 0, behavior: 'instant' });
-      // A quick keyboard user may already have moved into the new page.
-      if (document.activeElement === previousFocus || document.activeElement === document.body) $('page-title').focus({ preventScroll: true });
+      // Let the browser own focus on initial load/reload. Move it to the heading
+      // only for in-app navigation, without interrupting a quick keyboard user.
+      if (moveFocus && (document.activeElement === previousFocus || document.activeElement === document.body)) $('page-title').focus({ preventScroll: true });
     });
     return true;
   }
