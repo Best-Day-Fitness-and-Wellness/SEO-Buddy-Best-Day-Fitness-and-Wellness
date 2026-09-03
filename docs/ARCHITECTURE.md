@@ -338,7 +338,11 @@ so one production replica remains the supported topology.
    the four-destination owner navigation, approvals, tool search and progressive
    disclosure. Existing feature modules still own their workflows and data.
    `lib/automation-status.js` is a read-only, secret-free status projection,
-   not a second scheduler. `?workspace=classic` retains the previous navigation.
+   not a second scheduler. `?workspace=classic` temporarily retains the previous
+   navigation for emergency recovery, not normal use. Its shell link is hidden
+   unless workspace startup fails. The older owner module still supplies the
+   redesigned Results and Business views; separate these shared dependencies
+   before deleting legacy-only navigation and mode code.
    See `docs/OWNER-WORKSPACE-PREVIEW.md` for the owner-authorized rollout,
    owner-reported usability acceptance and precise evidence limits.
 5. **Configuration still supports UI-saved secrets.** A managed secret store is

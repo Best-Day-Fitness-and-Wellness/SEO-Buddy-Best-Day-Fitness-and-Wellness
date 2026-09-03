@@ -1737,8 +1737,9 @@ document.addEventListener('DOMContentLoaded', () => {
       .then(() => window.SeoBuddyWorkspace.start(switchTab))
       .catch(() => {
         const error = document.getElementById('ws-load-error');
-        error.textContent = 'Could not load the workspace. Reload to retry, or use the Previous interface link.';
+        error.textContent = 'Could not load the workspace. Reload to retry, or open the recovery interface.';
         error.hidden = false;
+        document.getElementById('ws-classic').hidden = false;
       });
   } else if (state.activeTab === 'today-tab') {
     loadToday();

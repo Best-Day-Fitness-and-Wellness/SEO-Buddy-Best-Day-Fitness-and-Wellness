@@ -124,9 +124,11 @@ web replicas yet: feature mutations are still process-local during a run.
 
 ## Rollback
 
-The normal URL opens the redesigned workspace; `/?workspace=classic` and the
-**Previous interface** link retain the earlier interface and its saved Owner
-mode preference. Old `/?workspace=preview` bookmarks remain supported. The
+The normal URL opens the redesigned workspace with no previous-interface link
+in normal navigation. `/?workspace=classic` temporarily retains the earlier
+interface and its saved Owner mode preference for emergency recovery. The shell
+reveals **Open recovery interface** only if workspace startup fails; a successful
+reload hides it again. Old `/?workspace=preview` bookmarks remain supported. The
 owner approved rollout before first-time-user testing, then reported “tests
 good” on 2026-09-03 and accepted the navigation step. Participant-level findings
 were not supplied. See `docs/OWNER-WORKSPACE-PREVIEW.md` for the record and status semantics.

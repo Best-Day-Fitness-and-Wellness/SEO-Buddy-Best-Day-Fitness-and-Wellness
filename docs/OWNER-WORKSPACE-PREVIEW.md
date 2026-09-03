@@ -4,12 +4,16 @@
 
 The normal deployment URL now opens the redesigned workspace. This is a
 navigation release, not a second application or a separate data store.
-**Previous interface** opens `/?workspace=classic`; **Use redesigned workspace**
-returns to the default. The saved Owner mode preference is preserved and used
+The previous interface is no longer linked in normal navigation. During this
+retirement stage, `/?workspace=classic` remains an emergency fallback;
+**Use redesigned workspace** returns to the default. The saved Owner mode preference is preserved and used
 only in the classic interface. Existing `/?workspace=preview` bookmarks still
 work. Entering either interface never enables an automation, changes a
-connection, or publishes content. The classic recovery link is part of the
-initial shell and remains available if the workspace module fails to load.
+connection, or publishes content. **Open recovery interface** is part of the
+initial shell, hidden by default, and revealed only if workspace startup fails.
+It is hidden again after a successful reload. Keep this fallback for one release
+of validation before separately removing legacy-only code. Results and Business
+still share the older owner module; removing that entire module is not safe.
 
 The workspace uses live data and the existing authenticated write routes.
 It is **not a sandbox**. Browser acceptance tests use a separate local server,
@@ -126,14 +130,16 @@ Run `npm run check`, `npm test`, and `npm run test:browser` before release.
 The browser runner covers the classic interface and every default workspace route in
 desktop/mobile, with core destinations also checked in dark mode. CI retains
 the screenshots and machine-readable report for 14 days. It also verifies bare
-URL entry, classic return links, saved-mode preservation, old preview bookmarks,
-and recovery when the workspace module cannot load.
+URL entry, hidden legacy entry across normal routes, emergency bookmarks and
+return links, saved-mode preservation, old preview bookmarks, recovery when the
+workspace module cannot load, and hiding recovery again after startup succeeds.
 
 After deployment, run the strict production smoke suite. It checks the six
 automation summaries and the content-hashed workspace asset as well as the
 existing readiness, storage and live-search contracts. Verify the exact
 deployed commit; a successful local test is not deployment evidence.
 
-For an individual user, use **Previous interface** or `/?workspace=classic`.
+For an individual user, use `/?workspace=classic`, or **Open recovery interface**
+if the startup error is displayed. The link is not a normal navigation option.
 For a code rollback, revert the release commit without touching business
 state, job history, configuration, or the production volume.

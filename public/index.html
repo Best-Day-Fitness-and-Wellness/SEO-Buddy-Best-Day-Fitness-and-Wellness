@@ -128,9 +128,9 @@
         </div>
       </header>
 
-      <!-- Recovery is part of the shell, so it works if the workspace module fails. -->
+      <!-- Recovery stays in the shell but is revealed only if workspace startup fails. -->
       <div class="ws-orientation workspace-only" id="ws-orientation">
-        <a href="?workspace=classic" id="ws-classic">Previous interface</a>
+        <a href="?workspace=classic" id="ws-classic" hidden>Open recovery interface</a>
         <p id="ws-load-error" role="alert" hidden></p>
       </div>
 

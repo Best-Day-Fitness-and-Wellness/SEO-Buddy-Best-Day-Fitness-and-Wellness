@@ -314,6 +314,14 @@ test('supplied logo variants and shortcut icons are served without authenticatio
   assert.doesNotMatch(html, /--sb-mark-core|--sb-mark-tick/);
 });
 
+test('legacy recovery is present in the shell but hidden before workspace startup', async () => {
+  const response = await request('/', { auth: false });
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  assert.match(html, /<a\b[^>]*href="\?workspace=classic"[^>]*id="ws-classic"[^>]*\bhidden>Open recovery interface<\/a>/);
+  assert.doesNotMatch(html, />Previous interface</);
+});
+
 test('static assets compress, cache briefly, and keep PDF code off the critical path', async () => {
   const index = await request('/', { auth: false });
   const html = await index.text();
