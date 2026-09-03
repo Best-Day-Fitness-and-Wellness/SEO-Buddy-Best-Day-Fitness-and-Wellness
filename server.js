@@ -16,6 +16,8 @@ const {
 const { createScoreHistory } = require('./lib/score-history');
 const { createScoreHistoryRepository } = require('./lib/score-history-repository');
 const { createPublicationHistoryRepository } = require('./lib/publication-history-repository');
+const { createPerformanceHistory } = require('./lib/performance-history');
+const { createPerformanceHistoryRepository } = require('./lib/performance-history-repository');
 const { integrationUnavailable, mocksAllowed, resolveAppMode } = require('./lib/runtime-mode');
 const { createLogger } = require('./lib/logger');
 const { createRequestMetrics } = require('./lib/request-metrics');
@@ -2472,14 +2474,11 @@ registerAssistantRoutes(app, {
 });
 
 // 15. Performance — period-over-period trends, durable snapshots, and leads
-const PERF_FILE = path.join(DATA_DIR, 'performance.json');
-let perfSnapshots = [];
-if (fs.existsSync(PERF_FILE)) {
-  try { perfSnapshots = JSON.parse(fs.readFileSync(PERF_FILE, 'utf8')); } catch (e) { perfSnapshots = []; }
-}
-function savePerf() {
-  saveJsonFileSync(PERF_FILE, perfSnapshots, 'Performance');
-}
+const performanceHistoryRepository = createPerformanceHistoryRepository(stateRepository);
+const performanceHistory = createPerformanceHistory({
+  initialSnapshots: performanceHistoryRepository.load(),
+  saveSnapshots: performanceHistoryRepository.save,
+});
 
 const performanceService = createPerformanceService({
   allowMockIntegrations: ALLOW_MOCK_INTEGRATIONS,
@@ -2487,11 +2486,8 @@ const performanceService = createPerformanceService({
   getSiteUrl: () => process.env.GSC_SITE_URL,
   createWebmasters: auth => google.webmasters({ version: 'v3', auth }),
   searchConsoleQuery,
-  getSnapshots: () => perfSnapshots,
-  replaceSnapshots: (snapshots, changed) => {
-    perfSnapshots = snapshots;
-    if (changed) savePerf();
-  },
+  getSnapshots: () => performanceHistory.snapshots,
+  recordSnapshot: performanceHistory.record,
   getAioAudits: () => aioAuditsDb,
   getGhlConfig: () => ({ token: process.env.GHL_ACCESS_TOKEN, locationId: process.env.GHL_LOCATION_ID }),
   providerFetch: (...args) => providerRuntime.fetch(...args),

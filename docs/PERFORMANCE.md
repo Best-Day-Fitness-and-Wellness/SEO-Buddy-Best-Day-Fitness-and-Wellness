@@ -52,6 +52,12 @@ is shared feature-state mutation and the in-process worker.
    single-flight within one process. Concurrent database updates, cross-process
    deduplication and indexed history tables have not been implemented by this
    extraction; do not increase replica count on that basis.
+   Performance daily-history state and persistence are now isolated behind
+   `performance-history.js` and `performance-history-repository.js` as well.
+   The existing daily update, 180-row retention, no-op write suppression and
+   whole-file/outbox persistence are unchanged. Tests lock down report values,
+   period boundaries, concurrent-read coalescing, restart recovery and failure
+   semantics; database transactions and indexed histories remain future work.
 2. Make database writes authoritative behind repository interfaces; keep JSON
    only as a local-development adapter and rollback export.
 3. Once feature mutations no longer depend on web-process objects, run the

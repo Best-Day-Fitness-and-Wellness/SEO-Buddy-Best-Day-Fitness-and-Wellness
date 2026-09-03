@@ -233,6 +233,7 @@ so one production replica remains the supported topology.
 | `lib/access-control.js` / `audit-log.js` | Roles, authorization, tamper-evident mutation trail |
 | `lib/configuration-routes.js` | Owner-only settings validation, secret persistence, activation, and storage status |
 | `lib/health-score.js` | Pure, versioned scoring and stabilization |
+| `lib/performance-history.js` / `performance-history-repository.js` | Daily performance timeline and the existing tenant-file/outbox persistence boundary |
 | `lib/attribution.js` | Deterministic contact source classification |
 | `lib/content-quality.js` | Deterministic article quality and automatic-publish gate |
 | `lib/profile-routes.js` | Brand and business profile HTTP contracts |
@@ -312,6 +313,18 @@ so one production replica remains the supported topology.
    failure semantics. No data rewrite, new schema or storage-authority cutover
    is introduced. The legacy missing-file publication seed is retained solely
    for compatibility; it is not verified publication/indexing evidence.
+
+   Performance history now follows the same separation:
+   `lib/performance-history.js` owns the in-process daily upsert, unchanged-row
+   write suppression, and existing 180-row retention; its repository adapter
+   loads/saves the same `performance.json` through the atomic writer and outbox.
+   Loading does not seed, repair, sort, or rewrite existing data. Search Console
+   aggregation, dates, cache/coalescing, attribution and HTTP response fields
+   remain in the existing performance service. Best-effort write failures keep
+   their historical behavior, including updating memory before persistence.
+   Regression tests cover restart recovery, tenant isolation, concurrent reads,
+   unavailable data and failed writes. This is not a transactional cutover or
+   a change to the supported one-replica topology.
 3. **The worker shares the web process.** Durable state prevents lost work, but
    provider latency still consumes web-process memory and event-loop capacity.
    The transactional database queue is deployed. Moving handlers to a separate

@@ -44,6 +44,7 @@ const { EMAIL_PATTERN, registerDeliveryRoutes } = require('../lib/delivery-route
 const { CITATION_STATUSES, LISTING_TYPES, normalizeCitationQueries, registerCitationRoutes } = require('../lib/citation-routes.js');
 const { buildCanonicalNap, buildReviewReplyPrompt, mapNapListings, registerLocalSeoRoutes } = require('../lib/local-seo-routes.js');
 const { aggregateGscRows, createPerformanceService, registerPerformanceRoutes } = require('../lib/performance-routes.js');
+const { createPerformanceHistory } = require('../lib/performance-history.js');
 const {
   assertPublicHttpUrl,
   buildOnsiteSchemas,
@@ -2405,6 +2406,10 @@ test('performance service preserves aggregation, trends, persistence, attributio
   const fixedNow = Date.parse('2026-09-01T12:00:00.000Z');
   let snapshots = [];
   let saves = 0;
+  const performanceHistory = createPerformanceHistory({
+    initialSnapshots: snapshots,
+    saveSnapshots: next => { snapshots = next; saves += 1; },
+  });
   const gscRequests = [];
   const providerRequests = [];
   const gscRows = [
@@ -2434,11 +2439,8 @@ test('performance service preserves aggregation, trends, persistence, attributio
       gscRequests.push({ webmasters, request });
       return { data: { rows: gscRows[gscRequests.length - 1] } };
     },
-    getSnapshots: () => snapshots,
-    replaceSnapshots: (next, changed) => {
-      snapshots = next;
-      if (changed) saves += 1;
-    },
+    getSnapshots: () => performanceHistory.snapshots,
+    recordSnapshot: performanceHistory.record,
     getAioAudits: () => [
       { timestamp: '2026-08-30T12:00:00Z', recommended: true },
       { timestamp: '2026-08-30T16:00:00Z', recommended: false },
@@ -2502,7 +2504,7 @@ test('performance service preserves aggregation, trends, persistence, attributio
     createWebmasters: () => { throw new Error('must not be called'); },
     searchConsoleQuery: () => { throw new Error('must not be called'); },
     getSnapshots: () => [],
-    replaceSnapshots: () => {},
+    recordSnapshot: () => { assert.fail('Unavailable performance must not save a snapshot'); },
     getAioAudits: () => [],
     getGhlConfig: () => ({ token: '', locationId: '' }),
     providerFetch: () => { throw new Error('must not be called'); },
