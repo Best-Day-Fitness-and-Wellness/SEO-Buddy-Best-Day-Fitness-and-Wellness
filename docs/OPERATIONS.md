@@ -127,8 +127,9 @@ web replicas yet: feature mutations are still process-local during a run.
 The normal URL opens the redesigned workspace; `/?workspace=classic` and the
 **Previous interface** link retain the earlier interface and its saved Owner
 mode preference. Old `/?workspace=preview` bookmarks remain supported. The
-owner approved rollout before first-time-user testing; feedback is still
-pending. See `docs/OWNER-WORKSPACE-PREVIEW.md` for test tasks and status semantics.
+owner approved rollout before first-time-user testing, then reported “tests
+good” on 2026-09-03 and accepted the navigation step. Participant-level findings
+were not supplied. See `docs/OWNER-WORKSPACE-PREVIEW.md` for the record and status semantics.
 Interface entry is read-only, but actions use the same live authenticated
 workflows: do not treat either interface as a vendor sandbox.
 

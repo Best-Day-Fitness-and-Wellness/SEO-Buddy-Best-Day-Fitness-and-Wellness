@@ -44,6 +44,9 @@ is shared feature-state mutation and the in-process worker.
 1. Define transactional repositories for concurrently changing feature state:
    usage, score snapshots, performance, publications, and audits. The durable
    job table and transactional claiming already exist.
+   The usage meter and current persistence adapter are now separate and covered
+   by compatibility tests. Transactional updates and budget reservations are
+   still future work; the current adapter intentionally keeps existing behavior.
 2. Make database writes authoritative behind repository interfaces; keep JSON
    only as a local-development adapter and rollback export.
 3. Once feature mutations no longer depend on web-process objects, run the

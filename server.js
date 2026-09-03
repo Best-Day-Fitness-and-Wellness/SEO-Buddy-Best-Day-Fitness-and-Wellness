@@ -40,6 +40,8 @@ const { assessArticleQuality } = require('./lib/content-quality');
 const { registerOperationsRoutes } = require('./lib/operations-routes');
 const { registerProfileRoutes } = require('./lib/profile-routes');
 const { registerUsageRoutes } = require('./lib/usage-routes');
+const { createUsageMeter } = require('./lib/usage-meter');
+const { createUsageRepository } = require('./lib/usage-repository');
 const { registerGscRoutes } = require('./lib/gsc-routes');
 const { registerAutopilotRoutes } = require('./lib/autopilot-routes');
 const { registerContentRoutes } = require('./lib/content-routes');
@@ -80,7 +82,7 @@ const providerRuntime = createProviderRuntime({
   logger,
   guard: async provider => {
     if (AI_PROVIDER_NAMES.has(provider) && usageOverBudget()) {
-      throw new ProviderRuntimeError(`Monthly AI budget of $${usageDb.budgetUSD} has been reached.`, {
+      throw new ProviderRuntimeError(`Monthly AI budget of $${usageMeter.budgetUSD} has been reached.`, {
         code: 'PROVIDER_BUDGET_EXCEEDED', provider, retryable: false,
       });
     }
@@ -756,7 +758,7 @@ registerOperationsRoutes(app, {
   getPostgresStatus: () => postgresStatus,
   providerRuntime,
   getBudget: () => ({
-    limitUSD: usageDb.budgetUSD,
+    limitUSD: usageMeter.budgetUSD,
     usedUSD: currentUsage().estCostUSD,
     reached: usageOverBudget(),
   }),
@@ -2448,54 +2450,36 @@ function assistantContext() {
     reddit: redditDb.latest ? { threadsFound: (redditDb.latest.threads || []).length } : null,
     enginesConnected: enginesStatus().map(e => ({ engine: e.label, connected: e.configured })),
     topCitationTargets: (() => { try { const w = worklistPayload(); return (w.targets || []).slice(0, 6).map(t => ({ site: t.domain, alreadyListed: t.listed === true, type: t.type })); } catch (e) { return null; } })(),
-    usageThisMonth: (() => { const u = currentUsage(); return { estimatedCostUSD: u.estCostUSD, assistantMessages: u.assistantMessages, aiChecksRun: (u.groundedCalls || 0) + (u.openaiCalls || 0) + (u.perplexityCalls || 0), articlesWritten: u.articles, monthlyBudgetUSD: usageDb.budgetUSD }; })()
+    usageThisMonth: (() => { const u = currentUsage(); return { estimatedCostUSD: u.estCostUSD, assistantMessages: u.assistantMessages, aiChecksRun: (u.groundedCalls || 0) + (u.openaiCalls || 0) + (u.perplexityCalls || 0), articlesWritten: u.articles, monthlyBudgetUSD: usageMeter.budgetUSD }; })()
   };
 }
 // ============================================================
-// USAGE / COST METERING (per-account, franchise-ready)
-// Tracks metered AI spend per month, keyed by locationId so it slots straight
-// into a multi-location model later. Optional monthly budget cap.
+// USAGE / COST METERING — single-process compatibility boundary.
+// Account/month accounting is separate from storage and HTTP. A transactional
+// reservation design is still required before adding application replicas.
 // ============================================================
-const USAGE_FILE = path.join(DATA_DIR, 'usage.json');
-let usageDb = { months: {}, budgetUSD: null };
-if (fs.existsSync(USAGE_FILE)) { try { const l = JSON.parse(fs.readFileSync(USAGE_FILE, 'utf8')); if (l && typeof l === 'object') usageDb = { months: l.months || {}, budgetUSD: (typeof l.budgetUSD === 'number' ? l.budgetUSD : null) }; } catch (e) {} }
-else { try { writeJsonFileSync(USAGE_FILE, usageDb); } catch (e) {} }
-function saveUsage() { saveJsonFileSync(USAGE_FILE, usageDb, 'Usage'); }
-function accountKey() { return businessLocationId || 'default'; }
-function usageMonthKey() { return new Date().toISOString().slice(0, 7); }
-function currentUsage() {
-  const mk = usageMonthKey(), ak = accountKey();
-  usageDb.months[mk] = usageDb.months[mk] || {};
-  usageDb.months[mk][ak] = usageDb.months[mk][ak] || { geminiCalls: 0, groundedCalls: 0, openaiCalls: 0, perplexityCalls: 0, assistantMessages: 0, articles: 0, actions: 0, estCostUSD: 0 };
-  return usageDb.months[mk][ak];
-}
-// Rough per-call cost estimates (USD). Deliberately conservative/overshoot.
-// transcribe is priced well above a text call on purpose: audio burns far more
-// tokens than prompt text, and cost scales with recording length. Both new kinds
-// report as geminiCalls so the existing usage UI keeps working unchanged.
-const USAGE_COST = { gemini: 0.0006, grounded: 0.008, openai: 0.006, perplexity: 0.006, assistant: 0.0009, article: 0.004, transcribe: 0.003, social: 0.0012, action: 0 };
-const USAGE_FIELD = { gemini: 'geminiCalls', grounded: 'groundedCalls', openai: 'openaiCalls', perplexity: 'perplexityCalls', assistant: 'assistantMessages', article: 'articles', transcribe: 'geminiCalls', social: 'geminiCalls', action: 'actions' };
-function meterUsage(kind, n) {
-  n = n || 1;
-  try {
-    const u = currentUsage();
-    if (USAGE_FIELD[kind]) u[USAGE_FIELD[kind]] = (u[USAGE_FIELD[kind]] || 0) + n;
-    u.estCostUSD = Math.round((u.estCostUSD + (USAGE_COST[kind] || 0) * n) * 10000) / 10000;
-    saveUsage();
-  } catch (e) { /* metering must never break a request */ }
-}
-function usageOverBudget() { if (usageDb.budgetUSD == null) return false; return currentUsage().estCostUSD >= usageDb.budgetUSD; }
-function budgetBlock(res) { res.json({ success: true, budgetReached: true, message: `You've reached your monthly usage budget of $${usageDb.budgetUSD}. Raise or clear it in Settings to keep running AI features this month.` }); return true; }
+const usageRepository = createUsageRepository(stateRepository);
+const usageMeter = createUsageMeter({
+  initialState: usageRepository.load(),
+  saveState: usageRepository.save,
+  getAccountKey: () => businessLocationId,
+});
+// Hoisted callbacks preserve earlier route registrations without moving boot
+// initialization ahead of tenant hydration, write observers, or business setup.
+function saveUsage() { return usageMeter.save(); }
+function accountKey() { return usageMeter.accountKey(); }
+function usageMonthKey() { return usageMeter.monthKey(); }
+function currentUsage() { return usageMeter.current(); }
+function meterUsage(kind, n) { return usageMeter.record(kind, n); }
+function usageOverBudget() { return usageMeter.overBudget(); }
+function budgetBlock(res) { res.json({ success: true, budgetReached: true, message: `You've reached your monthly usage budget of $${usageMeter.budgetUSD}. Raise or clear it in Settings to keep running AI features this month.` }); return true; }
 
 registerUsageRoutes(app, {
   requireOwner,
   currentUsage,
   usageMonthKey,
   accountKey,
-  usageState: {
-    get budgetUSD() { return usageDb.budgetUSD; },
-    set budgetUSD(value) { usageDb.budgetUSD = value; },
-  },
+  usageState: usageMeter,
   usageOverBudget,
   saveUsage,
 });
@@ -2503,7 +2487,7 @@ registerAssistantRoutes(app, {
   requireAuth,
   hasGeminiKey: () => !!process.env.GEMINI_API_KEY,
   usageOverBudget,
-  getBudget: () => usageDb.budgetUSD,
+  getBudget: () => usageMeter.budgetUSD,
   getContext: assistantContext,
   geminiGenerate,
   model: GEMINI_MODEL,

@@ -69,11 +69,17 @@ Estimated next eligible checks are labelled separately from explicit times.
 Use **Refresh checks** to obtain a new observation. A blank inbox is never
 treated as evidence that all automation is healthy.
 
-## Real-owner usability feedback — pending
+## Real-owner usability feedback — owner accepted, 2026-09-03
 
 The project owner explicitly approved making the redesign the default before
 first-time-user testing, with feedback to follow. That approval is a rollout
 decision, not evidence that usability testing has passed.
+
+On 2026-09-03 the owner reported “tests good” and authorized proceeding.
+The navigation acceptance step is closed on that owner-reported basis; no
+specific navigation defects were reported. Participant count, device coverage,
+timings, and individual task outcomes were not supplied and are not inferred.
+The protocol below remains available for future feedback and regression checks.
 
 Ask 2–3 owners who have not used SEO Buddy to try the workspace individually.
 Include phone and desktop users. Do not coach them or name the destination
@@ -101,7 +107,7 @@ had already done for you?” No leading questions or suggested answers.
 
 | Participant / device | Task | Completed without help? | Time | Wrong turns / misunderstanding |
 | --- | --- | --- | --- | --- |
-| Pending | 1–5 | Not tested | — | — |
+| Owner-reported acceptance, 2026-09-03 | Not itemized | Reported “tests good”; detail not supplied | Not supplied | None reported |
 
 Suggested post-release target: each participant completes at least 4 of 5 tasks
 without help, with no mistaken belief that a draft, schedule or estimate is
@@ -110,8 +116,9 @@ and retest. This small study is directional evidence, not statistical proof.
 
 Automated acceptance covers browser behavior, accessibility, safe failures
 and in-tab draft continuity. It **cannot** replace real-owner testing.
-Collect and review the findings after rollout; repeated failures still need
-fixes and retesting. No participant results have been recorded yet.
+Any subsequent repeated failures still need fixes and retesting. The acceptance
+above records the owner's report, not independently observed participant results
+or proof that the suggested task-level target was met.
 
 ## Verification and rollback
 

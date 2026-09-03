@@ -289,6 +289,14 @@ so one production replica remains the supported topology.
    still the supported topology. Move mutations to transactional repository
    calls before adding replicas; use unique idempotency keys and indexed
    time-series tables.
+
+   Usage accounting now has a focused `lib/usage-meter.js` service (existing
+   estimates, counter mappings, UTC month/account selection, budget checks) and
+   `lib/usage-repository.js` adapter (the same `usage.json` tenant cache, atomic
+   writer and PostgreSQL outbox observer). HTTP routes and provider call sites
+   retain their contracts. Tests cover compatibility, restart recovery and
+   failure behavior. This separates accounting from persistence; it does not
+   make budget checks atomic reservations or feature state replica-safe.
 3. **The worker shares the web process.** Durable state prevents lost work, but
    provider latency still consumes web-process memory and event-loop capacity.
    The transactional database queue is deployed. Moving handlers to a separate
@@ -304,7 +312,7 @@ so one production replica remains the supported topology.
    `lib/automation-status.js` is a read-only, secret-free status projection,
    not a second scheduler. `?workspace=classic` retains the previous navigation.
    See `docs/OWNER-WORKSPACE-PREVIEW.md` for the owner-authorized rollout,
-   pending first-time-user feedback and precise evidence limits.
+   owner-reported usability acceptance and precise evidence limits.
 5. **Configuration still supports UI-saved secrets.** A managed secret store is
    preferable for multi-instance deployment and independent rotation. Until
    then, restrict Settings to owners and keep the volume private and backed up.
