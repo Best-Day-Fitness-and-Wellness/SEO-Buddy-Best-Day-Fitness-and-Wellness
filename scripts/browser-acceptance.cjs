@@ -205,14 +205,17 @@ async function exercise(base, viewport) {
     await nav('#nav-explore');
     const carousel = page.locator('.sb-explore-step').first();
     await carousel.waitFor();
-    const track = carousel.locator('.sb-track');
     // Navigation and the async readiness response can replace the shelf before
-    // its first layout. Wait for usable geometry, not a machine-speed delay.
-    await page.waitForFunction(() => {
+    // its first layout. Capture the usable geometry in the same browser turn;
+    // a second locator read can otherwise measure a replacement before layout.
+    const geometry = await page.waitForFunction(() => {
       const track = document.querySelector('.sb-explore-step .sb-track');
-      return track && track.clientWidth > 0 && track.scrollWidth > track.clientWidth;
+      if (!track || track.clientWidth <= 0 || track.scrollWidth <= track.clientWidth) return false;
+      return { viewportWidth: track.clientWidth, contentWidth: track.scrollWidth };
     });
-    assert.ok(await track.evaluate(el => el.scrollWidth > el.clientWidth));
+    const measured = await geometry.jsonValue();
+    await geometry.dispose();
+    assert.ok(measured.contentWidth > measured.viewportWidth, 'Carousel must have horizontally navigable content');
     if (await carousel.locator('.next').isVisible()) await carousel.locator('.next').click();
     else await carousel.locator('.sb-stepdot[data-i="1"]').click();
     await page.waitForFunction(() => /^2 of /.test(document.querySelector('.sb-explore-step .sb-step-pos')?.textContent || ''));
