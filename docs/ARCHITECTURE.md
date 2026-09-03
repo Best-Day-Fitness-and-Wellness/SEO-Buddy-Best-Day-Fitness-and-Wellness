@@ -105,7 +105,9 @@ weekly-digest controls, `site-optimization.js` owns on-site autopilot, keyword,
 AEO, title/meta, internal-link, and schema interactions, `ai-visibility.js` owns
 grounded audits, multi-engine visibility, FactCheck, crawler, Reddit, and schema
 interactions, `brand-profile.js` owns the Brand Voice editor and readiness event,
-`owner-mode.js` owns the owner Today, Results, Business, and action views,
+`owner-views.js` owns the shared Results and Business views and their read-only
+retry/readiness handlers; `owner-mode.js` owns only recovery-mode Today, its
+actions, and the legacy mode switch,
 `search-opportunities.js` owns Search Console gaps, filters, statistics, and
 question fan-out,
 `settings.js` owns connection fields, secure settings submission, and Search
@@ -329,7 +331,7 @@ so one production replica remains the supported topology.
    provider latency still consumes web-process memory and event-loop capacity.
    The transactional database queue is deployed. Moving handlers to a separate
    worker still requires removing process-local feature-state assumptions.
-4. **`public/app.js` still coordinates the shell.** Fourteen secondary feature
+4. **`public/app.js` still coordinates the shell.** Fifteen secondary feature
    modules now load on demand; the coordinator retains Today, Explore, the
    detailed dashboard, setup, and navigation. These shared projections are an
   explicit boundary, not evidence that multi-tenant browser state is ready.
@@ -340,9 +342,12 @@ so one production replica remains the supported topology.
    `lib/automation-status.js` is a read-only, secret-free status projection,
    not a second scheduler. `?workspace=classic` temporarily retains the previous
    navigation for emergency recovery, not normal use. Its shell link is hidden
-   unless workspace startup fails. The older owner module still supplies the
-   redesigned Results and Business views; separate these shared dependencies
-   before deleting legacy-only navigation and mode code.
+   unless workspace startup fails. Results and Business now load through
+   `owner-views.js` without loading legacy Today or mode controls. The recovery
+   owner-mode loader loads those shared views first, preserving its existing
+   behavior and readiness-listener order. Shared reads and escaping use the
+   browser core. Remove the remaining legacy navigation, Today markup, mode
+   preferences, and recovery branch only in a separate retirement release.
    See `docs/OWNER-WORKSPACE-PREVIEW.md` for the owner-authorized rollout,
    owner-reported usability acceptance and precise evidence limits.
 5. **Configuration still supports UI-saved secrets.** A managed secret store is

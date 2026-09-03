@@ -13,7 +13,9 @@ connection, or publishes content. **Open recovery interface** is part of the
 initial shell, hidden by default, and revealed only if workspace startup fails.
 It is hidden again after a successful reload. Keep this fallback for one release
 of validation before separately removing legacy-only code. Results and Business
-still share the older owner module; removing that entire module is not safe.
+now have a separate shared module and no longer load legacy Today or mode-switch
+controls. The recovery interface still needs those legacy controls, so deleting
+them remains a separate retirement step.
 
 The workspace uses live data and the existing authenticated write routes.
 It is **not a sandbox**. Browser acceptance tests use a separate local server,

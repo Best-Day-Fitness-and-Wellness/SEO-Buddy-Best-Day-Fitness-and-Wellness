@@ -58,6 +58,33 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
     assert.notEqual(await heading.evaluate(el => getComputedStyle(el).outlineStyle), 'none', 'Keyboard navigation must retain its focus cue');
   });
 
+  await journey(`${prefix}: Results and Business retry and share one module without loading legacy controls`, async () => {
+    const before = writes.length;
+    const fail = route => route.abort();
+    await page.route('**/assets/owner-views.*.js', fail);
+    try {
+      await load('results', '?shared-views-check=1');
+      await page.getByText('Could not load Owner mode. Refresh and try again.', { exact: true }).waitFor();
+      assert.equal(await page.locator('script[src*="/owner-mode."]').count(), 0);
+    } finally {
+      await page.unroute('**/assets/owner-views.*.js', fail);
+    }
+    await page.locator('#ui-toast-host button').evaluateAll(buttons => buttons.forEach(button => button.click()));
+    await page.locator('#ws-nav-results').click();
+    await page.waitForFunction(() => typeof window.loadOwnerResults === 'function');
+    await page.waitForFunction(() => document.getElementById('ow-find-note').textContent.trim().length > 0);
+    if (prefix === 'mobile') await page.locator('#mobile-hamburger').click();
+    await page.locator('#ws-nav-business').click();
+    await location('business');
+    await page.waitForFunction(() => document.getElementById('ow-basics').textContent.trim().length > 0);
+    await page.locator('#ws-nav-results').click();
+    await location('results');
+    assert.equal(await page.locator('script[src*="/owner-views."]').count(), 1);
+    assert.equal(await page.locator('script[src*="/owner-mode."]').count(), 0);
+    assert.equal(await page.evaluate(() => typeof window.setOwnerMode), 'undefined');
+    assert.equal(writes.length, before, 'Reading shared views must not send mutations');
+  });
+
   await journey(`${prefix}: normal navigation hides legacy entry while emergency and preview bookmarks still work`, async () => {
     const before = writes.length;
     await page.evaluate(() => localStorage.setItem('seo_owner_mode', '1'));

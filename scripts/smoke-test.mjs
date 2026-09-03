@@ -71,6 +71,7 @@ const lazyAssets = [...indexHtml.matchAll(/data-[a-z-]+-asset="(\/assets\/[^\"]+
 assert.equal(new Set(lazyAssets).size, lazyAssets.length, 'Lazy feature assets must be unique');
 assert.ok(lazyAssets.some(asset => /\/content-workspace\./.test(asset)), 'Content workspace must be available');
 assert.ok(lazyAssets.some(asset => /\/workspace\./.test(asset)), 'Navigation preview must be available');
+assert.ok(lazyAssets.some(asset => /\/owner-views\./.test(asset)), 'Shared Results and Business views must be available');
 assert.ok(lazyAssets.every(asset => /\.[a-f0-9]{12}\.js$/.test(asset) && !browserAssets.includes(asset)));
 await Promise.all([...browserAssets, ...lazyAssets].map(async asset => {
   const response = await fetch(`${baseUrl}${asset}`, { signal: AbortSignal.timeout(15000) });

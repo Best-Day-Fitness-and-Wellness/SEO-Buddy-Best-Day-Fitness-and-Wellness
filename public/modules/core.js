@@ -38,6 +38,16 @@
     return request;
   }
 
+  // Shared read boundary for owner-facing views. Preserve the existing timeout
+  // and failure semantics; callers decide how to present unavailable data.
+  async function readCheckedJson(url) {
+    const response = await fetch(url, { signal: AbortSignal.timeout(15000) });
+    if (!response.ok) throw new Error('The server could not complete this check.');
+    const data = await response.json();
+    if (!data || data.success === false) throw new Error('The check returned no verified data.');
+    return data;
+  }
+
   function relativeTime(iso) {
     const timestamp = new Date(iso).getTime();
     if (Number.isNaN(timestamp)) return '';
@@ -197,5 +207,5 @@
     });
   }
 
-  global.SeoBuddyCore = Object.freeze({ authFetch, bindAction, confirmAction, trapDialogFocus, safeExternalUrl, sanitizeHtml, showToast, uiEsc, loadFeature, relativeTime });
+  global.SeoBuddyCore = Object.freeze({ authFetch, bindAction, confirmAction, trapDialogFocus, safeExternalUrl, sanitizeHtml, showToast, uiEsc, loadFeature, relativeTime, readCheckedJson });
 })(window);

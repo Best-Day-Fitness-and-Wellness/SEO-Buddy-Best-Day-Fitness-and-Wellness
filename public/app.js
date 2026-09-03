@@ -145,13 +145,20 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  function ensureOwnerModeFeature() {
-    return window.SeoBuddyCore.loadFeature('ownerModeAsset', () => !!(window.setOwnerMode && window.loadOwnerToday && window.loadOwnerResults && window.loadOwnerBusiness), 'OwnerMode');
+  function ensureOwnerViewsFeature() {
+    return window.SeoBuddyCore.loadFeature('ownerViewsAsset', () => !!(window.loadOwnerResults && window.loadOwnerBusiness), 'Results and Business');
+  }
+
+  async function ensureOwnerModeFeature() {
+    // Recovery mode shares the current views, but current views never load it.
+    await ensureOwnerViewsFeature();
+    return window.SeoBuddyCore.loadFeature('ownerModeAsset', () => !!(window.setOwnerMode && window.loadOwnerToday), 'OwnerMode');
   }
 
   async function loadOwnerModeView(loaderName) {
     try {
-      await ensureOwnerModeFeature();
+      if (loaderName === 'loadOwnerToday') await ensureOwnerModeFeature();
+      else await ensureOwnerViewsFeature();
       if (typeof window[loaderName] === 'function') await window[loaderName]();
     } catch (error) {
       showToast('Could not load Owner mode. Refresh and try again.');

@@ -3,7 +3,7 @@
 ## Current protections
 
 The production path has compression, content-hashed immutable browser assets,
-lazy report libraries, thirteen lazy feature modules, visible-panel initialization, short-lived Search Console
+lazy report libraries, fifteen lazy feature modules, visible-panel initialization, short-lived Search Console
 and performance caches, single-flight request coalescing, no-op daily snapshot
 writes, provider concurrency/rate controls, provider deadlines, and a durable
 job worker. A shared loader coalesces feature loads and allows failed loads to
@@ -71,6 +71,12 @@ is shared feature-state mutation and the in-process worker.
    run and no lost updates before raising production replica count.
 
 ## Closeout browser budget
+
+Results and Business now share the independent lazy `owner-views.js` module.
+Normal workspace use does not download the legacy Today and mode-switch code.
+The emergency Owner mode loads the shared views before its legacy controls.
+Both interfaces use the same rendering functions; the split introduces no new
+API calls per view or changes to calculations, write routes, or scoring.
 
 Compared with `c12a43b`, normalized production source for `public/app.js` fell
 from 145,080 bytes to 110,560 bytes (23.8%). The four initial scripts together
