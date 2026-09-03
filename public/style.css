@@ -1303,6 +1303,9 @@ body.dark .form-input, body.dark textarea, body.dark select{ background:rgba(255
 @media(max-width:860px){
 .app-container{grid-template-columns:1fr;}
 .sidebar{position:fixed;top:0;left:0;bottom:0;width:264px;z-index:1100;transform:translateX(-100%);transition:transform .25s ease;overflow-y:auto;}
+/* Follow the visible viewport when a phone's browser toolbar opens or closes.
+   The base 100vh height remains the fallback for older browsers. */
+.sidebar{height:100dvh;}
 body.nav-open .sidebar{transform:translateX(0);box-shadow:0 0 50px rgba(0,0,0,.6);}
 .mobile-hamburger{display:inline-flex;}
 #mobile-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:1050;}
@@ -3168,7 +3171,9 @@ body.workspace-preview .ow-note { border-radius: 12px; }
 @media(max-width:860px) {
   body.workspace-preview .app-header { margin-bottom: 16px; }
   body.workspace-preview .header-actions { display: flex; align-items: center; gap: 10px; width: 100%; }
-  body.workspace-preview #workspace-nav { position: fixed; inset: auto 0 0; z-index: 1100; flex-direction: row; gap: 3px; padding: 6px 8px max(6px,env(safe-area-inset-bottom)); background: var(--surface); border-top: 1px solid var(--line); margin: 0; }
+  /* Primary navigation stays below the assistant (950), setup (1000), menu
+     backdrop (1050), and drawer (1100), including where their bounds overlap. */
+  body.workspace-preview #workspace-nav { position: fixed; inset: auto 0 0; z-index: 900; flex-direction: row; gap: 3px; padding: 6px 8px max(6px,env(safe-area-inset-bottom)); background: var(--surface); border-top: 1px solid var(--line); margin: 0; }
   body.workspace-preview #workspace-nav .nav-item { position: relative; flex: 1; flex-direction: column; justify-content: center; gap: 4px; padding: 7px 3px; font-size: 11px; min-width: 0; }
   #workspace-nav .ws-icon { width: 17px; height: 17px; }
   #ws-approval-count:not(:empty) { position: absolute; top: 3px; right: 10px; margin: 0; font-size: 9px; min-width: 15px; line-height: 14px; background: var(--surface); color: var(--ink); border-color: var(--line); }

@@ -128,6 +128,57 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
     }
   });
 
+  await journey(`${prefix}: menu controls and overlay dismissal stay above primary navigation`, async () => {
+    await load('today');
+    const originalViewport = page.viewportSize();
+    const viewports = prefix === 'mobile'
+      ? [{ width: 390, height: 844 }, { width: 320, height: 640 }, { width: 844, height: 390 }]
+      : [originalViewport];
+    const assertClickable = async selector => {
+      const control = page.locator(selector);
+      await control.scrollIntoViewIfNeeded();
+      assert.ok(await control.evaluate(el => {
+        const bounds = el.getBoundingClientRect();
+        return el.contains(document.elementFromPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2));
+      }), `${selector} must not be covered by navigation or another overlay`);
+    };
+    try {
+      for (const viewport of viewports) {
+        await page.setViewportSize(viewport);
+        const mobile = viewport.width <= 860;
+        if (mobile) await page.locator('#mobile-hamburger').click();
+        for (const selector of ['#ws-nav-business', '#nav-settings', '#theme-toggle']) await assertClickable(selector);
+        if (await page.locator('body').evaluate(el => el.classList.contains('dark'))) await page.locator('#theme-toggle').click();
+        await page.locator('#theme-toggle').click();
+        await page.locator('body.dark').waitFor();
+        assert.equal(await page.locator('.logo-mark-dark').isVisible(), true);
+        await audit(`menu-dark-${viewport.width}x${viewport.height}`);
+        await assertClickable('#theme-toggle');
+        await page.locator('#theme-toggle').click();
+        await page.locator('body:not(.dark)').waitFor();
+        if (mobile) {
+          const sidebar = await page.locator('.sidebar').boundingBox();
+          assert.ok(sidebar.y >= -1 && sidebar.y + sidebar.height <= viewport.height + 1, 'Drawer must fit the visible viewport');
+          const before = page.url();
+          // The lower outside edge used to hit the bottom navigation instead.
+          await page.mouse.click(viewport.width - 10, viewport.height - 15);
+          assert.equal(await page.locator('body.nav-open').count(), 0);
+          assert.equal(page.url(), before, 'Backdrop dismissal must not navigate');
+        }
+        await page.locator('#ws-nav-tools').click();
+        await location('tools');
+        await page.locator('#ws-nav-today').click();
+        await location('today');
+      }
+    } finally {
+      await page.setViewportSize(originalViewport);
+      await page.evaluate(() => {
+        if (document.body.classList.contains('dark')) document.getElementById('theme-toggle').click();
+        document.body.classList.remove('nav-open');
+      });
+    }
+  });
+
   await journey(`${prefix}: polished layout stays readable at narrow widths and keyboard-operable`, async () => {
     await open('#ws-nav-today');
     await page.waitForFunction(() => document.querySelectorAll('.ws-automation').length === 6 && !document.getElementById('ws-today').hasAttribute('aria-busy'));
