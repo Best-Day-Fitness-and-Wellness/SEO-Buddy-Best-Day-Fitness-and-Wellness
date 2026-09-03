@@ -221,6 +221,38 @@ async function exercise(base, viewport) {
     await page.evaluate(() => sessionStorage.setItem('seo_admin_password', 'browser-test-only'));
   });
 
+  await journey(`${prefix}: monthly owner report setup is clear and controllable`, async () => {
+    responses.set('/api/monthly-report', { json: {
+      success: true, enabled: true, gmailConfigured: false, recipientConfigured: false,
+      recipientMasked: '', ready: false, needsSetup: true, lastSentAt: null,
+    } });
+    await page.evaluate(() => window.switchTab('performance-tab'));
+    await page.waitForFunction(() => typeof window.loadMonthlyReport === 'function');
+    await page.evaluate(() => window.loadMonthlyReport());
+    assert.match(await page.locator('#mr-status').innerText(), /Needs email setup/);
+    assert.equal(await page.locator('#mr-send').isDisabled(), true);
+
+    responses.set('/api/monthly-report', { json: {
+      success: true, enabled: true, gmailConfigured: true, recipientConfigured: true,
+      recipientMasked: 'o****@example.com', ready: true, needsSetup: false, lastSentAt: null,
+    } });
+    responses.set('/api/monthly-report/send', { json: {
+      success: true, sent: true, enabled: true, gmailConfigured: true, recipientConfigured: true,
+      recipientMasked: 'o****@example.com', ready: true, lastSentAt: new Date().toISOString(),
+    } });
+    await page.locator('#mr-recipient').fill('owner@example.com');
+    await page.locator('#mr-save').click();
+    await page.waitForFunction(() => !document.getElementById('mr-save').disabled);
+    const save = writes.find(write => write.path === '/api/monthly-report');
+    assert.deepEqual(save.body, { enabled: true, recipient: 'owner@example.com' });
+    assert.match(await page.locator('#mr-status').innerText(), /Ready for the 1st/);
+    await page.locator('#mr-send').click();
+    await page.getByText('Monthly PDF report sent.', { exact: true }).waitFor();
+    assert.equal(writes.filter(write => write.path === '/api/monthly-report/send').length, 1);
+    responses.delete('/api/monthly-report');
+    responses.delete('/api/monthly-report/send');
+  });
+
   await journey(`${prefix}: settings drafts survive navigation and secrets clear on save`, async () => {
     await nav('#nav-settings');
     await page.locator('#settings-author-name').fill('Acceptance Author');

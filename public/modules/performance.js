@@ -147,6 +147,67 @@
   if (pdRun) pdRun.addEventListener('click', async () => { pdRun.disabled = true; pdRun.innerText = 'Starting…'; try { const r = await authFetch('/api/performance-digest/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }); await r.json(); setTimeout(pdPoll, 1200); } catch (e) { alert('Error: ' + e.message); pdRun.disabled = false; pdRun.innerText = 'Generate now'; } });
   if (pdEmail) pdEmail.addEventListener('click', async () => { pdEmail.disabled = true; const o = pdEmail.innerText; pdEmail.innerText = 'Sending…'; try { const r = await authFetch('/api/performance-digest/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }); const d = await r.json(); if (d.needsSetup) { alert(d.message); } else if (!r.ok || !d.success) { throw new Error(d.error || 'Send failed'); } else { pdEmail.innerText = 'Sent ✓'; setTimeout(() => { pdEmail.innerText = o; pdEmail.disabled = false; }, 1600); return; } } catch (e) { alert('Email error: ' + e.message); } pdEmail.disabled = false; pdEmail.innerText = o; });
 
+  // --- MONTHLY OWNER PDF ---
+  const mrEnabled = document.getElementById('mr-enabled');
+  const mrRecipient = document.getElementById('mr-recipient');
+  const mrStatus = document.getElementById('mr-status');
+  const mrSave = document.getElementById('mr-save');
+  const mrSend = document.getElementById('mr-send');
+
+  function mrRender(state) {
+    if (!mrStatus) return;
+    if (mrEnabled) mrEnabled.checked = !!state.enabled;
+    if (mrRecipient) mrRecipient.placeholder = state.recipientMasked || 'Owner email address';
+    if (!state.enabled) mrStatus.textContent = 'Paused. The manual PDF download is still available.';
+    else if (!state.gmailConfigured && !state.recipientConfigured) mrStatus.textContent = 'Needs email setup: connect Gmail, then add the owner address.';
+    else if (!state.gmailConfigured) mrStatus.textContent = 'Needs email setup: connect Gmail.';
+    else if (!state.recipientConfigured) mrStatus.textContent = 'Needs email setup: add the owner address.';
+    else mrStatus.textContent = `Ready for the 1st of each month${state.recipientMasked ? ` · ${state.recipientMasked}` : ''}${state.lastSentAt ? ` · last sent ${pdAgo(state.lastSentAt)}` : ''}.`;
+    if (mrSend) mrSend.disabled = !state.ready;
+  }
+
+  async function loadMonthlyReport() {
+    try { mrRender(await (await fetch('/api/monthly-report')).json()); }
+    catch (_) { if (mrStatus) mrStatus.textContent = 'Could not verify monthly delivery. Refresh to retry.'; }
+  }
+  window.loadMonthlyReport = loadMonthlyReport;
+
+  async function updateMonthlyReport(payload) {
+    const response = await authFetch('/api/monthly-report', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+    });
+    const state = await response.json();
+    if (!response.ok || !state.success) throw new Error(state.error || 'Could not save monthly delivery.');
+    mrRender(state);
+    return state;
+  }
+
+  if (mrEnabled) mrEnabled.addEventListener('change', async () => {
+    try { await updateMonthlyReport({ enabled: mrEnabled.checked }); }
+    catch (error) { mrEnabled.checked = !mrEnabled.checked; alert(error.message); }
+  });
+  if (mrSave) mrSave.addEventListener('click', async () => {
+    const address = mrRecipient ? mrRecipient.value.trim() : '';
+    if (!address) { alert('Enter the owner email address to save it.'); return; }
+    mrSave.disabled = true;
+    try {
+      await updateMonthlyReport({ enabled: mrEnabled ? mrEnabled.checked : true, recipient: address });
+      mrRecipient.value = '';
+      alert('Monthly report delivery saved.');
+    } catch (error) { alert(error.message); }
+    finally { mrSave.disabled = false; }
+  });
+  if (mrSend) mrSend.addEventListener('click', async () => {
+    mrSend.disabled = true; const original = mrSend.textContent; mrSend.textContent = 'Sending…';
+    try {
+      const response = await authFetch('/api/monthly-report/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      const state = await response.json();
+      if (!response.ok || !state.sent) throw new Error(state.message || state.error || 'Could not send the report.');
+      mrRender(state); alert('Monthly PDF report sent.');
+    } catch (error) { alert(error.message); }
+    finally { mrSend.textContent = original; await loadMonthlyReport(); }
+  });
+
   async function loadPerformance() {
     const $ = id => document.getElementById(id);
     if (!$('perf-updated')) return;

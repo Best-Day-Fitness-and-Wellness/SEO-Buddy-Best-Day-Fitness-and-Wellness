@@ -1068,6 +1068,17 @@ test('Google delivery adapter owns OAuth, Gmail encoding, and Business Profile p
   assert.match(message, /To: editor@example\.com\r\nFrom: owner@example\.com\r\nSubject: A subject/);
   assert.match(message, /\r\n\r\nA body$/);
 
+  assert.equal(await delivery.sendGmail('owner@example.com', 'Monthly report', 'Attached.', {
+    attachments: [{ filename: 'growth report.pdf', contentType: 'application/pdf', data: Buffer.from('%PDF-test') }],
+  }), 'gmail-123');
+  const attachmentEncoded = gmailMessages[1].requestBody.raw.replace(/-/g, '+').replace(/_/g, '/');
+  const attachmentMessage = Buffer.from(attachmentEncoded, 'base64').toString('utf8');
+  assert.match(attachmentMessage, /Content-Type: multipart\/mixed; boundary=/);
+  assert.match(attachmentMessage, /Content-Disposition: attachment; filename="growth-report\.pdf"/);
+  assert.match(attachmentMessage, new RegExp(Buffer.from('%PDF-test').toString('base64')));
+  await assert.rejects(delivery.sendGmail('owner@example.com\r\nBcc: attacker@example.com', 'Report', 'Body'), /invalid characters/);
+  await assert.rejects(delivery.sendGmail('owner@example.com', 'Report\r\nBcc: attacker@example.com', 'Body'), /invalid characters/);
+
   assert.deepEqual(await delivery.postGbpLocalPost('Weekly update'), {
     posted: true,
     name: 'posts/1',

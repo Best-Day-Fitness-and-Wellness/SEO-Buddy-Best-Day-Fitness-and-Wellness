@@ -239,6 +239,18 @@
           </div>
           <div id="pd-body" class="pd-body"></div>
           <label class="pd-autoemail" id="pd-autoemail-wrap" style="display:none;"><input type="checkbox" id="pd-autoemail"> Email it to me automatically each week</label>
+          <div class="mr-panel" id="mr-panel">
+            <div class="mr-copy">
+              <strong>Monthly owner report</strong>
+              <span id="mr-status">Checking email delivery&hellip;</span>
+            </div>
+            <div class="mr-controls">
+              <label class="pd-toggle" title="Email the PDF report on the first of every month"><span class="pd-switch"><input type="checkbox" id="mr-enabled"><span class="pd-slider"></span></span><span>Monthly</span></label>
+              <input class="form-input" id="mr-recipient" type="email" inputmode="email" autocomplete="email" aria-label="Owner email address" placeholder="Owner email address">
+              <button class="btn btn-secondary btn-xs" id="mr-save" type="button">Save</button>
+              <button class="btn btn-secondary btn-xs" id="mr-send" type="button">Send now</button>
+            </div>
+          </div>
         </div>
 
         <div class="sum-autopilot" id="sum-autopilot" style="display:none;">

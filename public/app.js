@@ -93,6 +93,7 @@ document.addEventListener('DOMContentLoaded', () => {
       await Promise.all([
         window.loadPerformance ? window.loadPerformance() : Promise.resolve(),
         window.loadPerfDigest ? window.loadPerfDigest() : Promise.resolve(),
+        window.loadMonthlyReport ? window.loadMonthlyReport() : Promise.resolve(),
       ]);
     } catch (error) {
       const updated = document.getElementById('perf-updated');

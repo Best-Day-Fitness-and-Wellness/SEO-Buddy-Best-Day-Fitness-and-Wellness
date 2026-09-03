@@ -184,13 +184,15 @@ The multi‑engine AI Visibility dashboard and FactCheck run on **Google alone**
 | `GHL_AUTHOR_ID` / `GHL_AUTHOR_NAME` / `GHL_AUTHOR_URL` | Optional author attribution + E‑E‑A‑T author schema. |
 | `GHL_BLOG_PATH_PREFIX` | Blog path prefix for building URLs (default `/blog/posts`). |
 
-### Gmail send (optional — enables one‑click pitches + digest email)
+### Gmail send (optional — enables pitches, digests, and monthly reports)
 | Variable | Description |
 |---|---|
 | `GMAIL_CLIENT_ID` / `GMAIL_CLIENT_SECRET` | OAuth client credentials for a Gmail‑send app. |
 | `GMAIL_REFRESH_TOKEN` | OAuth refresh token authorizing send‑as. |
 | `GMAIL_SENDER` | The "from" address shown on sent mail. |
 | `DIGEST_EMAIL` | Default recipient for the automatic Weekly Digest email. |
+| `MONTHLY_REPORT_EMAIL` | Optional fallback owner recipient for the monthly PDF report; it can also be saved in Results. |
+| `REPORT_TIME_ZONE` | Calendar timezone for the first-of-month schedule (default `America/New_York`). |
 
 ### Google Business Profile posting (optional — needs approved API access)
 | Variable | Description |
@@ -241,7 +243,7 @@ To track ChatGPT, create a paid API account at [platform.openai.com](https://pla
 Grab your **Location ID**, create a **Private Integration** token (blog scopes to publish; add contacts scope for the leads metric), and note your **Blog ID**.
 
 ### 4. Gmail send *(optional)*
-Create an OAuth client (Desktop or Web), authorize the Gmail send scope, and set `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN`, `GMAIL_SENDER` (and `DIGEST_EMAIL` for the auto‑digest recipient).
+Create an OAuth client (Desktop or Web), authorize the Gmail send scope, and set `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN`, and `GMAIL_SENDER`. `DIGEST_EMAIL` is the weekly-summary recipient; `MONTHLY_REPORT_EMAIL` is an optional monthly-report fallback. The owner address can also be saved from Results without a redeploy.
 
 ### 5. Google Business Profile *(optional)*
 Requires **approved Business Profile API access** from Google. Once granted, authorize the Business Profile scope and set `GBP_REFRESH_TOKEN`, `GBP_ACCOUNT_ID`, `GBP_LOCATION_ID` (client id/secret reuse the `GMAIL_*` pair unless you set `GBP_CLIENT_ID`/`GBP_CLIENT_SECRET`).
@@ -436,6 +438,15 @@ Deploying by hand (GitHub web upload): keep `server.js`, `lib/`, `public/`, and 
 | GET | `/api/performance-digest` | — | Latest saved digest. |
 | POST | `/api/performance-digest/run` · `/send` · `/toggle` · `/seen` | 🔒 | Generate, email, enable weekly, clear badge. |
 
+### Monthly owner PDF report
+| Method | Endpoint | Auth | Purpose |
+|---|---|:---:|---|
+| GET | `/api/monthly-report` | — | Masked delivery readiness and last-send status. |
+| POST | `/api/monthly-report` | owner | Enable/disable and save the owner recipient. |
+| POST | `/api/monthly-report/send` | owner | Send the same branded PDF available from the manual Download button. |
+
+When enabled, a durable daily check sends at most once on the first calendar day of each month in `REPORT_TIME_ZONE`. A successful Gmail acknowledgement is persisted before another scheduled check can send for that month. Missing Gmail credentials or a recipient is shown as **Needs email setup** rather than silently failing.
+
 ### Outreach delivery (OAuth)
 | Method | Endpoint | Auth | Purpose |
 |---|---|:---:|---|
@@ -464,6 +475,7 @@ State is stored as atomic JSON inside `DATA_DIR/tenants/<TENANT_ID>/`. On the fi
 | `local-autopilot.json` · `onsite-autopilot.json` | Local / on‑site autopilot state. |
 | `autopilot-config.json` · `autopilot-logs.json` | Content autopilot config (incl. topic queue) + run logs. |
 | `performance-digest.json` | Saved weekly digests + settings. |
+| `monthly-report.json` | Monthly PDF delivery preference, owner recipient, and last-send evidence. Public status masks the address. |
 | `business-profile.json` | Business identity (name/address/phone/socials). |
 | `brand-profile.json` | Brand voice: tone, style rules, signature phrases, never‑use list, positioning, keywords, CTA. |
 | `audit-log.jsonl` | Hash-chained mutation audit records (metadata only; never request bodies or secrets). |

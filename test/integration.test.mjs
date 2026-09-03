@@ -195,7 +195,7 @@ test('owner automation status is a read-only public summary without operational 
   assert.equal(response.status, 200);
   assert.equal(body.success, true);
   assert.ok(Number.isFinite(Date.parse(body.checkedAt)));
-  assert.deepEqual(body.features.map(item => item.key), ['content', 'ai', 'local', 'citations', 'onsite', 'digest']);
+  assert.deepEqual(body.features.map(item => item.key), ['content', 'ai', 'local', 'citations', 'onsite', 'digest', 'monthly-report']);
   assert.ok(body.features.every(item => item.status === 'needs-setup'));
   assert.doesNotMatch(JSON.stringify(body), /lastError|payload|password|idempotencyKey|leaseUntil/);
   assert.match(response.headers.get('cache-control'), /no-store/);
@@ -281,7 +281,7 @@ test('all read-only dashboard routes respond', { timeout: 30000 }, async () => {
     '/api/local-autopilot', '/api/onsite-autopilot', '/api/gmail-status',
     '/api/gbp-status', '/api/performance-digest', '/api/health-score',
     '/api/next-moves', '/api/autopilot-digest', '/api/deploy-readiness', '/api/auth/status',
-    '/api/reviews-stats',
+    '/api/reviews-stats', '/api/monthly-report',
   ];
   for (const path of paths) {
     const response = await request(path, { auth: false });
@@ -487,7 +487,9 @@ test('static assets compress, cache briefly, and keep PDF code off the critical 
   assert.match(localPresenceSource, /seo_local_checklist/);
   assert.match(performanceSource, /window\.loadPerformance/);
   assert.match(performanceSource, /window\.loadPerfDigest/);
+  assert.match(performanceSource, /window\.loadMonthlyReport/);
   assert.match(performanceSource, /\/api\/performance-digest/);
+  assert.match(performanceSource, /\/api\/monthly-report/);
   assert.match(siteOptimizationSource, /window\.loadOnsiteAutopilot/);
   assert.match(siteOptimizationSource, /\/api\/onsite-autopilot/);
   assert.match(siteOptimizationSource, /\/api\/onsite-schema/);
@@ -556,7 +558,8 @@ test('every mutating or credit-spending route is password protected', async () =
     '/api/onsite-autopilot/seen', '/api/send-pitch', '/api/gbp-post',
     '/api/gbp-mark-posted', '/api/performance-digest/toggle',
     '/api/performance-digest/run', '/api/performance-digest/seen',
-    '/api/performance-digest/send', '/api/transcribe', '/api/social-pack', '/api/storage-backups',
+    '/api/performance-digest/send', '/api/monthly-report', '/api/monthly-report/send',
+    '/api/transcribe', '/api/social-pack', '/api/storage-backups',
   ];
   for (const path of paths) {
     const response = await request(path, { method: 'POST', auth: false, body: {} });
@@ -582,6 +585,12 @@ test('operator credentials can run workflows but cannot change owner settings', 
   });
   assert.equal(settings.status, 403);
   assert.equal((await settings.json()).code, 'INSUFFICIENT_ROLE');
+
+  const monthlyReport = await request('/api/monthly-report', {
+    method: 'POST', auth: false, headers: operatorHeaders, body: { recipient: 'owner@example.com' },
+  });
+  assert.equal(monthlyReport.status, 403);
+  assert.equal((await monthlyReport.json()).code, 'INSUFFICIENT_ROLE');
 });
 
 test('saving an unchanged brand voice marks it reviewed', async () => {

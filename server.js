@@ -33,7 +33,7 @@ const { createSwitchableJobQueue } = require('./lib/job-queue');
 const { createPostgresJobQueue } = require('./lib/postgres-job-queue');
 const { createJobWorker } = require('./lib/job-worker');
 const { createJobDispatcher } = require('./lib/job-dispatcher');
-const { registerAutomationStatusRoute } = require('./lib/automation-status');
+const { buildAutomationStatus, registerAutomationStatusRoute } = require('./lib/automation-status');
 const { ProviderRuntimeError, createProviderRuntime } = require('./lib/provider-runtime');
 const { assessArticleQuality } = require('./lib/content-quality');
 const { registerOperationsRoutes } = require('./lib/operations-routes');
@@ -49,6 +49,8 @@ const { registerAiAuditRoutes } = require('./lib/ai-audit-routes');
 const { registerScheduledFeatureRoutes } = require('./lib/scheduled-feature-routes');
 const { createGoogleDelivery } = require('./lib/google-delivery');
 const { registerDeliveryRoutes } = require('./lib/delivery-routes');
+const { createMonthlyReportService, registerMonthlyReportRoutes } = require('./lib/monthly-report');
+const { createServerPdfReport } = require('./lib/server-pdf-report');
 const { LISTING_TYPES, registerCitationRoutes } = require('./lib/citation-routes');
 const { buildCanonicalNap, mapNapListings, registerLocalSeoRoutes } = require('./lib/local-seo-routes');
 const { createPerformanceService, registerPerformanceRoutes } = require('./lib/performance-routes');
@@ -56,7 +58,7 @@ const { registerOnsiteRoutes } = require('./lib/onsite-routes');
 const { registerAioCoreRoutes } = require('./lib/aio-core-routes');
 const { registerAssistantRoutes } = require('./lib/assistant-routes');
 const { registerRecordedContentRoutes } = require('./lib/recorded-content-routes');
-const { registerDashboardRoutes } = require('./lib/dashboard-routes');
+const { buildDeployReadiness, buildNextMoves, registerDashboardRoutes } = require('./lib/dashboard-routes');
 const { createReviewsService, registerReviewsRoutes } = require('./lib/reviews-routes');
 const { registerConfigurationRoutes } = require('./lib/configuration-routes');
 
@@ -3006,6 +3008,28 @@ scheduleDurableCheck('onsite.autopilot', 45000, 12 * 60 * 60 * 1000);
 const googleDelivery = createGoogleDelivery({ google, providerRuntime, siteDomain, env: process.env });
 const { gmailClient, sendGmail, gbpConfigured, postGbpLocalPost } = googleDelivery;
 
+// Monthly owner reports have their own durable state. Recipient addresses are
+// operational configuration rather than secrets, and are masked in public
+// status responses.
+const MONTHLY_REPORT_FILE = path.join(DATA_DIR, 'monthly-report.json');
+let savedMonthlyReport = {};
+try { savedMonthlyReport = stateRepository.readJson('monthly-report.json', {}); }
+catch (error) { logger.warn('monthly_report.state_unreadable', { error }); }
+const monthlyReportDb = Object.assign({
+  enabled: true,
+  timeZone: process.env.REPORT_TIME_ZONE || 'America/New_York',
+  recipient: '',
+  lastAttemptAt: null,
+  lastSentAt: null,
+  lastSentMonth: null,
+  lastMessageId: null,
+  lastError: null,
+}, savedMonthlyReport);
+function saveMonthlyReport() {
+  saveJsonFileSync(MONTHLY_REPORT_FILE, monthlyReportDb, 'Monthly Report');
+}
+let monthlyReportService = null;
+
 // ============================================================
 // 19. Performance weekly digest — a scheduled snapshot of search performance
 // (clicks/impressions/rank vs last period, top movers, AI visibility, leads),
@@ -3318,28 +3342,23 @@ function scheduleDailyHealthSnapshots() {
   jobDispatcher.scheduleDaily('health.snapshot', 60000, 5);
 }
 
-// Home/Reports dashboard projection. The module keeps response shaping pure;
-// the composition root supplies the current live integration and feature state.
-registerDashboardRoutes(app, {
-  buildHealthScoreResponse,
-  getNextMovesContext: () => ({
+function getNextMovesContext() {
+  return {
     localDb,
     citationsDb,
     aioAuditsDb,
     autopilotEnabled,
     gscConfigured: !!(process.env.GSC_SITE_URL && getGoogleAuth()),
     isGbpConfigured: gbpConfigured,
-  }),
-  getDigestContext: () => ({
-    onsiteDb,
-    localDb,
-    citationsDb,
-    perfDigestDb,
-    historyDb,
-    aiVisDb,
-    autopilotEnabled,
-  }),
-  getReadinessContext: () => ({
+  };
+}
+
+function getDigestContext() {
+  return { onsiteDb, localDb, citationsDb, perfDigestDb, historyDb, aiVisDb, autopilotEnabled };
+}
+
+function getReadinessContext() {
+  return {
     geminiConfigured: !!process.env.GEMINI_API_KEY,
     storagePersistent: storageReadiness().persistent,
     gscConfigured: !!(process.env.GSC_SITE_URL && getGoogleAuth()),
@@ -3352,38 +3371,59 @@ registerDashboardRoutes(app, {
     stateBackendMode: STATE_BACKEND_MODE,
     appMode: APP_MODE,
     mockIntegrationsAllowed: ALLOW_MOCK_INTEGRATIONS,
-  }),
+  };
+}
+
+function getAutomationFeatures() {
+  const aiReady = !!process.env.GEMINI_API_KEY;
+  const week = 7 * 86400000;
+  const features = [
+    { key: 'content', title: 'Content publishing', tab: 'publish-tab', jobType: 'content.autopilot',
+      configured: aiReady && !!process.env.GHL_ACCESS_TOKEN && !!process.env.GHL_LOCATION_ID,
+      setupReason: 'Connect AI writing and website publishing in Settings.',
+      enabled: autopilotEnabled, lastRun: lastAutopilotRun, nextRun: nextRunTime },
+    { key: 'ai', title: 'AI visibility checks', tab: 'aio-tab', jobType: 'ai.visibility',
+      configured: aiReady, enabled: aiVisDb.autoEnabled, running: aiVisRunning,
+      lastRun: aiVisDb.lastRun, intervalMs: (aiVisDb.intervalDays || 7) * 86400000 },
+    { key: 'local', title: 'Local listings and Google posts', tab: 'local-tab', jobType: 'local.autopilot',
+      configured: aiReady, enabled: localDb.enabled, running: localRunning,
+      lastRun: localDb.lastNapRun || localDb.lastGbpRun, intervalMs: week,
+      needsApproval: !!localDb.gbpDraft && !localDb.gbpDraft.posted, failed: !!localDb.gbpDraft?.postError },
+    { key: 'citations', title: 'Directory discovery', tab: 'citations-tab', jobType: 'citation.scan',
+      configured: aiReady, enabled: citationsDb.autoEnabled, running: citScanRunning,
+      lastRun: citationsDb.lastScanned, intervalMs: (citationsDb.intervalDays || 7) * 86400000 },
+    { key: 'onsite', title: 'Website improvement ideas', tab: 'onsite-tab', jobType: 'onsite.autopilot',
+      configured: aiReady, enabled: onsiteDb.enabled, running: onsiteRunning,
+      lastRun: onsiteDb.lastRun, intervalMs: (onsiteDb.intervalDays || 7) * 86400000 },
+    { key: 'digest', title: 'Results summary', tab: 'performance-tab', jobType: 'performance.digest',
+      configured: aiReady, enabled: perfDigestDb.enabled, running: perfDigestRunning,
+      lastRun: perfDigestDb.lastRun, intervalMs: (perfDigestDb.intervalDays || 7) * 86400000 },
+  ];
+  if (monthlyReportService) {
+    const report = monthlyReportService.status();
+    features.push({
+      key: 'monthly-report', title: 'Monthly owner report', tab: 'performance-tab', jobType: 'report.monthly-email',
+      configured: report.ready,
+      setupReason: report.gmailConfigured ? 'Add the owner email address in Results.' : 'Connect Gmail and add the owner email address in Results.',
+      enabled: report.enabled, lastRun: report.lastSentAt, nextRun: report.nextRunAt, failed: report.hasDeliveryProblem,
+    });
+  }
+  return features;
+}
+
+// Home/Reports dashboard projection. The module keeps response shaping pure;
+// the composition root supplies the current live integration and feature state.
+registerDashboardRoutes(app, {
+  buildHealthScoreResponse,
+  getNextMovesContext,
+  getDigestContext,
+  getReadinessContext,
   logger: console,
 });
 
 registerAutomationStatusRoute(app, {
   queue: durableJobQueue, worker: jobWorker,
-  getFeatures: () => {
-    const aiReady = !!process.env.GEMINI_API_KEY;
-    const week = 7 * 86400000;
-    return [
-      { key: 'content', title: 'Content publishing', tab: 'publish-tab', jobType: 'content.autopilot',
-        configured: aiReady && !!process.env.GHL_ACCESS_TOKEN && !!process.env.GHL_LOCATION_ID,
-        setupReason: 'Connect AI writing and website publishing in Settings.',
-        enabled: autopilotEnabled, lastRun: lastAutopilotRun, nextRun: nextRunTime },
-      { key: 'ai', title: 'AI visibility checks', tab: 'aio-tab', jobType: 'ai.visibility',
-        configured: aiReady, enabled: aiVisDb.autoEnabled, running: aiVisRunning,
-        lastRun: aiVisDb.lastRun, intervalMs: (aiVisDb.intervalDays || 7) * 86400000 },
-      { key: 'local', title: 'Local listings and Google posts', tab: 'local-tab', jobType: 'local.autopilot',
-        configured: aiReady, enabled: localDb.enabled, running: localRunning,
-        lastRun: localDb.lastNapRun || localDb.lastGbpRun, intervalMs: week,
-        needsApproval: !!localDb.gbpDraft && !localDb.gbpDraft.posted, failed: !!localDb.gbpDraft?.postError },
-      { key: 'citations', title: 'Directory discovery', tab: 'citations-tab', jobType: 'citation.scan',
-        configured: aiReady, enabled: citationsDb.autoEnabled, running: citScanRunning,
-        lastRun: citationsDb.lastScanned, intervalMs: (citationsDb.intervalDays || 7) * 86400000 },
-      { key: 'onsite', title: 'Website improvement ideas', tab: 'onsite-tab', jobType: 'onsite.autopilot',
-        configured: aiReady, enabled: onsiteDb.enabled, running: onsiteRunning,
-        lastRun: onsiteDb.lastRun, intervalMs: (onsiteDb.intervalDays || 7) * 86400000 },
-      { key: 'digest', title: 'Results summary', tab: 'performance-tab', jobType: 'performance.digest',
-        configured: aiReady, enabled: perfDigestDb.enabled, running: perfDigestRunning,
-        lastRun: perfDigestDb.lastRun, intervalMs: (perfDigestDb.intervalDays || 7) * 86400000 },
-    ];
-  },
+  getFeatures: getAutomationFeatures,
 });
 
 // Restore the autopilot schedule if it was enabled before a redeploy.
@@ -3467,6 +3507,46 @@ const reviewsService = createReviewsService({
   }),
 });
 registerReviewsRoutes(app, { service: reviewsService, logger: console });
+
+const serverPdfReport = createServerPdfReport({ publicDir: PUBLIC_DIR, appOrigin: siteDomain() });
+async function buildMonthlyReportData() {
+  const safe = async operation => {
+    try { return await operation(); } catch (error) {
+      logger.warn('monthly_report.source_unavailable', { error });
+      return null;
+    }
+  };
+  const [score, performance, search, reviews, queue] = await Promise.all([
+    safe(async () => ({ success: true, ...(await buildHealthScoreResponse()) })),
+    safe(() => computePerformance()),
+    safe(() => getGscDashboardData()),
+    safe(async () => ({ success: true, ...(await reviewsService.getStats()) })),
+    safe(() => durableJobQueue.snapshot(100)),
+  ]);
+  return {
+    score,
+    performance,
+    moves: { success: true, moves: buildNextMoves(getNextMovesContext()) },
+    profile: { success: true, profile: businessProfile() },
+    search,
+    history: historyDb,
+    ai: { latest: aiVisDb.snapshots.at(-1) || null, lastRun: aiVisDb.lastRun },
+    digest: perfDigestState(),
+    automation: queue ? { success: true, checkedAt: new Date().toISOString(), features: buildAutomationStatus(getAutomationFeatures(), queue, jobWorker.status().running) } : null,
+    reviews,
+    readiness: buildDeployReadiness(getReadinessContext()),
+  };
+}
+monthlyReportService = createMonthlyReportService({
+  state: monthlyReportDb,
+  saveState: saveMonthlyReport,
+  gmailConfigured: () => !!gmailClient(),
+  defaultRecipient: () => process.env.MONTHLY_REPORT_EMAIL || process.env.DIGEST_EMAIL || process.env.GMAIL_SENDER || '',
+  buildReportData: buildMonthlyReportData,
+  renderReport: serverPdfReport.render,
+  sendGmail,
+});
+registerMonthlyReportRoutes(app, { requireOwner, service: monthlyReportService });
 // ===========================================================================
 // RECORDED ANSWERS  —  turning the owner's own words into content
 // ---------------------------------------------------------------------------
@@ -3503,6 +3583,12 @@ function scheduleDailyStateBackups() {
   jobDispatcher.scheduleDaily('storage.backup', 2 * 60 * 1000);
 }
 
+function scheduleMonthlyOwnerReport() {
+  // A daily eligibility check keeps the calendar decision restart-safe and
+  // timezone-aware. Only the first local calendar day can deliver.
+  jobDispatcher.scheduleDaily('report.monthly-email', 150000, 13 * 60);
+}
+
 function registerDurableJobHandlers() {
   jobHandlers.set('content.autopilot', async () => {
     if (!autopilotEnabled) return { skipped: 'disabled' };
@@ -3514,6 +3600,7 @@ function registerDurableJobHandlers() {
   jobHandlers.set('local.autopilot', async () => { await maybeRunLocalAutopilot(false); return { checked: true }; });
   jobHandlers.set('onsite.autopilot', async () => { await maybeRunOnsiteAutopilot(false); return { checked: true }; });
   jobHandlers.set('performance.digest', async () => { await maybeRunPerfDigest(false); return { checked: true }; });
+  jobHandlers.set('report.monthly-email', async () => monthlyReportService.runScheduled());
   jobHandlers.set('health.snapshot', async () => { await recordDailyHealthSnapshot(); return { recorded: true }; });
   jobHandlers.set('storage.backup', async () => {
     const today = new Date().toISOString().slice(0, 10);
@@ -3529,6 +3616,7 @@ function startBackgroundWork() {
   jobWorker.start();
   scheduleDailyHealthSnapshots();
   scheduleDailyStateBackups();
+  scheduleMonthlyOwnerReport();
 }
 
 const server = app.listen(PORT, () => {
