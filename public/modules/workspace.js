@@ -49,7 +49,12 @@
     const data = await response.json();
     if (!data || data.success === false || (field && !Array.isArray(data[field]))) throw new Error('Invalid response');
     if (field && data[field].some(item => !item || typeof item !== 'object')) throw new Error('Invalid entries');
-    if (field === 'features' && (data.features.length !== 6 || data.features.some(item => !ROUTES[item.tab] || !item.label))) throw new Error('Incomplete status checks');
+    if (field === 'features') {
+      const keys = new Set(data.features.map(item => item.key));
+      if (!data.features.length || keys.size !== data.features.length || data.features.some(item => !item.key || !ROUTES[item.tab] || !item.label)) {
+        throw new Error('Incomplete status checks');
+      }
+    }
     return data;
   }
 

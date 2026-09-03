@@ -458,6 +458,7 @@ test('static assets compress, cache briefly, and keep PDF code off the critical 
   const brandProfileSource = await (await request('/modules/brand-profile.js', { auth: false })).text();
   const ownerModeSource = await (await request('/modules/owner-mode.js', { auth: false })).text();
   const ownerViewsSource = await (await request('/modules/owner-views.js', { auth: false })).text();
+  const workspaceSource = await (await request('/modules/workspace.js', { auth: false })).text();
   const searchOpportunitiesSource = await (await request('/modules/search-opportunities.js', { auth: false })).text();
   const settingsSource = await (await request('/modules/settings.js', { auth: false })).text();
   const contentSource = await (await request('/modules/content-workspace.js', { auth: false })).text();
@@ -517,6 +518,8 @@ test('static assets compress, cache briefly, and keep PDF code off the critical 
   assert.match(ownerViewsSource, /global\.loadOwnerResults/);
   assert.match(ownerViewsSource, /global\.loadOwnerBusiness/);
   assert.doesNotMatch(ownerViewsSource, /setOwnerMode|loadOwnerToday|data-ow="|authFetch/);
+  assert.doesNotMatch(workspaceSource, /features\.length\s*!==\s*\d+/, 'Today must not break when another valid automation is added');
+  assert.match(workspaceSource, /new Set\(data\.features\.map/);
   assert.match(ownerModeSource, /\/api\/next-moves/);
   assert.match(ownerViewsSource, /\/api\/performance/);
   assert.match(ownerViewsSource, /\/api\/business-profile/);

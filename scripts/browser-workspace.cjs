@@ -15,6 +15,7 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
     ['citations', 'Directory discovery', 'failed', 'Failed', 'citations-tab'],
     ['onsite', 'Website improvement ideas', 'completed', 'Completed', 'onsite-tab'],
     ['digest', 'Results summary', 'needs-setup', 'Needs setup', 'performance-tab'],
+    ['monthly-report', 'Monthly owner report', 'needs-setup', 'Needs setup', 'performance-tab'],
   ].map(([key, title, status, label, tab]) => ({ key, title, status, label, tab, reason: 'Test-only recorded status. No publication is being claimed.', lastRecordedAt: '2026-09-01T12:00:00Z', nextRunAt: null }));
   responses.set('/api/next-moves', { json: moves });
   responses.set('/api/automation-status', { json: { success: true, checkedAt: '2026-09-02T12:00:00Z', features } });
@@ -138,7 +139,7 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
 
   await journey(`${prefix}: default workspace has four persistent destinations and bounded status evidence`, async () => {
     await load('today');
-    await page.waitForFunction(() => document.querySelectorAll('.ws-automation').length === 6);
+    await page.waitForFunction(() => document.querySelectorAll('.ws-automation').length === 7);
     assert.equal(await page.locator('#workspace-nav .nav-item:visible').count(), 4);
     assert.equal(await page.locator('#btn-mode-switch').isVisible(), false);
     assert.equal(await page.locator('.nav-menu:not(#workspace-nav):visible').count(), 0);
@@ -147,7 +148,7 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
     assert.equal(await page.locator('.ws-overview .btn-primary').count(), 1, 'Briefing must have one clear primary action');
     assert.equal(await page.locator('.ws-overview .sb-editorial-art[aria-hidden="true"]').count(), 1);
     const listBounds = await page.locator('.ws-automations').boundingBox();
-    assert.ok(listBounds.height <= 430, 'Six collapsed automation rows must stay compact');
+    assert.ok(listBounds.height <= 430, 'Seven collapsed automation rows must stay compact');
     await page.locator('.ws-automation summary').first().click();
     assert.match(await page.locator('.ws-automation').first().innerText(), /No publication is being claimed/);
     await audit('preview-today');
@@ -219,7 +220,7 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
 
   await journey(`${prefix}: polished layout stays readable at narrow widths and keyboard-operable`, async () => {
     await open('#ws-nav-today');
-    await page.waitForFunction(() => document.querySelectorAll('.ws-automation').length === 6 && !document.getElementById('ws-today').hasAttribute('aria-busy'));
+    await page.waitForFunction(() => document.querySelectorAll('.ws-automation').length === 7 && !document.getElementById('ws-today').hasAttribute('aria-busy'));
     assert.equal(await page.locator('.ws-automation details[open]').count(), 0);
     await page.locator('.ws-automation summary').first().focus();
     await page.locator('.ws-automation summary:focus').waitFor();

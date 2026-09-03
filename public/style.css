@@ -3096,7 +3096,7 @@ body.dark .ws-overview, body.dark .ws-tool-search, body.dark .ws-decision:first-
 .ws-automations { border: 1px solid var(--line); border-radius: 14px; background: var(--surface); overflow: hidden; }
 .ws-automation { min-width: 0; border-bottom: 1px solid var(--line-2); }
 .ws-automation:last-child { border-bottom: 0; }
-.ws-automation summary { display: flex; align-items: center; gap: 12px; padding: 13px 15px; min-height: 62px; cursor: pointer; list-style: none; }
+.ws-automation summary { display: flex; align-items: center; gap: 12px; padding: 12px 15px; min-height: 60px; cursor: pointer; list-style: none; }
 .ws-automation summary::-webkit-details-marker { display: none; }
 .ws-automation summary:hover { background: var(--surface-2); }
 .ws-automation summary:focus-visible { outline: 2px solid var(--action); outline-offset: -3px; border-radius: 6px; }
@@ -3202,7 +3202,7 @@ body.workspace-preview .ow-note { border-radius: 12px; }
   .ws-overview h2 { font-size: 27px; margin-top: 13px; }
   .ws-overview p { font-size: 13px; margin-bottom: 16px; }
   .ws-overview .btn-primary { font-size: 12px; }
-  .ws-automation summary { padding: 12px 11px; gap: 8px; min-height: 62px; }
+  .ws-automation summary { padding: 11px; gap: 8px; min-height: 60px; }
   .ws-row-icon { width: 27px; height: 29px; border-radius: 7px; }
   .ws-row-title { font-size: 13px; }
   .ws-status { font-size: 10px; padding: 4px 5px; gap: 4px; }
