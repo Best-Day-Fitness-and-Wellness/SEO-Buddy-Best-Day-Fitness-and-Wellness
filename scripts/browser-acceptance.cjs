@@ -94,6 +94,12 @@ async function exercise(base, viewport) {
   };
   const tool = async id => { await nav('#nav-explore'); await page.locator(`.exp-row[data-go="tab:${id}"]`).click(); };
 
+  if (process.env.REPORT_ONLY === '1') {
+    await require('./browser-report.cjs')({ page, base, prefix, journey, writes, responses, output });
+    await context.close();
+    return;
+  }
+
   await journey(`${prefix}: supplied logo loads and switches with the app theme`, async () => {
     const hamburger = page.locator('#mobile-hamburger');
     const mobile = await hamburger.isVisible();
@@ -317,6 +323,7 @@ async function exercise(base, viewport) {
     await audit('dark-' + id);
   }
   await require('./browser-workspace.cjs')({ page, base, prefix, journey, audit, writes, responses });
+  await require('./browser-report.cjs')({ page, base, prefix, journey, writes, responses, output });
   await context.close();
 }
 

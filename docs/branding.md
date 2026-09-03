@@ -16,7 +16,12 @@ CSS selects the complete variant using the existing app theme; it does not
 filter, recolor, rotate, or animate the mark. The adjacent accessible product
 name retains the app's typography. The supplied horizontal lockups are not used:
 their SVG viewport clips the ring, and their text depends on additional fonts.
-Best Day Fitness's business badge and report branding remain separate.
+Best Day Fitness's business badge remains separate. The downloadable Visibility
+& Growth Report uses the same unchanged light SVG, rasterized at print resolution
+inside the browser, with a text-wordmark fallback if the asset cannot load.
+Report colors use the mark's navy and orange with the app's warm-neutral surfaces
+and teal accents. The business name comes from the saved profile, not a hardcoded
+fallback. See `docs/PROGRESS-REPORT.md` for the report's evidence rules.
 
 The asset URLs carry a branding revision query so existing browsers request the
 replacement artwork. Bump that revision in the HTML and its integration test

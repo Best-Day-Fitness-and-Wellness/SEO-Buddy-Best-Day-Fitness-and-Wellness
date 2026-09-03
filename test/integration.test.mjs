@@ -474,8 +474,10 @@ test('static assets compress, cache briefly, and keep PDF code off the critical 
   assert.match(recordedContentSource, /\/api\/transcribe/);
   assert.match(recordedContentSource, /\/api\/social-pack/);
   assert.match(pdfReportSource, /global\.SeoBuddyPdfReport/);
-  assert.match(pdfReportSource, /\/api\/health-score/);
-  assert.match(pdfReportSource, /\/api\/performance-digest/);
+  assert.match(pdfReportSource, /score: 'health-score'/);
+  assert.match(pdfReportSource, /digest: 'performance-digest'/);
+  assert.match(pdfReportSource, /automation: 'automation-status'/);
+  assert.match(pdfReportSource, /readCheckedJson/);
   assert.match(citationSource, /window\.loadCitationWorklist/);
   assert.match(citationSource, /\/api\/citation-worklist/);
   assert.match(citationSource, /\/api\/citation-status/);

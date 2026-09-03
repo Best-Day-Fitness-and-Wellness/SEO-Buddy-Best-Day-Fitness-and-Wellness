@@ -574,6 +574,8 @@ test('Search Console service preserves query shaping, sorting, and live contract
 
   const dashboard = await service.getDashboardData();
   assert.equal(dashboard.source, 'live_gsc');
+  assert.deepEqual(dashboard.period, { startDate: '2026-08-02', endDate: '2026-09-01' });
+  assert.equal(dashboard.queryRowLimit, 100);
   assert.equal(dashboard.data[0].query, 'https://bestdayfitness.com/page');
 
   const pages = await service.getPages(' senior fitness ');
@@ -2457,6 +2459,9 @@ test('performance service preserves aggregation, trends, persistence, attributio
 
   const result = await service.computePerformanceSnapshot();
   assert.equal(result.source, 'live_gsc');
+  assert.deepEqual(result.periods.current, { startDate: gscRequests[0].request.requestBody.startDate, endDate: gscRequests[0].request.requestBody.endDate });
+  assert.deepEqual(result.periods.previous, { startDate: gscRequests[1].request.requestBody.startDate, endDate: gscRequests[1].request.requestBody.endDate });
+  assert.equal(result.queryRowLimit, 250);
   assert.deepEqual(result.current, { impressions: 170, clicks: 12, avgPosition: 5.3, ctr: 7.06 });
   assert.deepEqual(result.previous, { impressions: 130, clicks: 7, avgPosition: 6.5, ctr: 5.38 });
   assert.deepEqual(result.movers.gainers.map(move => move.query), ['best day fitness', 'mobility coaching']);
