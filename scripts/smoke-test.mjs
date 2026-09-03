@@ -45,7 +45,8 @@ assert.equal(storage.persistent, true);
 assert.equal(typeof storage.backend, 'string');
 assert.equal(typeof storage.tenantId, 'string');
 assert.equal(automationResult.body.success, true);
-assert.equal(automationResult.body.features.length, 6);
+assert.equal(automationResult.body.features.length, 7);
+assert.ok(automationResult.body.features.some(item => item.key === 'monthly-report'));
 assert.ok(automationResult.body.features.every(item => ['needs-setup', 'scheduled', 'running', 'needs-approval', 'completed', 'failed', 'paused', 'unknown'].includes(item.status)));
 
 for (const result of [liveResult, readyResult, deployResult, gscResult, scoreResult, storageResult, automationResult]) {
