@@ -297,6 +297,21 @@ so one production replica remains the supported topology.
    retain their contracts. Tests cover compatibility, restart recovery and
    failure behavior. This separates accounting from persistence; it does not
    make budget checks atomic reservations or feature state replica-safe.
+
+   Score timeline orchestration is now in `lib/score-history.js`: score reads
+   build a non-persisted preview, while the daily recorder coalesces overlapping
+   work and persists through `lib/score-history-repository.js`. The existing
+   `lib/health-score.js` formula and migration helpers are unchanged, as are
+   seven-sample smoothing, version-safe deltas, 180 saved rows and 60 response
+   rows. The assistant reads the same current in-process snapshot collection.
+
+   Publication history loading/saving uses
+   `lib/publication-history-repository.js`; existing publication, URL-repair and
+   indexing code still mutates the same array in the same order. Both adapters
+   keep the current tenant files, atomic writer, PostgreSQL outbox observer and
+   failure semantics. No data rewrite, new schema or storage-authority cutover
+   is introduced. The legacy missing-file publication seed is retained solely
+   for compatibility; it is not verified publication/indexing evidence.
 3. **The worker shares the web process.** Durable state prevents lost work, but
    provider latency still consumes web-process memory and event-loop capacity.
    The transactional database queue is deployed. Moving handlers to a separate

@@ -9,16 +9,13 @@ const crypto = require('node:crypto');
 const { google } = require('googleapis');
 const { GoogleGenAI } = require('@google/genai');
 const { saveJsonFileSync, setJsonWriteObserver, writeJsonFileSync } = require('./lib/json-file-store');
-const { upsertDailySnapshot } = require('./lib/daily-snapshot');
 const {
-  SCORE_VERSION,
   clamp: hClamp,
-  migrateSnapshots,
-  scoreDelta,
   scorePillars,
-  snapshotFromScore,
-  stabilizeScore,
 } = require('./lib/health-score');
+const { createScoreHistory } = require('./lib/score-history');
+const { createScoreHistoryRepository } = require('./lib/score-history-repository');
+const { createPublicationHistoryRepository } = require('./lib/publication-history-repository');
 const { integrationUnavailable, mocksAllowed, resolveAppMode } = require('./lib/runtime-mode');
 const { createLogger } = require('./lib/logger');
 const { createRequestMetrics } = require('./lib/request-metrics');
@@ -770,32 +767,11 @@ registerOperationsRoutes(app, {
 // ----------------------------------------------------
 // Persistent JSON Database Configuration
 // ----------------------------------------------------
-const HISTORY_FILE = path.join(DATA_DIR, 'history.json');
 const LOGS_FILE = path.join(DATA_DIR, 'autopilot-logs.json');
 
-let historyDb = [];
+const historyRepository = createPublicationHistoryRepository(stateRepository);
+const historyDb = historyRepository.load();
 let autopilotLogs = [];
-
-// Initialize history database
-if (fs.existsSync(HISTORY_FILE)) {
-  try {
-    historyDb = JSON.parse(fs.readFileSync(HISTORY_FILE, 'utf8'));
-  } catch (e) {
-    historyDb = [];
-  }
-} else {
-  historyDb = [
-    {
-      title: 'The Ultimate Guide to Senior Mobility Training',
-      keyword: 'mobility training st pete',
-      platform: 'GoHighLevel (Draft)',
-      date: '2026-07-16',
-      indexed: 'Indexing Requested',
-      url: 'https://bestdayfitness.com/post/mobility-training-st-pete'
-    }
-  ];
-  writeJsonFileSync(HISTORY_FILE, historyDb);
-}
 
 // Initialize autopilot logs database
 if (fs.existsSync(LOGS_FILE)) {
@@ -879,7 +855,7 @@ function logAutopilotActivity(message) {
 
 // Helper to save history
 function saveHistory() {
-  saveJsonFileSync(HISTORY_FILE, historyDb, 'History File');
+  historyRepository.save(historyDb);
 }
 
 // One-time repair (idempotent, runs every boot): older builds stored blog URLs
@@ -2423,6 +2399,7 @@ registerAiAuditRoutes(app, {
 // ============================================================
 function assistantContext() {
   const prof = (businessProfile() && businessProfile().profile) || {};
+  const healthSnapshots = scoreHistory.snapshots;
   const lastScore = healthSnapshots.length ? healthSnapshots[healthSnapshots.length - 1].overall : null;
   let scoreDelta = null;
   if (lastScore != null && healthSnapshots.length > 1) {
@@ -3221,12 +3198,16 @@ scheduleDurableCheck('performance.digest', 75000, 12 * 60 * 60 * 1000);
 // 20. Optimization (Health) Score — the redesign's headline number.
 // Five outcome pillars scored 0-100 from data we ALREADY store; the
 // overall is a weighted average of only the MEASURED pillars, so a fresh
-// account never sees a scary low number. Snapshotted weekly for trend.
+// account never sees a scary low number. Snapshotted daily for trend.
 // ============================================================
-const HEALTH_FILE = path.join(DATA_DIR, 'health-score.json');
-let healthSnapshots = [];
-try { if (fs.existsSync(HEALTH_FILE)) healthSnapshots = migrateSnapshots(JSON.parse(fs.readFileSync(HEALTH_FILE, 'utf8'))); } catch (e) { healthSnapshots = []; }
-function saveHealth() { saveJsonFileSync(HEALTH_FILE, healthSnapshots, 'Health'); }
+const scoreHistoryRepository = createScoreHistoryRepository(stateRepository);
+const scoreHistory = createScoreHistory({
+  initialSnapshots: scoreHistoryRepository.load(),
+  computeScore: computeHealthScore,
+  saveSnapshots: scoreHistoryRepository.save,
+  getRuntime: () => ({ mode: APP_MODE, mockIntegrationsAllowed: ALLOW_MOCK_INTEGRATIONS }),
+});
+const { buildResponse: buildHealthScoreResponse, recordDaily: recordDailyHealthSnapshot } = scoreHistory;
 
 async function computeHealthScore() {
   const pillars = [];
@@ -3334,44 +3315,6 @@ async function computeHealthScore() {
   }
 
   return scorePillars(pillars);
-}
-
-async function buildHealthScoreResponse(recordedAt = new Date().toISOString()) {
-  const score = await computeHealthScore();
-  const candidate = snapshotFromScore(score, recordedAt);
-  const smoothing = stabilizeScore(healthSnapshots, candidate);
-  const current = candidate ? { ...candidate, overall: smoothing.overall } : null;
-  const preview = current ? upsertDailySnapshot(healthSnapshots, current, 180).snapshots : healthSnapshots;
-  return {
-    ...score,
-    runtime: { mode: APP_MODE, mockIntegrationsAllowed: ALLOW_MOCK_INTEGRATIONS },
-    overall: smoothing.overall,
-    liveOverall: score.liveOverall,
-    rawOverall: score.rawOverall,
-    smoothing,
-    delta: scoreDelta(healthSnapshots, current),
-    history: preview.slice(-60),
-  };
-}
-
-let healthSnapshotPromise = null;
-async function recordDailyHealthSnapshot(recordedAt = new Date().toISOString()) {
-  if (healthSnapshotPromise) return healthSnapshotPromise;
-  healthSnapshotPromise = (async () => {
-    const today = recordedAt.slice(0, 10);
-    const existing = healthSnapshots.find(snapshot => snapshot.date === today && snapshot.version === SCORE_VERSION);
-    if (existing) return existing;
-    const score = await computeHealthScore();
-    const candidate = snapshotFromScore(score, recordedAt);
-    if (!candidate) return null;
-    const smoothing = stabilizeScore(healthSnapshots, candidate);
-    const row = { ...candidate, overall: smoothing.overall };
-    const update = upsertDailySnapshot(healthSnapshots, row, 180);
-    healthSnapshots = update.snapshots;
-    if (update.changed) saveHealth();
-    return row;
-  })().finally(() => { healthSnapshotPromise = null; });
-  return healthSnapshotPromise;
 }
 
 function scheduleDailyHealthSnapshots() {

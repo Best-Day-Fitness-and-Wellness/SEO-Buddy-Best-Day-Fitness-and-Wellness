@@ -47,6 +47,11 @@ is shared feature-state mutation and the in-process worker.
    The usage meter and current persistence adapter are now separate and covered
    by compatibility tests. Transactional updates and budget reservations are
    still future work; the current adapter intentionally keeps existing behavior.
+   Score timeline orchestration and score/publication history adapters are also
+   isolated now. Score reads remain non-persisting and daily recording remains
+   single-flight within one process. Concurrent database updates, cross-process
+   deduplication and indexed history tables have not been implemented by this
+   extraction; do not increase replica count on that basis.
 2. Make database writes authoritative behind repository interfaces; keep JSON
    only as a local-development adapter and rollback export.
 3. Once feature mutations no longer depend on web-process objects, run the
