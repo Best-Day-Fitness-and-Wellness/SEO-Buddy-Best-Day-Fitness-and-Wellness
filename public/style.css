@@ -226,11 +226,8 @@ body {
   margin-bottom: 1.25rem;
 }
 
-/* The Best Day mark. The full badge is illegible at 42px, so the tile carries
-   a simplified sun-over-waves glyph on brand navy and the full logo is used
-   at larger sizes (setup wizard, reports). */
-/* No tile behind the mark. It is already a self-contained circular badge with a
-   navy ring on transparency — sitting it on a navy square swallowed that ring. */
+/* The supplied dotted rank mark stays above its 32px minimum in both themes.
+   Swap complete assets instead of recoloring or filtering the artwork. */
 .logo-icon {
   width: 40px;
   height: 40px;
@@ -239,11 +236,10 @@ body {
   justify-content: center;
   flex-shrink: 0;
 }
-.logo-icon img,
-.logo-icon svg { width: 40px; height: 40px; display: block; }
-/* The mark's core is navy, which all but disappears on the dark canvas.
-   Lift it to the raised surface colour and flip the tick so it stays legible. */
-body.dark .logo-icon svg { --sb-mark-core: #eaeaf7; --sb-mark-tick: #000075; }
+.logo-icon img { width: 40px; height: 40px; display: block; }
+.logo-icon .logo-mark-dark,
+body.dark .logo-icon .logo-mark-light { display: none; }
+body.dark .logo-icon .logo-mark-dark { display: block; }
 
 .logo-text {
   font-family: var(--font-heading);

@@ -94,6 +94,34 @@ async function exercise(base, viewport) {
   };
   const tool = async id => { await nav('#nav-explore'); await page.locator(`.exp-row[data-go="tab:${id}"]`).click(); };
 
+  await journey(`${prefix}: supplied logo loads and switches with the app theme`, async () => {
+    const hamburger = page.locator('#mobile-hamburger');
+    const mobile = await hamburger.isVisible();
+    if (mobile) await hamburger.click();
+    try {
+      for (const theme of ['light', 'dark']) {
+        const dark = theme === 'dark';
+        if (await page.locator('body').evaluate(el => el.classList.contains('dark')) !== dark) await page.locator('#theme-toggle').click();
+        const logo = page.locator(`.logo-mark-${theme}`);
+        await logo.scrollIntoViewIfNeeded();
+        await logo.waitFor({ state: 'visible' });
+        await logo.evaluate(img => img.decode());
+        assert.ok(await logo.evaluate(img => img.complete && img.naturalWidth > 0), 'Brand artwork must load');
+        assert.equal(await page.locator(`.logo-mark-${dark ? 'light' : 'dark'}`).isVisible(), false);
+        const bounds = await logo.boundingBox();
+        assert.equal(bounds.width, 40);
+        assert.equal(bounds.height, 40);
+        assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= viewport.width, 'Logo must stay inside the visible navigation');
+        assert.equal(await page.locator('.logo-text').innerText(), 'SEO Buddy');
+        assert.equal(await page.locator('.biz-chip img').getAttribute('src'), 'bd-mark.png');
+        await page.locator('.logo-area').screenshot({ path: path.join(output, `${prefix}-logo-${theme}.png`) });
+      }
+    } finally {
+      if (await page.locator('body').evaluate(el => el.classList.contains('dark'))) await page.locator('#theme-toggle').click();
+      if (mobile) await page.locator('#mobile-backdrop').click({ position: { x: viewport.width - 10, y: 20 } });
+    }
+  });
+
   await journey(`${prefix}: startup security and lazy content`, async () => {
     assert.equal(await page.locator('script[src*="content-workspace."]').count(), 0);
     const storage = await page.evaluate(() => ({ legacy: localStorage.getItem('seo_gemini_key'), token: localStorage.getItem('seo_ghl_token'), persistentPassword: localStorage.getItem('seo_admin_password'), migrated: sessionStorage.getItem('seo_admin_password') === 'browser-test-only' }));

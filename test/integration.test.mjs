@@ -290,6 +290,30 @@ test('all read-only dashboard routes respond', { timeout: 30000 }, async () => {
   }
 });
 
+test('supplied logo variants and shortcut icons are served without authentication', async () => {
+  const html = await (await request('/', { auth: false })).text();
+  const assets = [
+    ['sb-mark.svg', 'image/svg+xml'],
+    ['sb-mark-dark.svg', 'image/svg+xml'],
+    ['sb-favicon.svg', 'image/svg+xml'],
+    ['sb-mark.png', 'image/png'],
+    ['sb-touch-180.png', 'image/png'],
+  ];
+  for (const [name, type] of assets) {
+    const url = `/${name}?v=20260903`;
+    assert.ok(html.includes(`"${url}"`), `${name} must use the new branding cache version`);
+    const response = await request(url, { auth: false });
+    assert.equal(response.status, 200, name);
+    assert.equal(response.headers.get('content-type').split(';')[0], type);
+    assert.deepEqual(Buffer.from(await response.arrayBuffer()), readFileSync(new URL(`../public/${name}`, import.meta.url)));
+  }
+  const favicon = readFileSync(new URL('../public/sb-mark.png', import.meta.url));
+  const touchIcon = readFileSync(new URL('../public/sb-touch-180.png', import.meta.url));
+  assert.deepEqual([favicon.readUInt32BE(16), favicon.readUInt32BE(20)], [32, 32]);
+  assert.deepEqual([touchIcon.readUInt32BE(16), touchIcon.readUInt32BE(20)], [180, 180]);
+  assert.doesNotMatch(html, /--sb-mark-core|--sb-mark-tick/);
+});
+
 test('static assets compress, cache briefly, and keep PDF code off the critical path', async () => {
   const index = await request('/', { auth: false });
   const html = await index.text();
