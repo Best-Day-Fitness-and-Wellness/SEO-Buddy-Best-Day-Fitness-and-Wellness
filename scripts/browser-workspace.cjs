@@ -792,6 +792,31 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
     }
   });
 
+  await journey(`${prefix}: Google post badges never overlap the heading`, async () => {
+    const path = '/api/local-autopilot';
+    const previous = responses.get(path);
+    try {
+      for (const state of ['posted', 'new', 'ordinary', 'empty']) {
+        const gbpDraft = state === 'empty' ? null : { text: 'Test-only Google post. No publishing occurs.', posted: state === 'posted', isNew: state === 'new', createdAt: '2026-09-04T12:00:00Z', postedAt: state === 'posted' ? '2026-09-04T13:00:00Z' : null };
+        responses.set(path, { json: { success: true, enabled: true, hasKey: true, gbpDraft, napExclusions: [] } });
+        await load('tools/local', '?google-post-badge=' + state);
+        await page.waitForFunction(() => typeof window.loadLocalAutopilot === 'function');
+        await page.evaluate(() => window.loadLocalAutopilot());
+        const title = page.locator('#la-gbp-title');
+        const badge = page.locator('#la-gbp-badge .la-badge');
+        if (state === 'posted' || state === 'new') {
+          assert.equal(await badge.innerText(), state === 'posted' ? 'POSTED' : 'NEW');
+          const a = await title.boundingBox(), b = await badge.boundingBox();
+          assert.ok(a && b);
+          assert.ok(a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y, 'Status must not cover the title');
+          await audit('google-post-' + state);
+        } else assert.equal(await badge.count(), 0);
+      }
+    } finally {
+      if (previous) responses.set(path, previous); else responses.delete(path);
+    }
+  });
+
   // Audit every preview route in light mode; core destinations also in dark.
   await page.evaluate(() => { if (document.body.classList.contains('dark')) document.getElementById('theme-toggle').click(); });
   const routes = await page.evaluate(() => Object.keys(window.SeoBuddyWorkspace.routes));

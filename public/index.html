@@ -993,9 +993,12 @@
             <label class="la-switch" title="Turn the autopilot on or off"><input type="checkbox" id="la-toggle"><span class="la-slider"></span></label>
           </div>
           <div class="sb-feed-row">
-            <span class="sb-fi" id="la-gbp-badge">&#9998;</span>
+            <span class="sb-fi" aria-hidden="true">&#9998;</span>
             <div class="sb-ft">
-              <b>This week&rsquo;s Google post</b>
+              <div class="la-gbp-heading">
+                <b id="la-gbp-title">This week&rsquo;s Google post</b>
+                <span id="la-gbp-badge"></span>
+              </div>
               <div id="la-gbp-body"></div>
             </div>
           </div>
