@@ -213,6 +213,8 @@
     filterTools();
   }
 
+  // Search can reveal advanced matches temporarily without changing the owner's layout.
+  const toolSearchExpansion = new WeakMap();
   function filterTools() {
     const query = $('ws-tool-search').value.trim().toLowerCase();
     const words = searchWords(query);
@@ -228,11 +230,24 @@
       });
       group.hidden = shown === 0;
       if (group.parentElement.matches('details')) {
-        group.parentElement.hidden = shown === 0;
-        if (query && shown) group.parentElement.open = true;
+        const details = group.parentElement;
+        details.hidden = shown === 0;
+        if (query) {
+          if (!toolSearchExpansion.has(details)) toolSearchExpansion.set(details, details.open);
+          if (shown) details.open = true;
+        } else if (toolSearchExpansion.has(details)) {
+          details.open = toolSearchExpansion.get(details);
+          toolSearchExpansion.delete(details);
+        }
       }
     });
     $('ws-tool-count').textContent = count ? `${count} destination${count === 1 ? '' : 's'} available` : 'No matching tools. Try “post”, “reviews”, “search”, or “listings”.';
+  }
+
+  function clearToolSearch() {
+    $('ws-tool-search').value = '';
+    filterTools();
+    $('ws-tool-search').focus();
   }
 
   function start(render) {
@@ -270,7 +285,13 @@
     form.closest('.content-card').querySelector('h2 + p').textContent = 'Manage access and value assumptions. Open technical options when a connection needs attention.';
     $('ws-back').addEventListener('click', () => depth > 0 ? history.back() : navigate('workspace-today-tab'));
     $('ws-tool-search').addEventListener('input', filterTools);
-    $('ws-tool-clear').addEventListener('click', () => { $('ws-tool-search').value = ''; filterTools(); $('ws-tool-search').focus(); });
+    $('ws-tool-clear').addEventListener('click', clearToolSearch);
+    $('ws-tool-search').addEventListener('keydown', event => {
+      if (event.key !== 'Escape' || !$('ws-tool-search').value) return;
+      event.preventDefault();
+      event.stopPropagation();
+      clearToolSearch();
+    });
     global.addEventListener('popstate', () => navigate(tabFromHash(), { replay: true }));
     global.addEventListener('hashchange', () => { const tab = tabFromHash(); if (tab !== current) navigate(tab, { replay: true }); });
     document.addEventListener('seo:content-changed', updateJourney);

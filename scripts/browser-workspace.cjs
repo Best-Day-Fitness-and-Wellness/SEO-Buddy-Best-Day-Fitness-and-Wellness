@@ -440,6 +440,37 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
     assert.equal(writes.length, before);
   });
 
+  await journey(`${prefix}: clearing tool search restores the layout and Escape keeps keyboard focus`, async () => {
+    const before = writes.length;
+    await load('tools', '?search-layout=1');
+    const input = page.locator('#ws-tool-search');
+    const advanced = page.locator('#exp-groups > details');
+    assert.equal(await advanced.getAttribute('open'), null);
+    await input.fill('dashboard');
+    assert.notEqual(await advanced.getAttribute('open'), null);
+    await input.fill('no-such-tool');
+    assert.equal(await advanced.isVisible(), false);
+    await input.press('Escape');
+    assert.equal(await input.inputValue(), '');
+    assert.equal(await input.evaluate(el => el === document.activeElement), true);
+    assert.equal(await advanced.isVisible(), true);
+    assert.equal(await advanced.getAttribute('open'), null);
+    assert.equal(await page.locator('#ws-tool-clear').isVisible(), false);
+    await input.press('Escape');
+    await location('tools');
+    await advanced.locator('summary').click();
+    await input.fill('dashboard');
+    await page.locator('#ws-tool-clear').click();
+    assert.notEqual(await advanced.getAttribute('open'), null);
+    assert.equal(await input.evaluate(el => el === document.activeElement), true);
+    await advanced.locator('summary').click();
+    await input.fill('dashboard');
+    await page.locator('#ws-tool-clear').click();
+    assert.equal(await advanced.getAttribute('open'), null);
+    await audit('tool-search-layout-restored');
+    assert.deepEqual(writes.slice(before).filter(write => write.path !== '/api/performance-digest/seen'), []);
+  });
+
   await journey(`${prefix}: missing report setup opens report controls instead of unrelated settings`, async () => {
     const before = writes.length;
     await load('today', '?report-setup-navigation=1');
