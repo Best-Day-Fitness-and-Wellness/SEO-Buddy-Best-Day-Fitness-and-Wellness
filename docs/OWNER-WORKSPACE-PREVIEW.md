@@ -63,6 +63,14 @@ publication. An indexing request is not proof that Google indexed a page.
 
 ## Status evidence and limits
 
+The shared header checks search evidence on startup, including direct links that
+never open Today. Today and Results use the same in-flight health-score reader;
+later refreshes request fresh evidence. A measured search pillar shows Live
+Search Data; an explicitly unmeasured pillar with demo mode allowed shows Demo
+Search Data. Failed, timed-out, or incomplete checks show Live Data Unavailable.
+This badge does not certify the other integrations or automation results, and
+does not wait for those unrelated checks to finish.
+
 `GET /api/automation-status` combines configuration and feature timestamps
 with the latest 100 queue records and worker availability. It does not run a
 provider test, execute jobs, or expose job payloads, errors or credentials.

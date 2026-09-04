@@ -243,12 +243,7 @@ document.addEventListener('DOMContentLoaded', () => {
   window.setDataMode = setDataMode;
 
   function setDataModeFromHealthScore(healthScore) {
-    const pillars = healthScore && Array.isArray(healthScore.pillars) ? healthScore.pillars : [];
-    const searchPillar = pillars.find(pillar => pillar && pillar.key === 'found');
-    if (searchPillar) {
-      const demoAllowed = !!(healthScore.runtime && healthScore.runtime.mockIntegrationsAllowed);
-      setDataMode(searchPillar.measured === true ? 'live' : (demoAllowed ? 'demo' : 'unavailable'));
-    }
+    setDataMode(window.SeoBuddyCore.healthScoreDataMode(healthScore));
   }
 
 
@@ -1742,6 +1737,8 @@ document.addEventListener('DOMContentLoaded', () => {
   // the full dashboard now initialize when their tabs are opened instead of
   // competing with first paint and duplicating hidden API work.
   if (workspaceEnabled) {
+    // Deep links must verify the shared header even when Today is never opened.
+    window.SeoBuddyCore.readHealthScore().catch(() => {});
     window.SeoBuddyCore.loadFeature('workspaceAsset', () => !!window.SeoBuddyWorkspace, 'Owner workspace')
       .then(() => window.SeoBuddyWorkspace.start(switchTab))
       .catch(() => {
@@ -1753,10 +1750,7 @@ document.addEventListener('DOMContentLoaded', () => {
   } else if (state.activeTab === 'today-tab') {
     loadToday();
   } else {
-    fetch('/api/health-score')
-      .then(r => r.json())
-      .then(setDataModeFromHealthScore)
-      .catch(() => setDataMode('unavailable'));
+    window.SeoBuddyCore.readHealthScore().catch(() => {});
   }
   const sumRefreshBtn = document.getElementById('sum-refresh');
   if (sumRefreshBtn) sumRefreshBtn.addEventListener('click', loadSummary);

@@ -48,6 +48,26 @@
     return data;
   }
 
+  function healthScoreDataMode(score) {
+    const search = Array.isArray(score?.pillars) ? score.pillars.find(pillar => pillar?.key === 'found') : null;
+    if (score?.success === false || !search || typeof search.measured !== 'boolean') return 'unavailable';
+    if (search.measured) return 'live';
+    return score.runtime?.mockIntegrationsAllowed === true ? 'demo' : 'unavailable';
+  }
+
+  let healthScoreRequest = null;
+  // The shell and visible view share concurrent checks, not a cached success.
+  // Publish as soon as search evidence arrives, independent of other checks.
+  function readHealthScore() {
+    if (!healthScoreRequest) {
+      healthScoreRequest = readCheckedJson('/api/health-score')
+        .then(score => { global.setDataMode?.(healthScoreDataMode(score)); return score; })
+        .catch(error => { global.setDataMode?.('unavailable'); throw error; })
+        .finally(() => { healthScoreRequest = null; });
+    }
+    return healthScoreRequest;
+  }
+
   function relativeTime(iso) {
     const timestamp = new Date(iso).getTime();
     if (Number.isNaN(timestamp)) return '';
@@ -207,5 +227,5 @@
     });
   }
 
-  global.SeoBuddyCore = Object.freeze({ authFetch, bindAction, confirmAction, trapDialogFocus, safeExternalUrl, sanitizeHtml, showToast, uiEsc, loadFeature, relativeTime, readCheckedJson });
+  global.SeoBuddyCore = Object.freeze({ authFetch, bindAction, confirmAction, trapDialogFocus, safeExternalUrl, sanitizeHtml, showToast, uiEsc, loadFeature, relativeTime, readCheckedJson, readHealthScore, healthScoreDataMode });
 })(window);

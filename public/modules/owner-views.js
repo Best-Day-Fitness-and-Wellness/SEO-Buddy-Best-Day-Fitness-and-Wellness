@@ -29,7 +29,7 @@
       const [pf, rv, hs] = await Promise.all([
         readOwnerData('/api/performance').catch(() => null),
         readOwnerData('/api/reviews-stats').catch(() => null),
-        readOwnerData('/api/health-score').catch(() => null)
+        global.SeoBuddyCore.readHealthScore().catch(() => null)
       ]);
       if (!pf || !pf.current) {
         // Distinguish "never connected" from "connected, but this fetch didn't

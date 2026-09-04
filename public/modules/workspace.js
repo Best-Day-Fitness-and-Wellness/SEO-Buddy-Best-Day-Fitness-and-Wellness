@@ -143,14 +143,12 @@
   async function loadToday() {
     const request = ++todayRequest;
     $('ws-today').setAttribute('aria-busy', 'true');
-    const data = await Promise.allSettled([read('/api/next-moves', 'moves'), read('/api/automation-status', 'features'), read('/api/health-score'), read('/api/autopilot-digest', 'items')]);
+    const data = await Promise.allSettled([read('/api/next-moves', 'moves'), read('/api/automation-status', 'features'), global.SeoBuddyCore.readHealthScore(), read('/api/autopilot-digest', 'items')]);
     if (request !== todayRequest) return;
     const [movesResult, automationResult, scoreResult, activityResult] = data;
     const moves = movesResult.status === 'fulfilled' ? movesResult.value.moves : null;
     const automation = automationResult.status === 'fulfilled' ? automationResult.value : null;
     const score = scoreResult.status === 'fulfilled' && Number.isInteger(scoreResult.value.overall) ? scoreResult.value : null;
-    const search = score?.pillars?.find(pillar => pillar.key === 'found');
-    global.setDataMode(search?.measured === true ? 'live' : score?.runtime?.mockIntegrationsAllowed ? 'demo' : 'unavailable');
     const features = automation?.features || [];
     const attention = features.filter(item => ['failed', 'needs-setup', 'unknown'].includes(item.status));
     const decisions = moves?.filter(move => move.capability !== 'blocked') || [];

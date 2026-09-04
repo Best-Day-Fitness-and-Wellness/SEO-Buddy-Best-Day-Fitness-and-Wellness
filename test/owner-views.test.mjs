@@ -63,6 +63,34 @@ test('shared reader preserves its timeout, JSON validation, and upstream errors'
   await assert.rejects(h.core.readCheckedJson('/offline'), error => error === failure);
 });
 
+test('search status requires explicit measured evidence, not configuration or malformed data', () => {
+  const { healthScoreDataMode: mode } = harness().core;
+  const score = (measured, demo = false) => ({ pillars: [{ key: 'found', measured }], runtime: { mockIntegrationsAllowed: demo } });
+  assert.equal(mode(score(true)), 'live');
+  assert.equal(mode(score(false, true)), 'demo');
+  for (const value of [null, {}, { pillars: {} }, { pillars: [null] }, score('true'), score(undefined, true), score(false), score(false, 'true'), { ...score(true), success: false }]) {
+    assert.equal(mode(value), 'unavailable');
+  }
+});
+
+test('shared health checks coalesce concurrent readers, report failure, and allow fresh recovery', async () => {
+  const data = { '/api/health-score': { pillars: [{ key: 'found', measured: true }] } };
+  const h = harness(data), modes = [];
+  h.window.setDataMode = mode => modes.push(mode);
+  const first = h.core.readHealthScore();
+  assert.equal(h.core.readHealthScore(), first);
+  assert.equal(h.requests.length, 1);
+  await first;
+  assert.deepEqual(modes, ['live']);
+  data['/api/health-score'] = new Error('timeout');
+  await assert.rejects(h.core.readHealthScore(), /timeout/);
+  assert.deepEqual(modes, ['live', 'unavailable']);
+  data['/api/health-score'] = { pillars: [{ key: 'found', measured: false }], runtime: { mockIntegrationsAllowed: true } };
+  await h.core.readHealthScore();
+  assert.deepEqual(modes, ['live', 'unavailable', 'demo']);
+  assert.equal(h.requests.length, 3);
+});
+
 test('Results retains comparisons, score, reviews, and opportunity-not-revenue language', async () => {
   const h = harness(resultsData);
   await h.window.loadOwnerResults();

@@ -33,6 +33,34 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
     await page.locator(`.exp-row[data-go="tab:${tab}"]`).click();
   };
 
+  await journey(`${prefix}: direct links resolve search status and failed checks recover truthfully`, async () => {
+    const previous = responses.get('/api/health-score');
+    const score = measured => ({ overall: 70, pillars: [{ key: 'found', measured }], runtime: { mockIntegrationsAllowed: false } });
+    const badge = text => page.waitForFunction(text => document.getElementById('mode-status-text').textContent === text, text);
+    try {
+      responses.set('/api/health-score', { json: score(true) });
+      for (const slug of ['today', 'approvals', 'results', 'results/detail', 'tools', 'business', 'settings']) {
+        await load(slug, '?status-check=' + slug);
+        await badge('Live Search Data');
+      }
+      responses.set('/api/health-score', { status: 503, json: { success: false } });
+      await load('results', '?status-check=failed');
+      await badge('Live Data Unavailable');
+      responses.set('/api/health-score', { json: { runtime: { mockIntegrationsAllowed: true } } });
+      await load('tools', '?status-check=missing');
+      await badge('Live Data Unavailable');
+      responses.set('/api/health-score', { json: { ...score(false), runtime: { mockIntegrationsAllowed: true } } });
+      await load('approvals', '?status-check=demo');
+      await badge('Demo Search Data');
+      responses.set('/api/health-score', { json: score(true) });
+      await open('#ws-nav-results');
+      await badge('Live Search Data');
+      await audit('search-status-recovered');
+    } finally {
+      if (previous) responses.set('/api/health-score', previous); else responses.delete('/api/health-score');
+    }
+  });
+
   await journey(`${prefix}: refresh leaves headings unfocused while keyboard navigation keeps its focus cue`, async () => {
     const heading = page.locator('#page-title');
     const assertNoStartupFocus = async () => {
