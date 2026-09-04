@@ -3,6 +3,8 @@
 // Read-only Results and Business views shared by the current workspace and recovery UI.
 (function exposeOwnerViews(global) {
   const { readCheckedJson: readOwnerData, uiEsc: owEsc } = global.SeoBuddyCore;
+  // Each view owns its refresh generation; late responses must not undo a retry.
+  let resultsRequest = 0, businessRequest = 0;
 
   // "Reviewed" with no date is a claim; "Reviewed 18 Aug 2026" is evidence the
   // owner can check against their own memory of pressing the button.
@@ -16,6 +18,7 @@
   async function loadOwnerResults() {
     const find = document.getElementById('ow-find');
     if (!find) return;
+    const request = ++resultsRequest;
     const tile = (l, v, d) => `<div class="ow-tile"><div class="l">${l}</div><div class="v">${v}</div><div class="d">${d}</div></div>`;
     const arrow = (now, was, lowerBetter) => {
       if (was == null || now == null) return '<span class="ow-flat">■ no comparison yet</span>';
@@ -31,6 +34,7 @@
         readOwnerData('/api/reviews-stats').catch(() => null),
         global.SeoBuddyCore.readHealthScore().catch(() => null)
       ]);
+      if (request !== resultsRequest) return;
       if (!pf || !pf.current) {
         // Distinguish "never connected" from "connected, but this fetch didn't
         // come back". Telling an owner their Search Console isn't connected
@@ -42,6 +46,7 @@
           const check = (rd.checks || []).find(c => c.key === 'gsc');
           connected = check ? !!check.ok : null;
         } catch (e) { /* if even that fails, fall through to the softer message */ }
+        if (request !== resultsRequest) return;
         document.getElementById('ow-find-note').innerHTML = connected
           ? `<div class="ow-note warn"><b>We couldn’t load your search numbers just now.</b>
                <p>Google Search Console is connected — this looks like a hiccup fetching the figures, not a setup problem. Everything else on this page still works.
@@ -96,6 +101,7 @@
   async function loadOwnerBusiness() {
     const basics = document.getElementById('ow-basics');
     if (!basics) return;
+    const request = ++businessRequest;
     const f = (k, v) => `<div class="ow-f"><div class="k">${k}</div><div class="v">${owEsc(v)}</div></div>`;
     try {
       const [bp, br, rd] = await Promise.all([
@@ -103,6 +109,7 @@
         readOwnerData('/api/brand-profile').catch(() => null),
         readOwnerData('/api/deploy-readiness').catch(() => null)
       ]);
+      if (request !== businessRequest) return;
       const b = (bp && (bp.profile || bp.business)) || {};
       basics.innerHTML = !bp ? '<div class="ow-note warn" role="alert">Business details could not be loaded. <button class="btn btn-secondary" data-ow-retry-business>Try again</button></div>' :
         f('Business name', b.name || 'Best Day Fitness') +

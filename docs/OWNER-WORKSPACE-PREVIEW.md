@@ -52,6 +52,11 @@ offers **Review connection settings**, opening the technical disclosure. These
 shortcuts navigate only: they do not save, test credentials, or change the score.
 An unavailable connection check still offers a retry, not a claim of disconnection.
 
+Results and Business each track their latest refresh independently. Late responses
+from an earlier visit or retry cannot overwrite newer figures, profile/brand data,
+or connection evidence. This also covers Results' follow-up readiness check and
+prevents an old success from hiding the newest refresh's unavailable state.
+
 The visual refinement keeps the approved Direction A paper/ink/teal/coral
 artwork in the daily briefing, with one primary action. Automation status is
 a single compact list of keyboard-expandable rows, not six separate cards.

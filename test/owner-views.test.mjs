@@ -25,7 +25,7 @@ function harness(data = {}) {
     AbortSignal: { timeout: duration => ({ duration }) },
     fetch: async (url, options) => {
       requests.push({ url, options });
-      const value = data[url];
+      const value = await data[url];
       if (value instanceof Error) throw value;
       return { ok: value !== undefined, json: async () => value };
     },
@@ -41,6 +41,87 @@ function harness(data = {}) {
     },
   };
 }
+
+function deferred() {
+  let resolve;
+  const promise = new Promise(done => { resolve = done; });
+  return { promise, resolve };
+}
+const flush = () => new Promise(resolve => setImmediate(resolve));
+const snapshot = (h, ids) => ids.map(id => h.html(id));
+const resultIds = ['ow-find', 'ow-find-note', 'ow-rev', 'ow-worth'];
+const businessIds = ['ow-basics', 'ow-voice', 'ow-conn'];
+const businessData = {
+  '/api/business-profile': { profile: { name: 'Current business' } },
+  '/api/brand-profile': { brand: { tagline: 'Current voice' }, reviewedAt: '2026-09-04T12:00:00Z' },
+  '/api/deploy-readiness': { checks: [{ key: 'gsc', ok: true }, { key: 'ghl', ok: true }, { key: 'gemini', ok: true }] },
+};
+
+test('late Results responses cannot replace the newest results or its failure state', async () => {
+  for (const latestFails of [false, true]) {
+    for (const oldValue of [resultsData['/api/performance'], new Error('old timeout')]) {
+      const old = deferred();
+      const data = { ...resultsData, '/api/performance': old.promise, '/api/reviews-stats': { inventory: { published: 1, avgRating: 2 }, score: 10 } };
+      const h = harness(data);
+      const first = h.window.loadOwnerResults();
+      await flush();
+      Object.assign(data, resultsData);
+      data['/api/performance'] = latestFails ? new Error('latest unavailable') : { current: { clicks: 99, impressions: 9000, avgPosition: 2 } };
+      await h.window.loadOwnerResults();
+      const current = snapshot(h, resultIds);
+      assert.match(h.html(latestFails ? 'ow-find-note' : 'ow-find'), latestFails ? /couldn’t load your search numbers/ : /99/);
+      old.resolve(oldValue);
+      await first;
+      assert.deepEqual(snapshot(h, resultIds), current);
+    }
+  }
+});
+
+test('late Results connection fallback cannot overwrite a successful retry', async () => {
+  const old = deferred();
+  const data = { ...resultsData, '/api/performance': new Error('first failed'), '/api/deploy-readiness': old.promise };
+  const h = harness(data);
+  const first = h.window.loadOwnerResults();
+  await flush();
+  assert.ok(h.requests.some(item => item.url === '/api/deploy-readiness'));
+  Object.assign(data, resultsData);
+  await h.window.loadOwnerResults();
+  const current = snapshot(h, resultIds);
+  old.resolve({ checks: [{ key: 'gsc', ok: false }] });
+  await first;
+  assert.deepEqual(snapshot(h, resultIds), current);
+});
+
+test('late Business responses cannot undo newer profile, voice, or connection evidence', async () => {
+  for (const latestFails of [false, true]) {
+    for (const oldValue of [{ profile: { name: 'Old business' } }, new Error('old timeout')]) {
+      const old = deferred();
+      const data = { ...businessData, '/api/business-profile': old.promise, '/api/brand-profile': { brand: { tagline: 'Old voice' } }, '/api/deploy-readiness': { checks: [{ key: 'gsc', ok: false }] } };
+      const h = harness(data);
+      const first = h.window.loadOwnerBusiness();
+      await flush();
+      Object.assign(data, businessData);
+      if (latestFails) for (const path of Object.keys(businessData)) data[path] = new Error('latest unavailable');
+      await h.window.loadOwnerBusiness();
+      const current = snapshot(h, businessIds);
+      assert.match(h.html('ow-basics'), latestFails ? /could not be loaded/ : /Current business/);
+      old.resolve(oldValue);
+      await first;
+      assert.deepEqual(snapshot(h, businessIds), current);
+    }
+  }
+});
+
+test('Results and Business refresh generations stay independent', async () => {
+  const old = deferred();
+  const h = harness({ ...resultsData, ...businessData, '/api/performance': old.promise });
+  const results = h.window.loadOwnerResults();
+  await h.window.loadOwnerBusiness();
+  old.resolve(resultsData['/api/performance']);
+  await results;
+  assert.match(h.html('ow-find'), /Visits from Google/);
+  assert.match(h.html('ow-basics'), /Current business/);
+});
 
 test('shared views initialize without legacy controls, provider actions, or eager reads', () => {
   const h = harness();
