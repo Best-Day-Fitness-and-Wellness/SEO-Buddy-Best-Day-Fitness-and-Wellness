@@ -1382,6 +1382,12 @@
       </section>
 
       <section class="tab-content" id="settings-tab">
+        <div class="content-card max-width-md" id="settings-connection-overview" aria-labelledby="settings-overview-title">
+          <div class="settings-overview-header"><h2 id="settings-overview-title">Your connections</h2><button class="btn btn-secondary btn-xs" type="button" id="settings-refresh-connections">Refresh status</button></div>
+          <p class="text-muted">See what is set up and jump straight to its controls. Configured does not mean a live connection test has passed.</p>
+          <div id="settings-connection-list"></div>
+          <p class="text-muted" id="settings-connection-note" role="status">Checking saved configuration…</p>
+        </div>
         <div class="content-card max-width-md" id="storage-status-card" style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
           <div id="storage-badge" style="display:inline-flex;align-items:center;gap:8px;padding:8px 14px;border-radius:999px;font-weight:600;font-size:13px;background:rgba(148,163,184,.12);color:var(--text-muted);border:1px solid var(--border-color);"><span id="storage-dot" style="width:9px;height:9px;border-radius:50%;background:var(--text-muted);display:inline-block;"></span><span id="storage-label">Checking storage…</span></div>
           <div style="flex:1;min-width:220px;"><div style="font-weight:600;color:var(--text-main);">Data storage</div><div class="text-muted" style="font-size:12px;" id="storage-help">Whether your history survives a redeploy.</div></div>
@@ -1415,6 +1421,7 @@
           <p class="text-muted mb-4">Configure your API credentials to switch from Mock Mode to Live Operations</p>
 
           <form id="settings-form">
+            <p id="settings-save-status" role="status" aria-live="polite"></p>
             <div class="settings-section-title">Dashboard Security</div>
             <div class="form-group">
               <label for="settings-admin-password">Admin Password</label>
@@ -1451,12 +1458,12 @@
             <div class="form-group">
               <label for="settings-openai-key">OpenAI key <span class="text-muted" style="font-weight:400;">(optional)</span></label>
               <input type="password" id="settings-openai-key" class="form-input" placeholder="sk-... (leaves server env unchanged if empty)">
-              <small class="text-muted">Only needed to also track <b>ChatGPT</b> in AI Visibility Check. Requires a paid <a href="https://platform.openai.com/api-keys" target="_blank">OpenAI</a> key. On Railway, set <code>OPENAI_API_KEY</code> in the Variables tab so it survives redeploys.</small>
+              <small class="text-muted">Optional for <b>ChatGPT</b> checks in AI Visibility. Get an API key from <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">OpenAI</a>, paste it here, then click <b>Save Configuration</b>. Keys are saved on the server; leaving this blank keeps your existing key.</small>
             </div>
             <div class="form-group">
               <label for="settings-perplexity-key">Perplexity key <span class="text-muted" style="font-weight:400;">(optional)</span></label>
               <input type="password" id="settings-perplexity-key" class="form-input" placeholder="pplx-... (leaves server env unchanged if empty)">
-              <small class="text-muted">Only needed to also track <b>Perplexity</b> in AI Visibility Check. Requires a paid <a href="https://docs.perplexity.ai/" target="_blank">Perplexity</a> key. On Railway, set <code>PERPLEXITY_API_KEY</code> in the Variables tab so it survives redeploys.</small>
+              <small class="text-muted">Optional for <b>Perplexity</b> checks in AI Visibility. Get an API key from <a href="https://docs.perplexity.ai/" target="_blank" rel="noopener noreferrer">Perplexity</a>, paste it here, then click <b>Save Configuration</b>. Keys are saved on the server; leaving this blank keeps your existing key.</small>
             </div>
 
             <div class="settings-section-title">GoHighLevel Integration</div>

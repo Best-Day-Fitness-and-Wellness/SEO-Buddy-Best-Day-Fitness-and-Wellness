@@ -279,7 +279,7 @@ test('all read-only dashboard routes respond', { timeout: 30000 }, async () => {
     '/api/usage', '/api/storage-status', '/api/aio-schema', '/api/performance',
     '/api/onsite-schema', '/api/listing-kit', '/api/citation-worklist',
     '/api/local-autopilot', '/api/onsite-autopilot', '/api/gmail-status',
-    '/api/gbp-status', '/api/performance-digest', '/api/health-score',
+    '/api/gbp-status', '/api/ai-engines', '/api/performance-digest', '/api/health-score',
     '/api/next-moves', '/api/autopilot-digest', '/api/deploy-readiness', '/api/auth/status',
     '/api/reviews-stats', '/api/monthly-report',
   ];

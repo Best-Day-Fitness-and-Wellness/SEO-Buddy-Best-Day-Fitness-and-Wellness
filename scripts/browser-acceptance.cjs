@@ -261,10 +261,19 @@ async function exercise(base, viewport) {
     assert.equal(await page.locator('#settings-author-name').inputValue(), 'Acceptance Author');
     await page.locator('#settings-gemini-key').fill('fake-new-test-key');
     await page.locator('#settings-form button[type="submit"]').click();
-    await page.waitForFunction(() => document.getElementById('gsc-tab').classList.contains('active'));
+    await page.waitForFunction(() => document.getElementById('settings-save-status').textContent.includes('Configuration saved.'));
+    assert.equal(await page.locator('#settings-tab').evaluate(el => el.classList.contains('active')), true);
     assert.equal(await page.locator('#settings-gemini-key').inputValue(), '');
     assert.equal(await page.evaluate(() => localStorage.getItem('seo_gemini_key')), null);
     assert.equal(writes.filter(write => write.path === '/api/save-settings').length, 1);
+    responses.set('/api/save-settings', { status: 503, json: { success: false, error: 'Test-only save failure' } });
+    await page.locator('#settings-gemini-key').fill('fake-retry-test-key');
+    await page.locator('#settings-form button[type="submit"]').click();
+    await page.waitForFunction(() => document.getElementById('settings-save-status').textContent.includes('not saved'));
+    assert.equal(await page.locator('#settings-gemini-key').inputValue(), 'fake-retry-test-key');
+    assert.equal(await page.locator('#settings-tab').evaluate(el => el.classList.contains('active')), true);
+    await page.locator('#settings-gemini-key').fill('');
+    responses.delete('/api/save-settings');
   });
 
   await journey(`${prefix}: carousel stays compact and advances`, async () => {

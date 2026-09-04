@@ -820,6 +820,57 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
 
   // Audit every preview route in light mode; core destinations also in dark.
   await page.evaluate(() => { if (document.body.classList.contains('dark')) document.getElementById('theme-toggle').click(); });
+  await journey(`${prefix}: connection overview opens exact controls and distinguishes failed status reads`, async () => {
+    const paths = ['/api/ai-engines', '/api/gbp-status', '/api/monthly-report'];
+    const prior = paths.map(path => [path, responses.get(path)]);
+    const initialWrites = writes.length;
+    try {
+      responses.set('/api/ai-engines', { json: { success: true, engines: [{ id: 'google', configured: true }, { id: 'openai', configured: false }, { id: 'perplexity', configured: false }] } });
+      responses.set('/api/gbp-status', { json: { configured: false } });
+      responses.set('/api/monthly-report', { json: { success: true, ready: true, enabled: false } });
+      await load('settings');
+      await page.waitForFunction(() => document.getElementById('settings-connection-note').textContent.includes('checked just now'));
+      assert.equal(await page.locator('.settings-connection-row').count(), 5);
+      assert.match(await page.locator('#settings-connection-list').innerText(), /set up but paused/);
+      assert.match(await page.locator('.settings-connection-row').first().innerText(), /Configured/);
+      await page.locator('[data-connection-key="openai"]').click();
+      assert.equal(await page.locator('#ws-connections').getAttribute('open'), '');
+      assert.equal(await page.evaluate(() => document.activeElement.id), 'settings-openai-key');
+      await page.locator('#settings-author-name').fill('Keep my unsaved author');
+      responses.set('/api/ai-engines', { json: { success: true, engines: [{ id: 'google', configured: 'false' }] } });
+      responses.set('/api/gbp-status', { status: 503, json: { error: 'test only' } });
+      await page.locator('#settings-refresh-connections').click();
+      await page.waitForFunction(() => document.getElementById('settings-connection-note').textContent.includes('unavailable'));
+      assert.equal(await page.locator('.settings-connection-state').filter({ hasText: 'Unable to check' }).count(), 4);
+      assert.equal(await page.locator('#settings-author-name').inputValue(), 'Keep my unsaved author');
+      await audit('settings-connection-unavailable');
+      responses.set('/api/ai-engines', { json: { engines: ['google', 'openai', 'perplexity'].map(id => ({ id, configured: true })) } });
+      responses.set('/api/gbp-status', { json: { configured: true } });
+      await page.locator('#settings-refresh-connections').click();
+      await page.waitForFunction(() => document.getElementById('settings-connection-note').textContent.includes('checked just now'));
+      await audit('settings-connection-overview');
+      await page.locator('[data-connection-tab="performance-tab"]').click();
+      await location('results/detail');
+      assert.equal(writes.length, initialWrites);
+    } finally {
+      for (const [path, value] of prior) { if (value) responses.set(path, value); else responses.delete(path); }
+    }
+  });
+
+  await journey(`${prefix}: Business reflects Google publishing configuration without treating a failure as disconnected`, async () => {
+    const previous = responses.get('/api/gbp-status');
+    try {
+      for (const configured of [true, false, null]) {
+        responses.set('/api/gbp-status', configured === null ? { status: 503, json: { error: 'test only' } } : { json: { configured } });
+        await load('business');
+        const text = configured === true ? 'Publishing configured' : configured === false ? 'Posts copied by hand' : 'Not verified';
+        await page.waitForFunction(text => document.getElementById('ow-conn').textContent.includes(text), text);
+        if (configured !== false) assert.doesNotMatch(await page.locator('#ow-conn').innerText(), /Posts copied by hand/);
+      }
+      await audit('business-google-status-unavailable');
+    } finally { if (previous) responses.set('/api/gbp-status', previous); else responses.delete('/api/gbp-status'); }
+  });
+
   const routes = await page.evaluate(() => Object.keys(window.SeoBuddyWorkspace.routes));
   for (const id of routes) {
     await page.evaluate(id => window.switchTab(id), id);

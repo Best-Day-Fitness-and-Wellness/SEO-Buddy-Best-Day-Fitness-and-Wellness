@@ -137,10 +137,11 @@
     const request = ++businessRequest;
     const f = (k, v) => `<div class="ow-f"><div class="k">${k}</div><div class="v">${owEsc(v)}</div></div>`;
     try {
-      const [bp, br, rd] = await Promise.all([
+      const [bp, br, rd, gbp] = await Promise.all([
         readOwnerData('/api/business-profile').catch(() => null),
         readOwnerData('/api/brand-profile').catch(() => null),
-        readOwnerData('/api/deploy-readiness').catch(() => null)
+        readOwnerData('/api/deploy-readiness').catch(() => null),
+        readOwnerData('/api/gbp-status').catch(() => null)
       ]);
       if (request !== businessRequest) return;
       const b = (bp && (bp.profile || bp.business)) || {};
@@ -193,8 +194,8 @@
           row('AI writing', statuses[2]) +
           `<div style="display:flex;align-items:center;gap:12px;padding:13px 16px">
              <span style="font-weight:600">Google Business Profile</span>
-             <span style="margin-left:auto" class="ow-chip manual">&#9679; Posts copied by hand</span></div>` +
-          (statuses.includes(null) ? '<div class="ow-note warn" role="status"><b>Some connection checks are unavailable.</b><p>Not verified does not mean disconnected. Retry before changing credentials.</p><button type="button" class="btn btn-secondary" data-ow-retry-business>Retry connection checks</button></div>' : '');
+             <span style="margin-left:auto" class="ow-chip manual">${gbp?.configured === true ? 'Publishing configured' : gbp?.configured === false ? 'Posts copied by hand' : 'Not verified'}</span></div>` +
+          (statuses.includes(null) || typeof gbp?.configured !== 'boolean' ? '<div class="ow-note warn" role="status"><b>Some connection checks are unavailable.</b><p>Not verified does not mean disconnected. Retry before changing credentials.</p><button type="button" class="btn btn-secondary" data-ow-retry-business>Retry connection checks</button></div>' : '');
       } else document.getElementById('ow-conn').innerHTML = '<div class="ow-note warn" role="alert">Connection status is unavailable. <button class="btn btn-secondary" data-ow-retry-business>Try again</button></div>';
     } catch (e) { basics.innerHTML = '<div class="ow-note warn" role="alert">Business details are unavailable. <button class="btn btn-secondary" data-ow-retry-business>Try again</button></div>'; }
   }

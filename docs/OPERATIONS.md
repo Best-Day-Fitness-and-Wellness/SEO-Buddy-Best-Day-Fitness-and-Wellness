@@ -100,6 +100,15 @@ worker is running. Shared scheduling stops before worker shutdown.
 
 ## Content schedule and publication evidence
 
+Settings shows a passive connection overview: `/api/ai-engines` exposes only
+provider IDs, labels and configuration booleans without nudging any scan. The
+overview also reads GBP and monthly-report status, treats malformed or failed
+reads as unknown, and opens existing controls without saving or sending. API key
+shortcuts expand the technical disclosure and focus the exact field. Saving now
+stays on Settings with an inline result; failed saves retain entered secrets for
+retry, while successful saves clear them from the form. The Business view reads
+GBP configuration instead of always claiming posts must be copied manually.
+
 Content autopilot persists `nextRunTime` in tenant configuration. Restarts restore
 that deadline; migration uses the last successful run plus the configured interval
 (or the current time plus the interval when there is no history). A late restart

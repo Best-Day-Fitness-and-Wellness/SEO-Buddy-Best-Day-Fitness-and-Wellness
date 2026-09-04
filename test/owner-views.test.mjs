@@ -62,6 +62,7 @@ const snapshot = (h, ids) => ids.map(id => h.html(id));
 const resultIds = ['ow-find', 'ow-find-note', 'ow-rev', 'ow-rev-note', 'ow-worth'];
 const businessIds = ['ow-basics', 'ow-voice', 'ow-conn'];
 const businessData = {
+  '/api/gbp-status': { configured: false },
   '/api/business-profile': { profile: { name: 'Current business' } },
   '/api/brand-profile': { brand: { tagline: 'Current voice' }, reviewedAt: '2026-09-04T12:00:00Z' },
   '/api/deploy-readiness': { checks: [{ key: 'gsc', ok: true }, { key: 'ghl', ok: true }, { key: 'gemini', ok: true }] },
@@ -395,6 +396,7 @@ test('a malformed readiness response leaves loaded Business details intact', asy
 
 test('Business keeps escaped details and brand-owned review evidence', async () => {
   const h = harness({
+    '/api/gbp-status': { configured: false },
     '/api/business-profile': { profile: { name: '<b>Business</b>', phone: '123', website: 'https://example.com' } },
     '/api/brand-profile': { brand: { tagline: '<script>bad</script>', neverUse: ['<unsafe>'], usePhrases: ['"safe"'] }, reviewedAt: '2026-09-03T12:00:00Z' },
     '/api/deploy-readiness': { checks: [{ key: 'brand', ok: false, durable: false }, { key: 'gsc', ok: true }] },
@@ -421,10 +423,21 @@ test('shared retry and readiness events make one set of reads without loading le
   assert.equal(h.requests.length, 3);
   h.requests.length = 0;
   await h.emit('click', '[data-ow-retry-business]');
-  assert.equal(h.requests.length, 3);
+  assert.equal(h.requests.length, 4);
   h.requests.length = 0;
   await h.emit('seo:readiness-changed');
-  assert.deepEqual(h.requests.map(item => item.url).sort(), ['/api/brand-profile', '/api/business-profile', '/api/deploy-readiness']);
+  assert.deepEqual(h.requests.map(item => item.url).sort(), ['/api/brand-profile', '/api/business-profile', '/api/deploy-readiness', '/api/gbp-status']);
   await h.emit('click', '[data-ow-brand]');
   assert.deepEqual(h.navigations, ['brand-tab']);
+});
+
+test('Business Google posting status uses configuration evidence and preserves unknown states', async () => {
+  for (const configured of [true, false, 'false', undefined]) {
+    const h = harness({ ...businessData, '/api/gbp-status': { configured } });
+    await h.window.loadOwnerBusiness();
+    const html = h.html('ow-conn');
+    assert.match(html, configured === true ? /Publishing configured/ : configured === false ? /Posts copied by hand/ : /Not verified/);
+    if (configured !== false) assert.doesNotMatch(html, /Posts copied by hand/);
+    if (typeof configured !== 'boolean') assert.match(html, /Retry connection checks/);
+  }
 });

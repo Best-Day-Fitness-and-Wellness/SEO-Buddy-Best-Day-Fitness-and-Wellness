@@ -768,7 +768,7 @@ test('AI Visibility routes preserve status, prompt, schedule, and run contracts'
     state,
     nudgeSchedule: () => { nudges += 1; },
     brandName: () => 'Best Day Fitness',
-    enginesStatus: () => [{ id: 'google', configured: true }],
+    enginesStatus: () => [{ id: 'google', configured: true, apiKey: 'must-not-leak' }],
     trend: () => ({ series: [], metricLines: {}, dates: ['2026-08-31'] }),
     anyConfigured: () => true,
     runVisibility: async engines => ({ snapshot: { engines, visibilityScore: 75 } }),
@@ -789,6 +789,11 @@ test('AI Visibility routes preserve status, prompt, schedule, and run contracts'
   }
 
   const status = response();
+  routes.get('GET /api/ai-engines')({}, status);
+  assert.equal(nudges, 0);
+  assert.equal(saves, 0);
+  assert.deepEqual(status.body.engines, [{ id: 'google', label: undefined, configured: true }]);
+  assert.doesNotMatch(JSON.stringify(status.body), /must-not-leak/);
   routes.get('GET /api/ai-visibility')({}, status);
   assert.equal(nudges, 1);
   assert.equal(status.body.brand, 'Best Day Fitness');
