@@ -34,7 +34,9 @@
     'settings-tab': 'connections connect credentials account password api key',
   });
   const searchWords = value => value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(/\s+/).filter(word => word && !['a', 'an', 'the', 'to', 'my', 'our', 'your', 'for', 'and', 'i', 'want', 'need', 'please'].includes(word));
-  const featureDestination = feature => feature.status === 'needs-setup' && !['digest', 'monthly-report'].includes(feature.key) ? 'settings-tab' : feature.tab;
+  // Keep contextual setup links consistent in both the briefing and status rows.
+  const needsConnections = feature => feature.status === 'needs-setup' && !['digest', 'monthly-report'].includes(feature.key);
+  const featureNavigation = feature => needsConnections(feature) ? 'data-settings-section="connections"' : `data-ws-tab="${esc(feature.tab)}"`;
   let renderTab, current = null, depth = 0, todayRequest = 0, approvalsRequest = 0;
   const $ = id => document.getElementById(id);
   const pendingDraft = () => { const draft = global.SeoBuddyContent?.getDraftSummary?.(); return draft?.title && draft.publicationStatus !== 'published' ? draft : null; };
@@ -137,7 +139,7 @@
     return `<article class="ws-automation"><details><summary><span class="ws-row-icon">${icon(feature.key)}</span><span class="ws-row-title">${esc(feature.title)}</span><span class="ws-status ${esc(feature.status)}">${esc(feature.label)}</span><span class="ws-chevron" aria-hidden="true">›</span></summary>
       <div class="ws-evidence"><h3>Evidence &amp; controls</h3><p>${esc(reason)}</p><dl><dt>Last recorded activity</dt><dd>${esc(date(feature.lastRecordedAt))}</dd>
       <dt>${feature.nextRunEstimated ? 'Next eligible check (estimated)' : 'Next scheduled check'}</dt><dd>${feature.nextRunAt ? esc(date(feature.nextRunAt)) : 'Not confirmed'}</dd></dl>
-      ${button(featureDestination(feature), feature.status === 'needs-setup' ? (['digest', 'monthly-report'].includes(feature.key) ? 'Review report setup' : 'Review connections') : 'View details')}</div></details></article>`;
+      <button type="button" class="btn btn-secondary" ${featureNavigation(feature)}>${feature.status === 'needs-setup' ? (needsConnections(feature) ? 'Review connections' : 'Review report setup') : 'View details'}</button></div></details></article>`;
   }
 
   async function loadToday() {
@@ -158,7 +160,7 @@
     $('ws-approval-count').textContent = moves ? (decisionCount || '') : '?';
     const priority = !verified ? '<button type="button" class="btn btn-primary" data-ws-retry="today">Retry checks <span aria-hidden="true">↗</span></button>'
       : decisionCount ? `<button type="button" class="btn btn-primary" data-ws-tab="approvals-tab">Review ${decisionCount} decision${decisionCount === 1 ? '' : 's'} <span aria-hidden="true">↗</span></button>`
-      : attention.length ? `<button type="button" class="btn btn-primary" data-ws-tab="${esc(featureDestination(attention[0]))}">Review flagged area <span aria-hidden="true">↗</span></button>`
+      : attention.length ? `<button type="button" class="btn btn-primary" ${featureNavigation(attention[0])}>Review flagged area <span aria-hidden="true">↗</span></button>`
       : '<button type="button" class="btn btn-primary" data-ws-tab="owner-results-tab">Explore your results <span aria-hidden="true">↗</span></button>';
     $('ws-today').innerHTML = `<div class="ws-overview"><div class="ws-briefing"><span class="ws-eyebrow"><span class="ws-eyebrow-line" aria-hidden="true"></span>Your daily briefing</span><h2>${headline}</h2>
       <p>${!verified ? 'Some checks did not load. Retry before relying on the status below.' : decisionCount ? 'Your next step is ready. Review what needs a decision, then see what is scheduled below.' : attention.length ? 'A recent check needs attention. Open the flagged area to see the evidence.' : 'Your decision list is clear. Review the latest evidence and see how your results are moving.'}</p>
@@ -295,7 +297,7 @@
     // Summary-level destinations link to detail without changing the navigation.
     $('owner-results-tab').insertAdjacentHTML('afterbegin', `<section class="ws-report-entry" aria-label="Reports and email delivery"><div><h2>Reports &amp; email delivery</h2><p>Download your progress report or manage the monthly owner email.</p></div>${button('performance-tab', 'Open reports & email')}</section>`);
     $('owner-results-tab').insertAdjacentHTML('beforeend', `<div class="ws-result-links">${button('summary-tab', 'Advanced dashboard')}</div>`);
-    $('owner-business-tab').insertAdjacentHTML('afterbegin', `<div class="ws-result-links"><button class="btn btn-secondary" type="button" id="ws-edit-business">Edit business details</button>${button('brand-tab', 'Edit brand voice')}${button('settings-tab', 'Connections and value assumptions')}</div>`);
+    $('owner-business-tab').insertAdjacentHTML('afterbegin', `<div class="ws-result-links"><button class="btn btn-secondary" type="button" id="ws-edit-business">Edit business details</button>${button('brand-tab', 'Edit brand voice')}<button class="btn btn-secondary" type="button" data-settings-section="connections">Manage connections</button></div>`);
     $('ws-edit-business').addEventListener('click', () => global.openSetupWizard());
     navigate(tabFromHash());
   }

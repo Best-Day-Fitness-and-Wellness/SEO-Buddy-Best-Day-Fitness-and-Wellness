@@ -499,8 +499,11 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
     await location('business/voice');
     await page.locator('#ws-back').click();
     await location('business');
-    await page.locator('[data-ws-tab="settings-tab"]').last().click();
+    await page.getByRole('button', { name: 'Manage connections', exact: true }).click();
     await location('settings');
+    await page.locator('#ws-connections > summary:focus').waitFor();
+    assert.equal(await page.locator('#settings-gemini-key').isVisible(), true);
+    await page.locator('#ws-connections > summary').click();
     assert.equal(await page.locator('#ws-connections').getAttribute('open'), null);
     assert.equal(await page.locator('#settings-gemini-key').isVisible(), false);
     await page.locator('#ws-connections > summary').click();
@@ -575,6 +578,44 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
     assert.deepEqual(writes.slice(before).filter(write => write.path !== '/api/performance-digest/seen'), []);
     // Leave expanded for the following light/dark route audits.
     await summary.click();
+  });
+
+  await journey(`${prefix}: setup links reveal the right controls without saving settings`, async () => {
+    const before = writes.length;
+    const paths = ['/api/next-moves', '/api/automation-status'];
+    const previous = paths.map(path => [path, responses.get(path)]);
+    responses.set('/api/next-moves', { json: { success: true, moves: [] } });
+    try {
+      for (const key of ['content', 'monthly-report', 'digest']) {
+        const feature = { ...features.find(item => item.key === key), status: 'needs-setup', label: 'Needs setup' };
+        responses.set('/api/automation-status', { json: { success: true, features: [feature] } });
+        await load('today', `?contextual-setup=${key}`);
+        await page.getByRole('button', { name: 'Review flagged area' }).click();
+        const destination = key === 'content' ? 'settings' : 'results/detail';
+        await location(destination);
+        if (key === 'content') {
+          await page.locator('#ws-connections > summary:focus').waitFor();
+          assert.equal(await page.locator('#settings-gemini-key').isVisible(), true);
+          await page.locator('#settings-gemini-key').fill('unsaved-browser-test-only');
+          await page.locator('#ws-connections > summary').click();
+        }
+        await page.goBack();
+        await location('today');
+        const row = page.locator('.ws-automation').filter({ hasText: feature.title });
+        await row.locator('summary').click();
+        const link = row.getByRole('button', { name: key === 'content' ? 'Review connections' : 'Review report setup' });
+        await link.focus();
+        await page.keyboard.press('Enter');
+        await location(destination);
+        if (key === 'content') {
+          await page.locator('#ws-connections > summary:focus').waitFor();
+          assert.equal(await page.locator('#settings-gemini-key').inputValue(), 'unsaved-browser-test-only');
+        }
+      }
+      assert.deepEqual(writes.slice(before).filter(write => write.path !== '/api/performance-digest/seen'), []);
+    } finally {
+      for (const [path, value] of previous) { if (value) responses.set(path, value); else responses.delete(path); }
+    }
   });
 
   // Audit every preview route in light mode; core destinations also in dark.
