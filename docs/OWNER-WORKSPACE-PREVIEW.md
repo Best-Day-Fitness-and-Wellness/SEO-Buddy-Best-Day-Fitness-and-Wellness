@@ -57,6 +57,12 @@ from an earlier visit or retry cannot overwrite newer figures, profile/brand dat
 or connection evidence. This also covers Results' follow-up readiness check and
 prevents an old success from hiding the newest refresh's unavailable state.
 
+Connection labels require one explicit boolean check per service. Missing,
+malformed, or duplicate checks show **Not verified**, with a read-only retry;
+they do not imply the account is disconnected. Valid results for other services
+remain visible, and malformed readiness data does not erase loaded business or
+brand details. Results uses the same validation before offering connection setup.
+
 The visual refinement keeps the approved Direction A paper/ink/teal/coral
 artwork in the daily briefing, with one primary action. Automation status is
 a single compact list of keyboard-expandable rows, not six separate cards.

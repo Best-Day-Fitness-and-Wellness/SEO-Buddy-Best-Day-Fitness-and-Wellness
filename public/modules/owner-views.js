@@ -6,6 +6,12 @@
   // Each view owns its refresh generation; late responses must not undo a retry.
   let resultsRequest = 0, businessRequest = 0;
 
+  function readinessCheck(readiness, key) {
+    if (!Array.isArray(readiness?.checks)) return null;
+    const matches = readiness.checks.filter(check => check?.key === key);
+    return matches.length === 1 && typeof matches[0].ok === 'boolean' ? matches[0] : null;
+  }
+
   // "Reviewed" with no date is a claim; "Reviewed 18 Aug 2026" is evidence the
   // owner can check against their own memory of pressing the button.
   function owShortDate(iso) {
@@ -43,8 +49,8 @@
         let connected = null;
         try {
           const rd = await readOwnerData('/api/deploy-readiness');
-          const check = (rd.checks || []).find(c => c.key === 'gsc');
-          connected = check ? !!check.ok : null;
+          const check = readinessCheck(rd, 'gsc');
+          connected = check ? check.ok : null;
         } catch (e) { /* if even that fails, fall through to the softer message */ }
         if (request !== resultsRequest) return;
         document.getElementById('ow-find-note').innerHTML = connected
@@ -125,7 +131,7 @@
         // the relay first meant a readiness call that failed rendered a
         // confident "Reviewed" over an unreviewed voice, and a readiness call
         // that lagged rendered "Not reviewed yet" over a saved one.
-        const check = rd && (rd.checks || []).find(c => c.key === 'brand');
+        const check = readinessCheck(rd, 'brand');
         const at = br.reviewedAt || (check && check.reviewedAt) || null;
         const reviewed = at ? true : (check ? !!check.ok : false);
         const durable = check ? check.durable !== false : true;
@@ -150,17 +156,18 @@
           <button class="btn btn-secondary" style="width:auto;margin-top:10px" data-ow-retry-business="1">Try again</button></div>`;
       }
       if (rd && Array.isArray(rd.checks)) {
-        const row = (n, ok, txt) => `<div style="display:flex;align-items:center;gap:12px;padding:13px 16px;border-bottom:1px solid var(--border-color)">
+        const row = (n, ok) => `<div style="display:flex;align-items:center;gap:12px;padding:13px 16px;border-bottom:1px solid var(--border-color)">
           <span class="nm" style="font-weight:600">${owEsc(n)}</span>
-          <span style="margin-left:auto" class="ow-chip ${ok ? 'auto' : 'blocked'}">${ok ? '&#10003; Connected' : '&#9650; ' + owEsc(txt)}</span></div>`;
-        const get = k => (rd.checks || []).find(c => c.key === k) || { ok: false };
+          <span style="margin-left:auto" class="ow-chip ${ok === true ? 'auto' : ok === false ? 'blocked' : 'manual'}">${ok === true ? '&#10003; Connected' : ok === false ? '&#9650; Not connected' : '&#9679; Not verified'}</span></div>`;
+        const statuses = ['gsc', 'ghl', 'gemini'].map(key => readinessCheck(rd, key)?.ok ?? null);
         document.getElementById('ow-conn').innerHTML =
-          row('Google Search', get('gsc').ok, 'Not connected') +
-          row('Your website', get('ghl').ok, 'Not connected') +
-          row('AI writing', get('gemini').ok, 'Not connected') +
+          row('Google Search', statuses[0]) +
+          row('Your website', statuses[1]) +
+          row('AI writing', statuses[2]) +
           `<div style="display:flex;align-items:center;gap:12px;padding:13px 16px">
              <span style="font-weight:600">Google Business Profile</span>
-             <span style="margin-left:auto" class="ow-chip manual">&#9679; Posts copied by hand</span></div>`;
+             <span style="margin-left:auto" class="ow-chip manual">&#9679; Posts copied by hand</span></div>` +
+          (statuses.includes(null) ? '<div class="ow-note warn" role="status"><b>Some connection checks are unavailable.</b><p>Not verified does not mean disconnected. Retry before changing credentials.</p><button type="button" class="btn btn-secondary" data-ow-retry-business>Retry connection checks</button></div>' : '');
       } else document.getElementById('ow-conn').innerHTML = '<div class="ow-note warn" role="alert">Connection status is unavailable. <button class="btn btn-secondary" data-ow-retry-business>Try again</button></div>';
     } catch (e) { basics.innerHTML = '<div class="ow-note warn" role="alert">Business details are unavailable. <button class="btn btn-secondary" data-ow-retry-business>Try again</button></div>'; }
   }

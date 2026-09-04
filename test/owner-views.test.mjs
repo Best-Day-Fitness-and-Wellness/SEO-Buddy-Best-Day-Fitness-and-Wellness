@@ -213,6 +213,40 @@ test('confirmed missing Search Console offers connection settings rather than a 
   assert.equal(h.navigations.length, 0);
 });
 
+test('partial Business checks distinguish connected, disconnected, and unverified services', async () => {
+  const h = harness({ ...businessData, '/api/deploy-readiness': { checks: [{ key: 'gsc', ok: true }, { key: 'ghl', ok: false }] } });
+  await h.window.loadOwnerBusiness();
+  const html = h.html('ow-conn');
+  assert.equal((html.match(/&#10003; Connected/g) || []).length, 1);
+  assert.equal((html.match(/Not connected/g) || []).length, 1);
+  assert.match(html, /Not verified/);
+  assert.match(html, /Retry connection checks/);
+  assert.match(h.html('ow-basics'), /Current business/);
+});
+
+test('empty, malformed, or contradictory checks cannot invent connection status', async () => {
+  for (const checks of [[], [null], [{ key: 'gsc' }], [{ key: 'gsc', ok: 'false' }], [{ key: 'gsc', ok: 1 }], [{ key: 'gsc', ok: true }, { key: 'gsc', ok: false }]]) {
+    const h = harness({ ...businessData, '/api/deploy-readiness': { checks } });
+    await h.window.loadOwnerBusiness();
+    assert.match(h.html('ow-basics'), /Current business/);
+    assert.match(h.html('ow-conn'), /Not verified/);
+    assert.doesNotMatch(h.html('ow-conn'), /&#10003; Connected|Not connected/);
+    await h.window.loadOwnerResults();
+    assert.match(h.html('ow-find-note'), /Search figures and connection status are unavailable/);
+    assert.doesNotMatch(h.html('ow-find-note'), /data-settings-section/);
+  }
+});
+
+test('a malformed readiness response leaves loaded Business details intact', async () => {
+  for (const checks of [undefined, null, {}]) {
+    const h = harness({ ...businessData, '/api/deploy-readiness': { checks } });
+    await h.window.loadOwnerBusiness();
+    assert.match(h.html('ow-basics'), /Current business/);
+    assert.match(h.html('ow-voice'), /Current voice/);
+    assert.match(h.html('ow-conn'), /Connection status is unavailable/);
+  }
+});
+
 test('Business keeps escaped details and brand-owned review evidence', async () => {
   const h = harness({
     '/api/business-profile': { profile: { name: '<b>Business</b>', phone: '123', website: 'https://example.com' } },

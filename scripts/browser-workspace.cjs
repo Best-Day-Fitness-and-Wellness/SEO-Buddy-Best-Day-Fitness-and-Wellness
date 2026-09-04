@@ -520,6 +520,31 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
     } finally { for (const route of ['/api/performance', '/api/reviews-stats', '/api/deploy-readiness', '/api/business-profile', '/api/brand-profile']) responses.delete(route); }
   });
 
+  await journey(`${prefix}: partial connection checks remain unverified and retry without changing settings`, async () => {
+    const before = writes.length;
+    const previous = responses.get('/api/deploy-readiness');
+    responses.set('/api/deploy-readiness', { json: { checks: [{ key: 'gsc', ok: true }, { key: 'ghl', ok: false }] } });
+    try {
+      await load('business', '?partial-connections=1');
+      const retry = page.getByRole('button', { name: 'Retry connection checks' });
+      await retry.waitFor();
+      const rows = page.locator('#ow-conn > div');
+      assert.match(await rows.filter({ hasText: 'Google Search' }).innerText(), /Connected/i);
+      assert.match(await rows.filter({ hasText: 'Your website' }).innerText(), /Not connected/i);
+      assert.match(await rows.filter({ hasText: 'AI writing' }).innerText(), /Not verified/i);
+      assert.match(await page.locator('#ow-conn').innerText(), /does not mean disconnected/);
+      await audit('partial-connection-checks');
+      responses.set('/api/deploy-readiness', { json: { checks: ['gsc', 'ghl', 'gemini'].map(key => ({ key, ok: true })) } });
+      await retry.click();
+      await retry.waitFor({ state: 'hidden' });
+      assert.equal(await page.locator('#ow-conn .ow-chip.auto').count(), 3);
+      assert.doesNotMatch(await page.locator('#ow-conn').innerText(), /Not verified|Not connected/i);
+      assert.deepEqual(writes.slice(before), []);
+    } finally {
+      if (previous) responses.set('/api/deploy-readiness', previous); else responses.delete('/api/deploy-readiness');
+    }
+  });
+
   // Audit every preview route in light mode; core destinations also in dark.
   await page.evaluate(() => { if (document.body.classList.contains('dark')) document.getElementById('theme-toggle').click(); });
   const routes = await page.evaluate(() => Object.keys(window.SeoBuddyWorkspace.routes));
