@@ -53,6 +53,7 @@ const { createMonthlyReportService, registerMonthlyReportRoutes } = require('./l
 const { createServerPdfReport } = require('./lib/server-pdf-report');
 const { LISTING_TYPES, registerCitationRoutes } = require('./lib/citation-routes');
 const { buildCanonicalNap, mapNapListings, registerLocalSeoRoutes } = require('./lib/local-seo-routes');
+const { effectiveNap, registerLocalListingRoutes } = require('./lib/local-listing-preferences');
 const { createPerformanceService, registerPerformanceRoutes } = require('./lib/performance-routes');
 const { registerOnsiteRoutes } = require('./lib/onsite-routes');
 const { registerAioCoreRoutes } = require('./lib/aio-core-routes');
@@ -2416,7 +2417,8 @@ function assistantContext() {
   const vis = aiVisDb.snapshots[aiVisDb.snapshots.length - 1] || null;
   const fc = factCheckDb.latest;
   const cr = crawlersDb.latest;
-  const nap = (localDb && localDb.nap) ? { mismatches: localDb.nap.mismatchCount || 0 } : null;
+  const localNap = effectiveNap(localDb.nap, localDb.napExclusions);
+  const nap = localNap ? { mismatches: localNap.mismatchCount, checkedAt: localNap.checkedAt, listings: localNap.listings, excludedListings: localDb.napExclusions || [] } : null;
   let cites = null;
   try { const w = worklistPayload(); const ts = w.targets || []; cites = { total: ts.length, listedOn: ts.filter(t => t.listed === true).length, stillToDo: ts.filter(t => (t.status || 'todo') === 'todo').length }; } catch (e) {}
   const aioRec = (aioAuditsDb && aioAuditsDb.length) ? { checks: aioAuditsDb.length, recommendedIn: aioAuditsDb.filter(a => a.recommended).length } : null;
@@ -2760,6 +2762,7 @@ let localDb = {
   lastNapRun: null,
   lastGbpRun: null,
   nap: null,               // { canonical, listings, mismatchCount, checkedAt }
+  napExclusions: [],       // Owner preferences; keep original scan evidence intact.
   napSignature: null,      // to detect NEW mismatches vs last check
   napNewMismatch: false,
   gbpDraft: null,          // { text, topic, postType, createdAt, isNew }
@@ -2770,7 +2773,7 @@ try {
   if (fs.existsSync(LOCAL_FILE)) localDb = Object.assign(localDb, JSON.parse(fs.readFileSync(LOCAL_FILE, 'utf8')));
 } catch (e) { console.error('[Local Autopilot] load failed:', e.message); }
 function saveLocal() {
-  saveJsonFileSync(LOCAL_FILE, localDb, 'Local Autopilot');
+  return saveJsonFileSync(LOCAL_FILE, localDb, 'Local Autopilot');
 }
 
 async function localNapScan() {
@@ -2834,8 +2837,9 @@ async function maybeRunLocalAutopilot(force) {
       try {
         const nap = await localNapScan();
         if (nap) {
-          const sig = napSignatureOf(nap);
-          localDb.napNewMismatch = !!(sig && sig !== (localDb.napSignature || '') && nap.mismatchCount > 0);
+          const activeNap = effectiveNap(nap, localDb.napExclusions);
+          const sig = napSignatureOf(activeNap);
+          localDb.napNewMismatch = !!(sig && sig !== (localDb.napSignature || '') && activeNap.mismatchCount > 0);
           localDb.napSignature = sig;
           localDb.nap = nap;
           localDb.lastNapRun = new Date().toISOString();
@@ -2873,8 +2877,9 @@ function localState() {
     gbpIntervalDays: localDb.gbpIntervalDays,
     lastNapRun: localDb.lastNapRun,
     lastGbpRun: localDb.lastGbpRun,
-    nap: localDb.nap,
-    napNewMismatch: localDb.napNewMismatch,
+    nap: effectiveNap(localDb.nap, localDb.napExclusions),
+    napExclusions: localDb.napExclusions || [],
+    napNewMismatch: localDb.napNewMismatch && effectiveNap(localDb.nap, localDb.napExclusions)?.mismatchCount > 0,
     gbpDraft: localDb.gbpDraft,
     gbpHistory: localDb.gbpHistory,
     replyHistory: localDb.replyHistory,
@@ -2890,9 +2895,12 @@ registerLocalSeoRoutes(app, {
   geminiGenerate,
   model: GEMINI_MODEL,
   localState: localDb,
+  filterNap: nap => effectiveNap(nap, localDb.napExclusions),
   saveLocal,
   logger: console,
 });
+
+registerLocalListingRoutes(app, { requireOwner, state: localDb, save: saveLocal });
 
 // Background scheduler: catch up shortly after boot, then check twice a day.
 scheduleDurableCheck('local.autopilot', 30000, 12 * 60 * 60 * 1000);
@@ -3262,13 +3270,14 @@ async function computeHealthScore() {
 
   // 2. Local listings (20%) — NAP mismatches (+ GBP activity)
   if (localDb && localDb.nap) {
-    const mm = localDb.nap.mismatchCount || 0;
+    const activeNap = effectiveNap(localDb.nap, localDb.napExclusions);
+    const mm = activeNap.mismatchCount || 0;
     let score = hClamp(100 - mm * 15, 0, 100);
     if (localDb.gbpDraft && localDb.gbpDraft.posted) score = hClamp(score + 8, 0, 100);
     pillars.push({
       key: 'local', label: 'Local listings', weight: 20, measured: true, score,
-      detail: mm ? `${mm} listing${mm > 1 ? 's' : ''} to fix` : 'Consistent everywhere',
-      inputs: { mismatches: mm, gbpPosted: !!(localDb.gbpDraft && localDb.gbpDraft.posted) },
+      detail: mm ? `${mm} listing${mm > 1 ? 's' : ''} to fix` : 'No mismatches in monitored listings',
+      inputs: { mismatches: mm, excludedListings: activeNap.excludedListings?.length || 0, unverifiedListings: activeNap.unverifiedCount || 0, gbpPosted: !!(localDb.gbpDraft && localDb.gbpDraft.posted) },
       factors: [
         { key: 'napConsistency', label: 'Name, address, and phone consistency', value: mm, effect: `${mm * 15}-point mismatch penalty` },
         { key: 'gbpActivity', label: 'Current Google Business Profile activity', value: !!(localDb.gbpDraft && localDb.gbpDraft.posted), effect: 'Up to 8 bonus points' },
@@ -3344,7 +3353,7 @@ function scheduleDailyHealthSnapshots() {
 
 function getNextMovesContext() {
   return {
-    localDb,
+    localDb: { ...localDb, nap: effectiveNap(localDb.nap, localDb.napExclusions) },
     citationsDb,
     aioAuditsDb,
     autopilotEnabled,
@@ -3354,7 +3363,7 @@ function getNextMovesContext() {
 }
 
 function getDigestContext() {
-  return { onsiteDb, localDb, citationsDb, perfDigestDb, historyDb, aiVisDb, autopilotEnabled };
+  return { onsiteDb, localDb: { ...localDb, nap: effectiveNap(localDb.nap, localDb.napExclusions) }, citationsDb, perfDigestDb, historyDb, aiVisDb, autopilotEnabled };
 }
 
 function getReadinessContext() {

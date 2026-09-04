@@ -708,6 +708,64 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
     }
   });
 
+  await journey(`${prefix}: irrelevant listings require confirmation and can be restored`, async () => {
+    const paths = ['/api/local-autopilot', '/api/local-listing-preference', '/api/assistant'];
+    const previous = paths.map(path => [path, responses.get(path)]);
+    const nap = { canonical: { phone: '727-334-1472', address: '6619 1st Ave S' }, checkedAt: '2026-09-04T12:00:00Z', listings: [{ platform: 'YogaFinder', phone: '727-623-9996', address: '6626 Central Avenue', nameMatch: true, phoneMatch: false, addrMatch: false }, { platform: 'Apple Maps', nameMatch: null, phoneMatch: null, addrMatch: null }], mismatchCount: 1 };
+    const exclusions = [{ platform: 'YogaFinder', reason: 'Owner marked not relevant' }];
+    const active = { success: true, enabled: true, hasKey: true, nap, napExclusions: [], napIntervalDays: 7, gbpIntervalDays: 7 };
+    const ignoredNap = { ...nap, listings: [nap.listings[1]], excludedListings: [nap.listings[0]], mismatchCount: 0 };
+    const ignored = { ...active, nap: ignoredNap, napExclusions: exclusions };
+    const count = () => writes.filter(write => write.path === '/api/local-listing-preference').length;
+    const before = count();
+    try {
+      responses.set('/api/local-autopilot', { json: active });
+      await load('tools/local', '?listing-relevance=1');
+      await page.locator('#la-nap-body').getByText('Show what differs', { exact: true }).click();
+      const exclude = page.getByRole('button', { name: 'Not relevant', exact: true });
+      await exclude.click();
+      await page.locator('[data-answer="no"]').click();
+      assert.equal(count(), before);
+      responses.set('/api/local-listing-preference', { status: 503, json: { success: false, error: 'Could not save the listing preference.' } });
+      await exclude.click();
+      await page.locator('[data-answer="yes"]').click();
+      await page.getByText('Could not save the listing preference.', { exact: true }).waitFor();
+      assert.equal(await exclude.isEnabled(), true);
+      responses.set('/api/local-listing-preference', { json: { success: true, excluded: true, nap: ignoredNap, exclusions } });
+      responses.set('/api/local-autopilot', { json: ignored });
+      await exclude.click();
+      await page.locator('[data-answer="yes"]').click();
+      await page.getByText('Excluded listings (1)', { exact: true }).waitFor();
+      assert.match(await page.locator('#la-nap-body').innerText(), /could not be fully verified/);
+      await load('tools/local', '?listing-relevance-reload=1');
+      await page.getByText('Excluded listings (1)', { exact: true }).click();
+      await audit('excluded-local-listing');
+      responses.set('/api/local-listing-preference', { json: { success: true, excluded: false, nap, exclusions: [] } });
+      await page.getByRole('button', { name: 'Restore monitoring', exact: true }).click();
+      await page.locator('[data-answer="yes"]').click();
+      await page.getByText('Show what differs', { exact: true }).waitFor();
+      assert.equal(count(), before + 3);
+      // The assistant proposes the same owner-confirmed operation, never a website deletion.
+      const { resolveAssistantAction } = require('../lib/assistant-routes');
+      const action = resolveAssistantAction('set_local_listing_relevance', { platform: 'YogaFinder', excluded: true }, { localListings: { listings: nap.listings } });
+      responses.set('/api/assistant', { json: { success: true, reply: 'I can mark YogaFinder not relevant. This will not delete the external listing.', action } });
+      responses.set('/api/local-listing-preference', { json: { success: true, excluded: true, nap: ignoredNap, exclusions } });
+      await page.locator('#asst-fab').click();
+      await page.locator('#asst-text').fill('We do not offer yoga. Please remove the YogaFinder task.');
+      await page.locator('#asst-send').click();
+      const confirm = page.getByRole('button', { name: 'Mark not relevant', exact: true });
+      await confirm.waitFor();
+      assert.equal(count(), before + 3);
+      await confirm.click();
+      await page.getByText(/Listing excluded from active monitoring/).waitFor();
+      assert.equal(count(), before + 4);
+      await page.locator('#asst-close').click();
+      await page.getByText('Excluded listings (1)', { exact: true }).waitFor();
+    } finally {
+      for (const [path, value] of previous) { if (value) responses.set(path, value); else responses.delete(path); }
+    }
+  });
+
   // Audit every preview route in light mode; core destinations also in dark.
   await page.evaluate(() => { if (document.body.classList.contains('dark')) document.getElementById('theme-toggle').click(); });
   const routes = await page.evaluate(() => Object.keys(window.SeoBuddyWorkspace.routes));

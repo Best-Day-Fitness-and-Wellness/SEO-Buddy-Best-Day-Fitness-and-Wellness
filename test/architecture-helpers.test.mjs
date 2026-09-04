@@ -1903,6 +1903,7 @@ test('recorded-content routes preserve media validation, bounded prompts, usage,
 test('assistant routes preserve grounding, bounded context, and confirmation-only action proposals', async () => {
   const toolNames = ASSISTANT_TOOLS[0].functionDeclarations.map(tool => tool.name);
   assert.deepEqual(toolNames, [
+    'set_local_listing_relevance',
     'run_ai_visibility_check',
     'run_factcheck',
     'check_ai_crawler_access',

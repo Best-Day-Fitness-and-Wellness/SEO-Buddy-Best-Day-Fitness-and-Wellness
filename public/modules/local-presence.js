@@ -1,7 +1,7 @@
 'use strict';
 
 (function exposeLocalPresence(global) {
-  const { authFetch, showToast, uiEsc } = global.SeoBuddyCore;
+  const { authFetch, showToast, uiEsc, confirmAction } = global.SeoBuddyCore;
   const citEsc = uiEsc;
   function alert(message) { showToast(message); }
 
@@ -52,21 +52,39 @@
     return rem <= 0 ? 'due now' : ('in ' + Math.ceil(rem) + 'd');
   }
 
-  function laRenderNap(nap, isNew) {
+  function laRenderNap(nap, isNew, exclusions = []) {
     if (!laNapBody) return;
     if (!nap) { laNapBadge.innerHTML = ''; laNapBody.innerHTML = '<div class="sb-val">Not checked yet</div><div class="sb-verdict"><i class="sb-dot" style="background:var(--ink-3)"></i>We have not compared your details across the web yet.</div>'; return; }
     const bad = (nap.listings || []).filter(l => l.phoneMatch === false || l.addrMatch === false || l.nameMatch === false);
     laNapBadge.innerHTML = bad.length
       ? `<span class="la-badge new">${isNew ? 'NEW · ' : ''}${bad.length} mismatch${bad.length > 1 ? 'es' : ''}</span>`
-      : `<span class="la-badge ok">consistent</span>`;
-    if (!bad.length) { laNapBody.innerHTML = `<div class="sb-val">0<u>listings to fix</u></div><div class="sb-verdict"><i class="sb-dot" style="background:var(--p4-g)"></i>All ${nap.listings.length} match your official details. Checked ${laAgo(nap.checkedAt)}.</div>`; return; }
-    laNapBody.innerHTML = `<div class="sb-val">${bad.length}<u>listing${bad.length > 1 ? 's' : ''} to fix</u></div>`
+      : `<span class="la-badge ok">no recorded mismatches</span>`;
+    const unknown = (nap.listings || []).filter(l => ![l.nameMatch, l.addrMatch, l.phoneMatch].includes(false) && [l.nameMatch, l.addrMatch, l.phoneMatch].some(value => value !== true)).length;
+    if (!bad.length) laNapBody.innerHTML = `<div class="sb-val">0<u>active listings to fix</u></div><div class="sb-verdict">No mismatches recorded among ${nap.listings.length} monitored listings. ${unknown ? `${unknown} could not be fully verified. ` : ''}Checked ${laAgo(nap.checkedAt)}.</div>`;
+    else laNapBody.innerHTML = `<div class="sb-val">${bad.length}<u>listing${bad.length > 1 ? 's' : ''} to fix</u></div>`
       + `<div class="sb-verdict"><i class="sb-dot" style="background:var(--p2-g)"></i>Wrong on ${bad.map(l => citEsc(l.platform || '?')).join(', ')}. Checked ${laAgo(nap.checkedAt)}.</div>`
       + `<details class="sb-disclosure"><summary>Show what differs</summary><div>` + bad.map(l => {
       const issues = []; if (l.phoneMatch === false) issues.push('phone'); if (l.addrMatch === false) issues.push('address'); if (l.nameMatch === false) issues.push('name');
-      return `<div class="la-nap-line"><span><b>${citEsc(l.platform || '?')}</b><br><span class="lr-muted">${citEsc(l.phone || l.address || '')}</span></span><span class="nap-bad">${issues.join(' + ')} off</span></div>`;
+      return `<div class="la-nap-line"><span><b>${citEsc(l.platform || '?')}</b><br><span class="lr-muted">${citEsc(l.phone || '')}<br>${citEsc(l.address || '')}</span><br><button type="button" class="btn btn-secondary btn-xs" data-local-platform="${citEsc(l.platform)}" data-excluded="true">Not relevant</button></span><span class="nap-bad">${issues.join(' + ')} off</span></div>`;
     }).join('') + `<div class="lr-muted" style="margin-top:8px;">Align these to ${citEsc(nap.canonical.phone)} · ${citEsc(nap.canonical.address)}.</div></div></details>`;
+    if (exclusions.length) laNapBody.insertAdjacentHTML('beforeend', `<details class="sb-disclosure"><summary>Excluded listings (${exclusions.length})</summary><p class="lr-muted">Excluded from active tasks and the mismatch score, not deleted from external websites. Original scan evidence is retained.</p>${exclusions.map(item => `<div class="la-nap-line"><span><b>${citEsc(item.platform)}</b><br><span class="lr-muted">${citEsc(item.reason)}</span></span><button type="button" class="btn btn-secondary btn-xs" data-local-platform="${citEsc(item.platform)}" data-excluded="false">Restore monitoring</button></div>`).join('')}</details>`);
   }
+
+  if (laNapBody) laNapBody.addEventListener('click', async event => {
+    const button = event.target.closest('[data-local-platform]');
+    if (!button) return;
+    const platform = button.dataset.localPlatform, excluded = button.dataset.excluded === 'true';
+    if (!await confirmAction(excluded ? `Mark ${platform} as not relevant? This excludes it from active tasks and mismatch scoring until restored. It does not correct or remove the external listing.` : `Restore monitoring for ${platform}? Recorded mismatches may return to your task list.`)) return;
+    button.disabled = true;
+    try {
+      const response = await authFetch('/api/local-listing-preference', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ platform, excluded }) });
+      const data = await response.json();
+      if (!response.ok || data.success !== true || data.excluded !== excluded) throw new Error(data.error || 'The change was not confirmed.');
+      laRenderNap(data.nap, false, data.exclusions);
+      document.dispatchEvent(new CustomEvent('seo:readiness-changed'));
+      showToast(excluded ? 'Listing excluded. The external listing was not changed.' : 'Listing monitoring restored.');
+    } catch (error) { button.disabled = false; alert(error.message); }
+  });
 
   function laRenderGbp(draft) {
     if (!laGbpBody) return;
@@ -127,7 +145,7 @@
     if (laMeta) laMeta.innerHTML = s.hasKey
       ? `Autopilot is <b style="color:${s.enabled ? 'var(--color-success)' : 'var(--text-muted)'}">${s.enabled ? 'ON' : 'OFF'}</b> · NAP check ${laDue(s.lastNapRun, s.napIntervalDays)} · GBP post ${laDue(s.lastGbpRun, s.gbpIntervalDays)}`
       : `<span class="nap-bad">Add your Gemini key in Settings to turn the autopilot on.</span>`;
-    laRenderNap(s.nap, s.napNewMismatch);
+    laRenderNap(s.nap, s.napNewMismatch, s.napExclusions || []);
     laRenderGbp(s.gbpDraft);
     laRenderReplies(s.replyHistory);
     if (s.napNewMismatch || (s.gbpDraft && s.gbpDraft.isNew)) {

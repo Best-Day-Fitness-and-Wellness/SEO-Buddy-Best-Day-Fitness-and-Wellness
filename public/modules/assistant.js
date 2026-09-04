@@ -76,6 +76,11 @@ document.addEventListener('DOMContentLoaded', () => {
           if (d && d.budgetReached) { replaceBtns(card, `<div class="asst-result warn">&#9888; ${esc(d.message || 'Monthly usage budget reached.')}</div>`); return; }
           if (d && d.needsSetup) { replaceBtns(card, `<div class="asst-result warn">&#9888; ${esc(d.message || 'This needs a quick setup first.')}${canCopy ? ' Your draft is above — copy it to use it now.' : ''}</div>`); return; }
           if (!r.ok || d.success === false) throw new Error((d && d.error) || "It didn't go through.");
+          if (action.id === 'set_local_listing_relevance') {
+            if (d.success !== true || d.excluded !== action.body.excluded) throw new Error('The listing change was not confirmed.');
+            if (window.loadLocalAutopilot) window.loadLocalAutopilot();
+            document.dispatchEvent(new CustomEvent('seo:readiness-changed'));
+          }
           const next = CHAIN[action.id] ? CHAIN[action.id](d) : null;
           if (next) { replaceBtns(card, `<div class="asst-result">&#10003; ${esc(action.done)}</div>`); renderAction(card.parentElement, next); return; }
           const link = action.tab ? ` <a data-open="${esc(action.tab)}">Open the tab &rarr;</a>` : '';

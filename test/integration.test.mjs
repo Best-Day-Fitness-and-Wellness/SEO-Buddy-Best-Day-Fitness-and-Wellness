@@ -553,7 +553,7 @@ test('every mutating or credit-spending route is password protected', async () =
     '/api/aio-audit', '/api/ai-visibility/run', '/api/ai-visibility/toggle',
     '/api/ai-factcheck/run', '/api/ai-crawlers/run', '/api/reddit-threads/run',
     '/api/usage/budget', '/api/assistant', '/api/ai-visibility/prompts',
-    '/api/citation-targets', '/api/nap-audit', '/api/local-generate', '/api/onsite',
+    '/api/citation-targets', '/api/nap-audit', '/api/local-generate', '/api/onsite', '/api/local-listing-preference',
     '/api/listing-kit', '/api/citation-scan', '/api/citation-autopilot/toggle',
     '/api/citation-autopilot/seen', '/api/citation-status', '/api/citation-outreach',
     '/api/local-autopilot/toggle', '/api/local-autopilot/run', '/api/local-autopilot/seen',
@@ -570,6 +570,14 @@ test('every mutating or credit-spending route is password protected', async () =
   }
   const validAfterFailures = await request('/api/brand-profile', { method: 'POST', body: { brand: { tagline: 'Test' } } });
   assert.equal(validAfterFailures.status, 200, 'a valid password must not be locked out by bad attempts');
+});
+
+test('listing preferences require owner access and reject unrecorded platforms', async () => {
+  const body = { platform: 'Unrecorded listing', excluded: true };
+  const operator = await request('/api/local-listing-preference', { method: 'POST', body, auth: false, headers: { Authorization: `Bearer ${OPERATOR_PASSWORD}` } });
+  assert.equal(operator.status, 403);
+  const owner = await request('/api/local-listing-preference', { method: 'POST', body });
+  assert.equal(owner.status, 404);
 });
 
 test('operator credentials can run workflows but cannot change owner settings', async () => {
