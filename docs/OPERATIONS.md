@@ -31,6 +31,15 @@ an installed Chrome executable. Acceptance uses a new temporary data directory,
 fake credentials, and intercepted writes; it cannot publish/send/index to a
 real provider. It does not use an existing personal browser session.
 
+CI actions are pinned to reviewed full commit SHAs, with release versions in
+comments. Checkout, Node setup, and artifact upload use the Node 24 action
+runtime; `setup-node` still selects Node 20 for application tests. This does not
+change the production runtime. Checkout does not retain Git credentials, and
+workflow permissions remain read-only. When updating an action, resolve its
+official release tag to a commit, review compatibility notes, update both jobs
+where applicable, and verify the full run including artifact upload. Do not
+replace the pins with moving major-version tags or bypass runtime warnings.
+
 ## Routine checks
 
 Use the protected endpoints without copying credentials into tickets or logs:
