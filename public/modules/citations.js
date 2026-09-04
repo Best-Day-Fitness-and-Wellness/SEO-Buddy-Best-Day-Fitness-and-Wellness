@@ -63,7 +63,7 @@
     const pct = counts.total ? Math.round((worked / counts.total) * 100) : 0;
     citProgress.style.display = 'grid';
     citProgress.innerHTML =
-      `<div class="cit-pstat"><b>${counts.total}</b><span>sources AI cites</span></div>` +
+      `<div class="cit-pstat"><b>${counts.total}</b><span>eligible sources AI cites</span></div>` +
       `<div class="cit-pstat"><b>${counts.listed}</b><span>you already appear on</span></div>` +
       `<div class="cit-pstat"><b>${counts.inProgress}</b><span>in progress</span></div>` +
       `<div class="cit-pstat live"><b>${counts.live}</b><span>listed / live</span></div>` +
@@ -111,7 +111,7 @@
   function citStatusSelect(domain, cur) {
     const opts = [['todo', 'To-do'], ['submitted', 'Submitted'], ['pitched', 'Pitched'], ['live', 'Live']];
     const liveCls = cur === 'live' ? ' live' : '';
-    return `<select class="cit-status${liveCls}" data-domain="${citEsc(domain)}">` +
+    return `<select class="cit-status${liveCls}" data-domain="${citEsc(domain)}" aria-label="Listing status for ${citEsc(domain)}">` +
       opts.map(([v, l]) => `<option value="${v}"${v === cur ? ' selected' : ''}>${l}</option>`).join('') +
       `</select>`;
   }
@@ -245,7 +245,9 @@
     CIT_TOTAL.t = total || (targets && targets.length) || 0;
     if (!citationsResults) return;
     if (!targets || !targets.length) {
-      citationsResults.innerHTML = '<div class="cit-empty">No worklist yet. Click <b>Scan now</b> to find the third‑party sources AI cites for your searches — then this becomes your get‑listed to‑do list.</div>';
+      citationsResults.innerHTML = citLastData.lastScanned
+        ? '<div class="cit-empty">No eligible listing opportunities in the latest scan. Competitor-owned sites are excluded automatically.</div>'
+        : '<div class="cit-empty">No worklist yet. Click <b>Scan now</b> to find the third‑party sources AI cites for your searches — then this becomes your get‑listed to‑do list.</div>';
       return;
     }
     citationsResults.innerHTML = targets.map((t, i) => {
@@ -287,6 +289,9 @@
     if (citAutoToggle) citAutoToggle.checked = !!data.autoEnabled;
     citRenderProgress(data.counts, data.brandCited);
     citRenderWorklist(data.targets, data.totalQueries);
+    if (citationsResults && data.targets?.length) {
+      citationsResults.insertAdjacentHTML('afterbegin', '<p class="cit-hint">Competitor-owned sites are excluded automatically from this worklist and its progress totals.</p>');
+    }
     if (data.queries && data.queries.length && citationsQueries) citationsQueries.value = data.queries.join('\n');
     // Clear NEW-target flags server-side only once the worklist is actually
     // on screen (not on the background startup load, which runs while another

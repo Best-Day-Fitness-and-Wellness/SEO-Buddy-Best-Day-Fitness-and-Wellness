@@ -254,6 +254,7 @@ so one production replica remains the supported topology.
 | `lib/google-delivery.js` | Gmail and Google Business Profile OAuth and provider adapters |
 | `lib/delivery-routes.js` | Pitch, GBP post, and performance-digest delivery HTTP contracts |
 | `lib/citation-routes.js` | Citation discovery, Listing Kit, scanning, tracking, and outreach HTTP contracts |
+| `lib/citation-eligibility.js` | Shared competitor-domain exclusion, eligible worklist counts, and retained discovery evidence |
 | `lib/local-seo-routes.js` | NAP auditing, local-copy generation, and review-reply HTTP contracts |
 | `lib/performance-routes.js` | Search performance, branded-search trends, snapshots, and lead-attribution contracts |
 | `lib/onsite-routes.js` | On-site generation, SSRF-safe AEO page auditing, and schema HTTP contracts |

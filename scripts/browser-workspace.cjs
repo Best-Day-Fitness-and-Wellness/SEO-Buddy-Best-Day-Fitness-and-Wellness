@@ -766,6 +766,32 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
     }
   });
 
+  await journey(`${prefix}: listing opportunities omit competitors and explain empty scans`, async () => {
+    const path = '/api/citation-worklist';
+    const previous = responses.get(path);
+    const { buildCitationWorklist } = require('../lib/citation-eligibility');
+    const state = { lastScanned: '2026-09-04T12:00:00Z', totalQueries: 3, autoEnabled: true, targets: [
+      { domain: 'stpeteymca.org', type: 'competitor', listed: false, citedFor: 2 },
+      { domain: 'directory.example', type: 'directory', listed: false, citedFor: 1 },
+    ] };
+    try {
+      responses.set(path, { json: buildCitationWorklist(state) });
+      await load('tools/directories', '?eligible-citations=1');
+      await page.locator('.cit-card[data-domain="directory.example"]').waitFor();
+      assert.equal(await page.locator('.cit-card').count(), 1);
+      assert.doesNotMatch(await page.locator('#citations-results').innerText(), /stpeteymca|Why skip/);
+      assert.match(await page.locator('#cit-progress').innerText(), /0 of 1 worked/);
+      await audit('eligible-citations');
+      responses.set(path, { json: buildCitationWorklist({ ...state, targets: state.targets.slice(0, 1) }) });
+      await load('tools/directories', '?eligible-citations=empty');
+      await page.getByText('No eligible listing opportunities in the latest scan. Competitor-owned sites are excluded automatically.', { exact: true }).waitFor();
+      assert.equal(await page.locator('.cit-status').count(), 0);
+      assert.equal(await page.locator('#cit-progress').isVisible(), false);
+    } finally {
+      if (previous) responses.set(path, previous); else responses.delete(path);
+    }
+  });
+
   // Audit every preview route in light mode; core destinations also in dark.
   await page.evaluate(() => { if (document.body.classList.contains('dark')) document.getElementById('theme-toggle').click(); });
   const routes = await page.evaluate(() => Object.keys(window.SeoBuddyWorkspace.routes));

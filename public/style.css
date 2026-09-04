@@ -1732,6 +1732,7 @@ body.dark .sum-ap-new{color:#ffb3ac;}
 #citations-tab .cit-listed{font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;}
 #citations-tab .cit-listed.yes{background:rgba(16,185,129,.15);color:var(--color-success);}
 #citations-tab .cit-listed.no{background:rgba(244,63,94,.15);color:var(--color-accent);}
+body:not(.dark) #citations-tab .cit-listed.no{color:#9f3028;}
 #citations-tab .cit-listed.unknown{background:rgba(148,163,184,.12);color:var(--text-muted);}
 #citations-tab .cit-note{font-size:var(--font-xs);color:var(--text-dark);margin-top:3px;}
 #citations-tab .cit-empty{color:var(--text-muted);font-size:var(--font-sm);padding:14px 0;line-height:1.5;}

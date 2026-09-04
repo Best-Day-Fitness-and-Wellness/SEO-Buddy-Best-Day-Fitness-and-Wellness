@@ -51,7 +51,8 @@ const { createGoogleDelivery } = require('./lib/google-delivery');
 const { registerDeliveryRoutes } = require('./lib/delivery-routes');
 const { createMonthlyReportService, registerMonthlyReportRoutes } = require('./lib/monthly-report');
 const { createServerPdfReport } = require('./lib/server-pdf-report');
-const { LISTING_TYPES, registerCitationRoutes } = require('./lib/citation-routes');
+const { registerCitationRoutes } = require('./lib/citation-routes');
+const { competitorDomains, isCompetitorDomain, eligibleCitationState, buildCitationWorklist } = require('./lib/citation-eligibility');
 const { buildCanonicalNap, mapNapListings, registerLocalSeoRoutes } = require('./lib/local-seo-routes');
 const { effectiveNap, registerLocalListingRoutes } = require('./lib/local-listing-preferences');
 const { createPerformanceService, registerPerformanceRoutes } = require('./lib/performance-routes');
@@ -2535,7 +2536,7 @@ registerOnsiteRoutes(app, {
 const CITATIONS_FILE = path.join(DATA_DIR, 'citations.json');
 let citationsDb = {
   lastScanned: null, brandCited: false, totalQueries: 0, sourcesFound: 0,
-  queries: [], targets: [], statuses: {}, kit: null,
+  queries: [], targets: [], statuses: {}, kit: null, excludedCompetitorDomains: [],
   autoEnabled: true, intervalDays: 7, newDomains: []
 };
 try {
@@ -2613,8 +2614,11 @@ async function discoverCitationTargets(cleanQueries) {
   const rankedDomains = Object.keys(domainInfo).sort((a, b) => domainInfo[b].count - domainInfo[a].count).slice(0, 12);
   const targets = await Promise.all(rankedDomains.map(async (dom) => {
     const base = { domain: dom, citedFor: domainInfo[dom].count, queries: domainInfo[dom].queries };
+    if (isCompetitorDomain(dom, competitorDomains(citationsDb))) {
+      return { ...base, type: 'competitor', listed: null, note: 'Previously identified as a competitor-owned site.' };
+    }
     try {
-      const p = `On the website "${dom}", is the St. Petersburg, Florida fitness studio "Best Day Fitness" listed or mentioned? Also classify what kind of site "${dom}" is. Reply with ONLY raw JSON, no markdown fences: {"listed": true or false, "type": "directory" | "review" | "listicle" | "forum" | "competitor" | "news" | "other", "note": "one short line describing the site"}`;
+      const p = `On the website "${dom}", is the St. Petersburg, Florida fitness studio "Best Day Fitness" listed or mentioned? Also classify what kind of site "${dom}" is. Use "competitor" for another fitness, training or wellness provider's own website, including its blog or best-of articles: those are not independent listing opportunities. Independent directories, review sites and publications covering multiple businesses are not competitors just because they mention competing businesses. Reply with ONLY raw JSON, no markdown fences: {"listed": true or false, "type": "directory" | "review" | "listicle" | "forum" | "competitor" | "news" | "other", "note": "one short line describing the site"}`;
       const r = await geminiGenerate({ model: GEMINI_MODEL, contents: p, config: { tools: [{ googleSearch: {} }] } });
       const parsed = parseGeminiJson(r.text) || {};
       return { ...base, type: parsed.type || 'other', listed: (typeof parsed.listed === 'boolean' ? parsed.listed : null), note: parsed.note || '' };
@@ -2626,35 +2630,7 @@ async function discoverCitationTargets(cleanQueries) {
 
 // Merge cached targets with saved statuses + derive the action for each.
 function worklistPayload() {
-  const kit = listingKit();
-  const targets = (citationsDb.targets || []).map((t) => {
-    const st = (citationsDb.statuses && citationsDb.statuses[t.domain]) || {};
-    const mode = t.listed === true ? 'maintain'
-      : LISTING_TYPES.includes(t.type) ? 'listing'
-      : t.type === 'competitor' ? 'skip'
-      : 'pitch';
-    return { ...t, status: st.status || 'todo', statusUpdatedAt: st.updatedAt || null, mode };
-  });
-  const counts = {
-    total: targets.length,
-    listed: targets.filter(t => t.listed === true).length,
-    inProgress: targets.filter(t => ['submitted', 'pitched'].includes(t.status)).length,
-    live: targets.filter(t => t.status === 'live' || t.listed === true).length
-  };
-  const newDomains = citationsDb.newDomains || [];
-  return {
-    success: true,
-    lastScanned: citationsDb.lastScanned,
-    brandCited: citationsDb.brandCited,
-    totalQueries: citationsDb.totalQueries,
-    sourcesFound: citationsDb.sourcesFound,
-    queries: citationsDb.queries || [],
-    autoEnabled: !!citationsDb.autoEnabled,
-    intervalDays: citationsDb.intervalDays || 7,
-    newDomains,
-    kit, counts,
-    targets: targets.map(t => ({ ...t, isNew: newDomains.includes(t.domain) }))
-  };
+  return buildCitationWorklist(citationsDb, listingKit());
 }
 
 // Shared scan core — runs the grounded discovery, preserves statuses, and
@@ -2662,6 +2638,8 @@ function worklistPayload() {
 // endpoint and the weekly auto-scan.
 async function performCitationScan(queries) {
   const { brandCited, sourcesFound, targets } = await discoverCitationTargets(queries);
+  // Remember competitors even when they disappear from a later scan.
+  citationsDb.excludedCompetitorDomains = competitorDomains(citationsDb, targets);
   const prevDomains = new Set((citationsDb.targets || []).map(t => t.domain));
   const liveDomains = new Set(targets.map(t => t.domain));
   const keptStatuses = {};
@@ -2670,7 +2648,7 @@ async function performCitationScan(queries) {
   }
   citationsDb.statuses = keptStatuses;
   // Don't flag everything "new" on the very first scan.
-  citationsDb.newDomains = prevDomains.size ? targets.filter(t => !prevDomains.has(t.domain)).map(t => t.domain) : [];
+  citationsDb.newDomains = prevDomains.size ? eligibleCitationState({ ...citationsDb, targets }).targets.filter(t => !prevDomains.has(t.domain)).map(t => t.domain) : [];
   citationsDb.targets = targets;
   citationsDb.brandCited = brandCited;
   citationsDb.sourcesFound = sourcesFound;
@@ -2723,6 +2701,8 @@ registerCitationRoutes(app, {
   },
   listingKit,
   discoverTargets: discoverCitationTargets,
+  filterTargets: targets => eligibleCitationState({ ...citationsDb, targets, excludedCompetitorDomains: competitorDomains(citationsDb, targets) }).targets,
+  isExcludedDomain: domain => isCompetitorDomain(domain, competitorDomains(citationsDb)),
   updateListingKit: parsed => {
     citationsDb.kit = {
       tagline: parsed.tagline || kitStatic().tagline,
@@ -3305,20 +3285,21 @@ async function computeHealthScore() {
   }
 
   // 4. Get listed (20%) — coverage of the sources AI cites
-  if (citationsDb && citationsDb.targets && citationsDb.targets.length) {
+  const eligibleCitations = eligibleCitationState(citationsDb);
+  if (eligibleCitations.targets.length) {
     const st = citationsDb.statuses || {};
-    const total = citationsDb.targets.length;
-    const done = citationsDb.targets.filter(t => t.listed === true || (st[t.domain] && st[t.domain].status === 'live')).length;
+    const total = eligibleCitations.targets.length;
+    const done = eligibleCitations.targets.filter(t => t.listed === true || (st[t.domain] && st[t.domain].status === 'live')).length;
     pillars.push({
       key: 'listed', label: 'Get listed', weight: 20, measured: true,
       score: done / total * 100,
-      detail: `On ${done} of ${total} source${total > 1 ? 's' : ''} AI cites`,
-      inputs: { listed: done, total },
+      detail: `On ${done} of ${total} eligible source${total > 1 ? 's' : ''} AI cites`,
+      inputs: { listed: done, total, excludedCompetitors: eligibleCitations.excludedCompetitorCount },
       factors: [{ key: 'citationCoverage', label: 'Confirmed live on AI-cited sources', numerator: done, denominator: total }],
       sourceUpdatedAt: citationsDb.lastScanned || citationsDb.lastRun || null,
     });
   } else {
-    pillars.push({ key: 'listed', label: 'Get listed', weight: 20, measured: false, score: null, detail: 'Scan the sites AI cites to measure' });
+    pillars.push({ key: 'listed', label: 'Get listed', weight: 20, measured: false, score: null, detail: citationsDb.lastScanned ? 'No eligible listing sources in the latest scan' : 'Scan the sites AI cites to measure' });
   }
 
   // 5. Fresh content (15%) — recency + autopilot
@@ -3354,7 +3335,7 @@ function scheduleDailyHealthSnapshots() {
 function getNextMovesContext() {
   return {
     localDb: { ...localDb, nap: effectiveNap(localDb.nap, localDb.napExclusions) },
-    citationsDb,
+    citationsDb: eligibleCitationState(citationsDb),
     aioAuditsDb,
     autopilotEnabled,
     gscConfigured: !!(process.env.GSC_SITE_URL && getGoogleAuth()),
@@ -3363,7 +3344,7 @@ function getNextMovesContext() {
 }
 
 function getDigestContext() {
-  return { onsiteDb, localDb: { ...localDb, nap: effectiveNap(localDb.nap, localDb.napExclusions) }, citationsDb, perfDigestDb, historyDb, aiVisDb, autopilotEnabled };
+  return { onsiteDb, localDb: { ...localDb, nap: effectiveNap(localDb.nap, localDb.napExclusions) }, citationsDb: eligibleCitationState(citationsDb), perfDigestDb, historyDb, aiVisDb, autopilotEnabled };
 }
 
 function getReadinessContext() {

@@ -5,6 +5,14 @@
 Production auto-deploys the GitHub `main` branch to Railway. Do not deploy an
 untested working tree.
 
+Citation worklists exclude competitor-owned domains from cached results and
+future scans, including their task counts, NEW badges, next moves, digest, and
+Get listed score inputs. Raw scan evidence remains stored. Weekly and manual
+scans remember classified competitors in `citations.json` under
+`excludedCompetitorDomains`, even if a subsequent scan omits or reclassifies
+them. Independent directories and publications remain eligible. This does not
+change the separate AI visibility competitor leaderboard or any external site.
+
 1. Run `npm run check`.
 2. Run `npm test`.
 3. Run `npm run test:browser` and `npm audit --omit=dev --audit-level=moderate`.
