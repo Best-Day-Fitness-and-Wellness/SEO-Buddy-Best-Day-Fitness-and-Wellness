@@ -173,10 +173,14 @@
   }
   global.loadOwnerBusiness = loadOwnerBusiness;
 
+  // Shared by workspace and classic navigation; these shortcuts never run a tool.
+  const businessToolTabs = new Set(['ai-tab', 'publish-tab', 'aio-tab', 'local-tab', 'citations-tab', 'performance-tab']);
   document.addEventListener('click', (e) => {
     if (e.target.closest && e.target.closest('[data-ow-retry]')) loadOwnerResults();
     if (e.target.closest && e.target.closest('[data-ow-retry-business]')) loadOwnerBusiness();
     if (e.target.closest && e.target.closest('[data-ow-brand]')) global.switchTab('brand-tab');
+    const tool = e.target.closest && e.target.closest('[data-ow-tool]');
+    if (tool && businessToolTabs.has(tool.dataset.owTool)) global.switchTab(tool.dataset.owTool);
   });
 
   // Preserve the existing business refresh after an owner decision.

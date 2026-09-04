@@ -35,12 +35,22 @@ function harness(data = {}) {
   return {
     window, elements, requests, navigations, core: window.SeoBuddyCore,
     html: id => elements.get(id).innerHTML,
-    async emit(name, selector) {
-      for (const fn of listeners.get(name) || []) fn({ target: { closest: query => query === selector } });
+    async emit(name, selector, match = true) {
+      for (const fn of listeners.get(name) || []) fn({ target: { closest: query => query === selector ? match : null } });
       await new Promise(resolve => setImmediate(resolve));
     },
   };
 }
+
+test('business guide only navigates to known tools without requesting data or running actions', async () => {
+  const h = harness();
+  const tabs = ['ai-tab', 'publish-tab', 'aio-tab', 'local-tab', 'citations-tab', 'performance-tab'];
+  for (const owTool of [...tabs, 'settings-tab', 'unknown', 'https://example.com', undefined]) {
+    await h.emit('click', '[data-ow-tool]', { dataset: { owTool } });
+  }
+  assert.deepEqual(h.navigations, tabs);
+  assert.deepEqual(h.requests, []);
+});
 
 function deferred() {
   let resolve;

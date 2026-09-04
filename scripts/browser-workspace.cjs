@@ -545,6 +545,38 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
     }
   });
 
+  await journey(`${prefix}: compact business guide opens tools without running them`, async () => {
+    const before = writes.length;
+    await load('business', '?business-tool-guide=1');
+    const guide = page.locator('#ow-tool-guide');
+    assert.equal(await guide.getAttribute('open'), null);
+    assert.equal(await guide.locator('button:visible').count(), 0);
+    const summary = guide.locator('summary');
+    await summary.focus();
+    await page.keyboard.press('Enter');
+    assert.notEqual(await guide.getAttribute('open'), null);
+    assert.equal(await guide.locator('button:visible').count(), 6);
+    await audit('business-tool-guide-expanded');
+    const destinations = [
+      ['ai-tab', 'tools/content/draft'], ['publish-tab', 'tools/content/publish'],
+      ['aio-tab', 'tools/ai-visibility'], ['local-tab', 'tools/local'],
+      ['citations-tab', 'tools/directories'], ['performance-tab', 'results/detail'],
+    ];
+    for (const [tab, slug] of destinations) {
+      await guide.locator(`[data-ow-tool="${tab}"]`).click();
+      await location(slug);
+      await page.goBack();
+      await location('business');
+      assert.notEqual(await guide.getAttribute('open'), null);
+    }
+    await summary.focus();
+    await page.keyboard.press('Space');
+    assert.equal(await guide.getAttribute('open'), null);
+    assert.deepEqual(writes.slice(before).filter(write => write.path !== '/api/performance-digest/seen'), []);
+    // Leave expanded for the following light/dark route audits.
+    await summary.click();
+  });
+
   // Audit every preview route in light mode; core destinations also in dark.
   await page.evaluate(() => { if (document.body.classList.contains('dark')) document.getElementById('theme-toggle').click(); });
   const routes = await page.evaluate(() => Object.keys(window.SeoBuddyWorkspace.routes));
