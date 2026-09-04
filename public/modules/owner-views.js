@@ -6,6 +6,8 @@
   // Each view owns its refresh generation; late responses must not undo a retry.
   let resultsRequest = 0, businessRequest = 0;
   const measuredNumber = value => Number.isFinite(value) && value >= 0 ? value : null;
+  const measuredCount = value => Number.isSafeInteger(value) && value >= 0 ? value : null;
+  const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 
   function readinessCheck(readiness, key) {
     if (!Array.isArray(readiness?.checks)) return null;
@@ -83,17 +85,29 @@
                <p>This comparison does not identify the cause. Review the underlying searches and pages before deciding what to change.</p></div>`
           : `<div class="ow-note"><b>Holding steady or improving.</b><p>We’ll show you this same comparison next month either way.</p></div>`;
       }
-      if (!rv || !rv.inventory) {
+      document.getElementById('ow-rev-note').innerHTML = '';
+      if (!rv || !isRecord(rv.inventory)) {
         document.getElementById('ow-rev').innerHTML =
           `<div class="ow-note warn"><b>Review figures are unavailable.</b><p>We could not verify the review inventory. No connection or rating change is being claimed.</p><button class="btn btn-secondary" data-ow-retry>Try again</button></div>`;
-      } else if (rv && rv.inventory) {
-        const i = rv.inventory, bp = i.byPlatform || {};
+      } else {
+        const i = rv.inventory;
+        const published = measuredCount(i.published), problems = measuredCount(rv.problems);
+        const score = measuredNumber(rv.score), health = score !== null && score <= 100 ? score : null;
+        const rating = Number.isFinite(i.avgRating) && i.avgRating >= 1 && i.avgRating <= 5 ? i.avgRating : null;
+        // An explicit null is the API's "no rated reviews" value; omission is unknown.
+        const noRating = i.avgRating === null;
+        const platforms = isRecord(i.byPlatform) ? Object.entries(i.byPlatform) : [];
+        const validPlatforms = platforms.filter(([name, count]) => name.trim() && measuredCount(count) !== null);
+        const platformDataValid = isRecord(i.byPlatform) && validPlatforms.length === platforms.length;
+        const partial = published === null || problems === null || health === null || (!noRating && rating === null) || !platformDataValid;
         document.getElementById('ow-rev').innerHTML =
-          tile('Shown on your reviews site', i.published,
-               Object.entries(bp).map(([k, v]) => `${v} ${k}`).join(' · ')) +
-          tile('Average rating there', i.avgRating ?? '—', i.avgRating == null ? 'No rating recorded yet' : 'Latest inventory · no trend comparison') +
-          tile('Review page health', rv.score + '<small> / 100</small>',
-               (rv.problems || 0) + ' small fix' + ((rv.problems || 0) === 1 ? '' : 'es') + ' suggested');
+          tile('Shown on your reviews site', published ?? '—',
+               validPlatforms.map(([name, count]) => `${count} ${owEsc(name)}`).join(' · ') || (platformDataValid ? '' : 'Platform breakdown unavailable')) +
+          tile('Average rating there', rating ?? '—', noRating ? 'No rating recorded yet' : rating === null ? 'Rating unavailable' : 'Latest inventory · no trend comparison') +
+          tile('Review page health', (health ?? '—') + '<small> / 100</small>',
+               problems === null ? 'Fix count unavailable' : problems + ' small fix' + (problems === 1 ? '' : 'es') + ' suggested');
+        document.getElementById('ow-rev-note').innerHTML = partial
+          ? '<div class="ow-note warn" role="status"><b>Some review figures are unavailable.</b><p>A dash means the figure could not be verified. Available figures are still shown.</p><button type="button" class="btn btn-secondary" data-ow-retry>Retry review figures</button></div>' : '';
       }
       const cv = parseFloat(localStorage.getItem('seo_client_value')) || 1395;
       const cr = (parseFloat(localStorage.getItem('seo_conv_rate')) || 2) / 100;

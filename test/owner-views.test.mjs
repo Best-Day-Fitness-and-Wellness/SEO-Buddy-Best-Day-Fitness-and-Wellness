@@ -13,7 +13,7 @@ const resultsData = {
 };
 
 function harness(data = {}) {
-  const elements = new Map(['ow-find', 'ow-find-note', 'ow-rev', 'ow-worth', 'ow-basics', 'ow-voice', 'ow-conn'].map(id => [id, { innerHTML: '' }]));
+  const elements = new Map(['ow-find', 'ow-find-note', 'ow-rev', 'ow-rev-note', 'ow-worth', 'ow-basics', 'ow-voice', 'ow-conn'].map(id => [id, { innerHTML: '' }]));
   const listeners = new Map(), requests = [], navigations = [];
   const window = { switchTab: tab => navigations.push(tab) };
   const document = {
@@ -59,7 +59,7 @@ function deferred() {
 }
 const flush = () => new Promise(resolve => setImmediate(resolve));
 const snapshot = (h, ids) => ids.map(id => h.html(id));
-const resultIds = ['ow-find', 'ow-find-note', 'ow-rev', 'ow-worth'];
+const resultIds = ['ow-find', 'ow-find-note', 'ow-rev', 'ow-rev-note', 'ow-worth'];
 const businessIds = ['ow-basics', 'ow-voice', 'ow-conn'];
 const businessData = {
   '/api/business-profile': { profile: { name: 'Current business' } },
@@ -199,10 +199,93 @@ test('a missing review rating is labelled without printing null or inventing zer
   for (const avgRating of [null, undefined]) {
     const h = harness({ ...resultsData, '/api/reviews-stats': { inventory: { published: 0, avgRating }, score: 30 } });
     await h.window.loadOwnerResults();
-    assert.match(h.html('ow-rev'), /No rating recorded yet/);
+    assert.match(h.html('ow-rev'), avgRating === null ? /No rating recorded yet/ : /Rating unavailable/);
     assert.doesNotMatch(h.html('ow-rev'), /null|undefined/);
     assert.match(h.html('ow-rev'), /Average rating there<\/div><div class="v">—/);
   }
+});
+
+test('partial review measurements preserve valid fields and offer retry without inventing zeros', async () => {
+  for (const invalid of [undefined, '20', false, -1, 1.5, NaN, Infinity, '<img src=x>']) {
+    const h = harness({ ...resultsData, '/api/reviews-stats': { inventory: { published: invalid, avgRating: 4.9, byPlatform: { Google: 20 } }, problems: invalid } });
+    await h.window.loadOwnerResults();
+    const html = h.html('ow-rev');
+    assert.match(html, /Shown on your reviews site<\/div><div class="v">—/);
+    assert.match(html, /Average rating there<\/div><div class="v">4.9/);
+    assert.match(html, /Review page health<\/div><div class="v">—<small>/);
+    assert.match(html, /20 Google/);
+    assert.match(html, /Fix count unavailable/);
+    assert.match(h.html('ow-rev-note'), /Retry review figures/);
+    assert.doesNotMatch(html, /undefined|NaN|Infinity|<img|0 small fixes/);
+    assert.match(h.html('ow-worth'), /Estimated opportunity value/);
+  }
+});
+
+test('review rating and health ranges are validated independently', async () => {
+  for (const invalid of ['5', false, -1, 101, NaN, Infinity, '<script>']) {
+    const h = harness({ ...resultsData, '/api/reviews-stats': { inventory: { published: 20, avgRating: invalid, byPlatform: { Google: 20 } }, score: invalid, problems: 1 } });
+    await h.window.loadOwnerResults();
+    const html = h.html('ow-rev');
+    assert.match(html, /Rating unavailable/);
+    assert.match(html, /Review page health<\/div><div class="v">—/);
+    assert.match(html, /1 small fix suggested/);
+    assert.doesNotMatch(html, /<script>|NaN|Infinity/);
+  }
+  for (const avgRating of [0, 0.5, 5.1]) {
+    const h = harness({ ...resultsData, '/api/reviews-stats': { ...resultsData['/api/reviews-stats'], inventory: { published: 20, avgRating, byPlatform: { Google: 20 } } } });
+    await h.window.loadOwnerResults();
+    assert.match(h.html('ow-rev'), /Rating unavailable/);
+    assert.match(h.html('ow-rev'), /90<small>/);
+  }
+});
+
+test('review platform labels are escaped and invalid breakdown counts are not displayed', async () => {
+  const h = harness({ ...resultsData, '/api/reviews-stats': { inventory: { published: 20, avgRating: 4.9, byPlatform: { '<img src=x>': 20, Missing: null, Unsafe: '<script>' } }, score: 90, problems: 0 } });
+  await h.window.loadOwnerResults();
+  const html = h.html('ow-rev');
+  assert.match(html, /20 &lt;img src=x&gt;/);
+  assert.match(h.html('ow-rev-note'), /Some review figures are unavailable/);
+  assert.doesNotMatch(html, /<img|<script>|Missing|Unsafe/);
+  for (const byPlatform of [undefined, null, [], 'Google']) {
+    const next = harness({ ...resultsData, '/api/reviews-stats': { inventory: { published: 20, avgRating: 4.9, byPlatform }, score: 90, problems: 0 } });
+    await next.window.loadOwnerResults();
+    assert.match(next.html('ow-rev'), /Platform breakdown unavailable/);
+    assert.match(next.html('ow-rev'), /90<small>/);
+  }
+});
+
+test('empty review inventory is valid evidence while malformed inventory is unavailable', async () => {
+  const h = harness({ ...resultsData, '/api/reviews-stats': { inventory: { published: 0, avgRating: null, byPlatform: {} }, score: 0, problems: 0 } });
+  await h.window.loadOwnerResults();
+  assert.match(h.html('ow-rev'), /Shown on your reviews site<\/div><div class="v">0/);
+  assert.match(h.html('ow-rev'), /0<small> \/ 100/);
+  assert.match(h.html('ow-rev'), /0 small fixes/);
+  assert.match(h.html('ow-rev'), /No rating recorded yet/);
+  assert.doesNotMatch(h.html('ow-rev'), /unavailable|Retry/);
+  assert.equal(h.html('ow-rev-note'), '');
+  for (const inventory of [true, 'inventory', []]) {
+    const next = harness({ ...resultsData, '/api/reviews-stats': { inventory } });
+    await next.window.loadOwnerResults();
+    assert.match(next.html('ow-rev'), /Review figures are unavailable/);
+    assert.match(next.html('ow-worth'), /Estimated opportunity value/);
+  }
+});
+
+test('review retries clear obsolete partial-data notices on success or full failure', async () => {
+  const data = { ...resultsData, '/api/reviews-stats': { inventory: {} } };
+  const h = harness(data);
+  await h.window.loadOwnerResults();
+  assert.match(h.html('ow-rev-note'), /Retry review figures/);
+  data['/api/reviews-stats'] = resultsData['/api/reviews-stats'];
+  await h.emit('click', '[data-ow-retry]');
+  assert.equal(h.html('ow-rev-note'), '');
+  assert.match(h.html('ow-rev'), /4.9/);
+  data['/api/reviews-stats'] = { inventory: {} };
+  await h.window.loadOwnerResults();
+  data['/api/reviews-stats'] = new Error('unavailable');
+  await h.emit('click', '[data-ow-retry]');
+  assert.equal(h.html('ow-rev-note'), '');
+  assert.match(h.html('ow-rev'), /Review figures are unavailable/);
 });
 
 test('partial search results preserve valid figures without inventing activity or a trend', async () => {

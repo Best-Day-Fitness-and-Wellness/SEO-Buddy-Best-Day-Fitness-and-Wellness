@@ -640,9 +640,40 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
       assert.equal(await tile('Visits from Google').innerText(), '10');
       assert.equal(await retry.count(), 0);
       assert.match(await page.locator('#ow-worth').innerText(), /Estimated opportunity value/);
-      assert.deepEqual(writes.slice(before), []);
+      // A prior report visit can finish its existing read receipt after navigation.
+      assert.deepEqual(writes.slice(before).filter(write => write.path !== '/api/performance-digest/seen'), []);
     } finally {
       if (previous) responses.set('/api/performance', previous); else responses.delete('/api/performance');
+    }
+  });
+
+  await journey(`${prefix}: partial review figures remain explicit and retry without changing data`, async () => {
+    const before = writes.length;
+    const previous = responses.get('/api/reviews-stats');
+    responses.set('/api/reviews-stats', { json: { inventory: { published: 20, byPlatform: { '<b>Google</b>': 20 } } } });
+    try {
+      await load('results', '?partial-review-results=1');
+      const retry = page.getByRole('button', { name: 'Retry review figures' });
+      await retry.waitFor();
+      const tile = label => page.locator('#ow-rev .ow-tile').filter({ hasText: label });
+      assert.equal(await tile('Shown on your reviews site').locator('.v').innerText(), '20');
+      assert.match(await tile('Shown on your reviews site').innerText(), /20 <b>Google<\/b>/);
+      assert.equal(await tile('Shown on your reviews site').locator('.d b').count(), 0);
+      assert.equal(await tile('Average rating there').locator('.v').innerText(), '—');
+      assert.match(await tile('Review page health').innerText(), /Fix count unavailable/);
+      assert.doesNotMatch(await page.locator('#ow-rev').innerText(), /undefined|NaN|0 small fixes/);
+      await audit('partial-review-results');
+      responses.set('/api/reviews-stats', { json: { inventory: { published: 0, avgRating: null, byPlatform: {} }, score: 0, problems: 0 } });
+      await retry.focus();
+      await page.keyboard.press('Enter');
+      await retry.waitFor({ state: 'hidden' });
+      assert.equal(await tile('Shown on your reviews site').locator('.v').innerText(), '0');
+      assert.match(await tile('Average rating there').innerText(), /No rating recorded yet/);
+      assert.match(await tile('Review page health').innerText(), /0 small fixes suggested/);
+      assert.doesNotMatch(await page.locator('#ow-rev').innerText(), /unavailable/);
+      assert.deepEqual(writes.slice(before).filter(write => write.path !== '/api/performance-digest/seen'), []);
+    } finally {
+      if (previous) responses.set('/api/reviews-stats', previous); else responses.delete('/api/reviews-stats');
     }
   });
 
