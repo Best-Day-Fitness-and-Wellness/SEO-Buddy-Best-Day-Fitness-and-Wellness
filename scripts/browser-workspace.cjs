@@ -871,26 +871,55 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
     } finally { if (previous) responses.set('/api/gbp-status', previous); else responses.delete('/api/gbp-status'); }
   });
 
-  await journey(`${prefix}: five-step walkthrough preserves the page and unsaved settings without business writes`, async () => {
+  await journey(`${prefix}: visual walkthrough visits and highlights real pages then restores unsaved settings`, async () => {
     await load('settings');
     await page.locator('[data-connection-key="openai"]').click();
     const draft = page.locator('#settings-openai-key');
     await draft.fill('test-only-unsaved-walkthrough');
     const before = writes.length;
     const url = page.url();
+    const historyLength = await page.evaluate(() => history.length);
     await page.locator('#ws-help summary').click();
     await open('#ws-start-walkthrough');
     assert.equal(await page.locator('#ws-walkthrough-back').isDisabled(), true);
     const titles = ['Today:', 'Your score:', 'Approvals:', 'Results:', 'Connections:'];
+    const slugs = ['today', 'today', 'approvals', 'results', 'settings'];
+    const targets = ['#ws-today .ws-briefing', '#ws-today .ws-score', '#ws-approvals > :first-child', '#ow-find-section', '#settings-connection-list > :first-child'];
+    const ready = index => page.waitForFunction(target => {
+      const dialog = document.getElementById('ws-walkthrough');
+      return dialog.dataset.ready === 'true' && document.getElementById('ws-walkthrough-spotlight').dataset.target === target;
+    }, targets[index]);
+    const assertHighlight = async index => {
+      await ready(index);
+      assert.ok(page.url().endsWith('#/' + slugs[index]), 'Tour must visit the page it explains');
+      // Read geometry in one frame; connection rows can be replaced by a late
+      // status response between separate browser calls.
+      await page.waitForFunction(selector => {
+        const target = document.querySelector(selector)?.getBoundingClientRect();
+        const light = document.getElementById('ws-walkthrough-spotlight').getBoundingClientRect();
+        return target?.height > 24 && Math.abs(light.x - target.x) <= 8 && Math.abs(light.y - target.y) <= 8;
+      }, targets[index]);
+      const { target, light, card } = await page.evaluate(selector => ({
+        target: document.querySelector(selector).getBoundingClientRect().toJSON(),
+        light: document.getElementById('ws-walkthrough-spotlight').getBoundingClientRect().toJSON(),
+        card: document.getElementById('ws-walkthrough-card').getBoundingClientRect().toJSON(),
+      }), targets[index]);
+      assert.ok(light.width > 60 && light.height > 30, 'A meaningful part of the real section must be visible: ' + JSON.stringify({ index, target, light, card }));
+      assert.ok(Math.abs(light.x - target.x) <= 8 && Math.abs(light.y - target.y) <= 8, 'Spotlight must track the real section');
+      assert.ok(light.x + light.width <= card.x || card.x + card.width <= light.x || light.y + light.height <= card.y || card.y + card.height <= light.y, 'Instructions must not cover the spotlight');
+    };
     for (let index = 0; index < titles.length; index++) {
+      await assertHighlight(index);
       assert.ok((await page.locator('#ws-walkthrough-title').innerText()).startsWith(titles[index]));
       assert.match(await page.locator('#ws-walkthrough-step').innerText(), new RegExp(`Step ${index + 1} of 5`));
       assert.equal(await page.locator('#ws-walkthrough-title').evaluate(el => el === document.activeElement), true);
       await audit('walkthrough-step-' + (index + 1));
       if (index === 1) {
         await open('#ws-walkthrough-back');
+        await ready(0);
         assert.match(await page.locator('#ws-walkthrough-title').innerText(), /^Today:/);
         await open('#ws-walkthrough-next');
+        await ready(1);
       }
       await open('#ws-walkthrough-next');
     }
@@ -898,11 +927,13 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
     assert.equal(page.url(), url);
     assert.equal(await draft.inputValue(), 'test-only-unsaved-walkthrough');
     assert.equal(writes.length, before);
+    assert.equal(await page.evaluate(() => history.length), historyLength, 'Tour must not add Back-button history entries');
     await page.waitForFunction(() => document.activeElement === document.querySelector('#ws-help summary'));
     // Restart begins at the beginning; Escape and Skip both restore focus.
     for (const escape of [true, false]) {
       await page.locator('#ws-help summary').click();
       await open('#ws-start-walkthrough');
+      await ready(0);
       assert.match(await page.locator('#ws-walkthrough-title').innerText(), /^Today:/);
       await page.locator('#ws-walkthrough-next').focus();
       await page.keyboard.press('Tab');
@@ -912,6 +943,52 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
       await page.waitForFunction(() => document.activeElement === document.querySelector('#ws-help summary'));
     }
     await draft.fill('');
+  });
+
+  await journey(`${prefix}: visual walkthrough adapts to narrow screens and browser Back cancels it`, async () => {
+    await load('today');
+    await open('#ws-nav-tools');
+    const viewport = page.viewportSize();
+    await page.evaluate(() => window.SeoBuddyWorkspace.openWalkthrough());
+    try {
+      await page.setViewportSize({ width: 320, height: 568 });
+      await page.waitForFunction(() => document.getElementById('ws-walkthrough').dataset.ready === 'true');
+      await audit('walkthrough-narrow');
+      const card = await page.locator('#ws-walkthrough-card').boundingBox();
+      const light = await page.locator('#ws-walkthrough-spotlight').boundingBox();
+      assert.ok(card.y + card.height <= 568 && card.x + card.width <= 320);
+      assert.ok(light.y + light.height < card.y, 'Mobile instructions must leave the page visible above');
+      await page.goBack();
+      await page.waitForFunction(() => !document.getElementById('ws-walkthrough').open);
+      await location('today');
+    } finally {
+      await page.setViewportSize(viewport);
+      await page.evaluate(() => document.getElementById('ws-walkthrough').close());
+    }
+  });
+
+  await journey(`${prefix}: walkthrough explains missing sections and follows late content without blocking navigation`, async () => {
+    await load('today');
+    await page.waitForSelector('#ws-today .ws-score');
+    await page.evaluate(() => window.SeoBuddyWorkspace.openWalkthrough());
+    await page.waitForFunction(() => document.getElementById('ws-walkthrough').dataset.ready === 'true');
+    await open('#ws-walkthrough-next');
+    await page.waitForFunction(() => document.getElementById('ws-walkthrough-spotlight').dataset.target === '#ws-today .ws-score');
+    await page.evaluate(() => {
+      window.__tourTestScore = document.querySelector('#ws-today .ws-score');
+      window.__tourTestScore.remove();
+    });
+    await page.waitForFunction(() => document.getElementById('ws-walkthrough-spotlight').dataset.target === '#page-title');
+    assert.match(await page.locator('#ws-walkthrough-status').innerText(), /loading or unavailable/);
+    await audit('walkthrough-missing-section');
+    await page.evaluate(() => {
+      document.querySelector('#ws-today .ws-progress').prepend(window.__tourTestScore);
+      delete window.__tourTestScore;
+    });
+    await page.waitForFunction(() => document.getElementById('ws-walkthrough-spotlight').dataset.target === '#ws-today .ws-score');
+    assert.equal(await page.locator('#ws-walkthrough-status').innerText(), '');
+    await open('#ws-walkthrough-skip');
+    await page.waitForFunction(() => !document.getElementById('ws-walkthrough').open);
   });
 
   await journey(`${prefix}: assistant opens the real walkthrough locally and from an offered action`, async () => {

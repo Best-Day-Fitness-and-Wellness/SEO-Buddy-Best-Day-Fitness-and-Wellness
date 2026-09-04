@@ -1944,6 +1944,8 @@ test('assistant routes preserve grounding, bounded context, and confirmation-onl
   const prompt = assistantSystemPrompt(context);
   assert.match(prompt, /Help → Walkthrough/);
   assert.match(prompt, /call open_walkthrough/);
+  assert.match(prompt, /visits the real Today, score, Approvals, Results, and Connections screens and spotlights/);
+  assert.doesNotMatch(prompt, /without changing the current page/);
   assert.doesNotMatch(prompt, /Show me around|start the guided Quick Guide|I can see everything/);
   assert.match(prompt, /GROUND every answer in the DATA below/);
   assert.match(prompt, /nothing publishes or sends on its own/);

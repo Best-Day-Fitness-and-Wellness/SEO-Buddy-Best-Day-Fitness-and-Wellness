@@ -79,12 +79,18 @@
   function navigate(requested, options = {}) {
     const tab = aliases[requested] || requested;
     if (!ROUTES[tab] || !document.getElementById(tab)) return false;
+    if (!options.tour && walkthroughDialog?.open) {
+      walkthroughOrigin = null;
+      walkthroughDialog.close();
+    }
     const replay = options.replay === true;
     const moveFocus = current !== null;
-    if (!replay && current) {
+    if (!options.tour && !replay && current) {
       history.replaceState({ ...history.state, seoWorkspace: { tab: current, depth, scroll: global.scrollY } }, '', global.location.href);
     }
-    if (!replay && tab !== current) {
+    if (options.tour) {
+      history.replaceState(history.state, '', global.location.pathname + global.location.search + '#/' + ROUTES[tab][0]);
+    } else if (!replay && tab !== current) {
       depth = current ? depth + 1 : 0;
       const state = { ...history.state, seoWorkspace: { tab, depth, scroll: 0 } };
       const url = global.location.pathname + global.location.search + '#/' + ROUTES[tab][0];
@@ -113,7 +119,7 @@
     updateJourney();
     const previousFocus = document.activeElement;
     requestAnimationFrame(() => {
-      if (current !== tab) return;
+      if (current !== tab || options.tour) return;
       global.scrollTo({ top: replay ? history.state?.seoWorkspace?.scroll || 0 : 0, behavior: 'instant' });
       // Let the browser own focus on initial load/reload. Move it to the heading
       // only for in-app navigation, without interrupting a quick keyboard user.
@@ -250,40 +256,102 @@
     $('ws-tool-search').focus();
   }
 
-  // An orientation, not a live demo: never navigate, fetch, or mutate business
-  // state while paging through it. In-progress forms stay exactly as they are.
+  // Visit real read-only pages, without clicking their business-action controls.
+  // Tour navigation replaces one history entry and restores it when dismissed.
   const WALKTHROUGH = Object.freeze([
-    { title: 'Today: start with what needs you', art: 'autopilot', where: 'Main navigation → Today',
-      text: 'Your daily briefing brings decisions and automation checks together. Review flagged areas first, then look at what happens next.',
-      takeaway: 'Scheduled means planned, not completed. Open a status row to inspect its date, evidence, and controls.' },
-    { title: 'Your score: a guide, not a ranking', art: 'gsc', where: 'Today → Your progress',
-      text: 'The optimization score summarizes measured SEO signals. It is not your position on Google, and a higher score does not guarantee more customers.',
-      takeaway: 'Check the measured results and their dates before drawing conclusions. Missing data is not proof that everything is fine.' },
-    { title: 'Approvals: know what you are allowing', art: 'autopilot', where: 'Main navigation → Approvals',
-      text: 'This is where you review decisions, drafts, and setup needs. Read the permission before approving: enabling autopilot can authorize ongoing publishing.',
-      takeaway: 'A draft is not live. “Marked as posted” is an owner record; only a Google publishing receipt verifies direct publication.' },
-    { title: 'Results: look for real changes', art: 'gsc', where: 'Main navigation → Results',
-      text: 'Review search performance alongside the available measurements and dates. Use “Open reports & email” to download a report or manage monthly delivery.',
-      takeaway: 'Compare matching time periods. A generated article is not evidence of more traffic, and a recorded email send does not prove it was read.' },
-    { title: 'Connections: understand what is ready', art: 'gemini', where: 'Settings → Your connections',
-      text: 'See which services are configured and which still need setup. Optional AI providers can stay disconnected; their visibility results will not be available.',
-      takeaway: 'Configured does not mean a live test passed. Use Tools for deeper work and Business for your details. Reopen this guide anytime from Help → Walkthrough.' },
+    { title: 'Today: start here', tab: 'workspace-today-tab', target: '#ws-today .ws-briefing', where: 'Today · Your daily briefing',
+      text: 'This is your daily briefing. It points to decisions or checks that need your attention.',
+      takeaway: 'Below it, “What happens next” shows automation status. Scheduled means planned—not completed.' },
+    { title: 'Your score: what it means', tab: 'workspace-today-tab', target: '#ws-today .ws-score', where: 'Today · Your progress',
+      text: 'This is your current optimization score, based on measured SEO signals. Missing measurements should stay explicit.',
+      takeaway: 'This is not your position on Google. Use “See measured results” to look beyond the score.' },
+    { title: 'Approvals: your decisions', tab: 'approvals-tab', target: '#ws-approvals > :first-child', where: 'Approvals · Review before acting',
+      text: 'Review the decisions or setup needs shown here. If the list is empty, there is nothing here to approve.',
+      takeaway: 'A draft is not live. Read each permission: enabling autopilot can authorize ongoing publishing.' },
+    { title: 'Results: see the evidence', tab: 'owner-results-tab', target: '#ow-find-section', where: 'Results · People finding you',
+      text: 'These measurements show how people find you. Check the dates and compare matching periods; unavailable data is not zero.',
+      takeaway: 'The “Open reports & email” button at the top of this page opens downloads and monthly delivery controls.' },
+    { title: 'Connections: what is ready', tab: 'settings-tab', target: '#settings-connection-list > :first-child', where: 'Settings · Your connections',
+      text: 'This is the first service in your connection list. Each row shows its setup status and where to manage it.',
+      takeaway: 'Configured is not a successful live test. Optional providers can stay disconnected. Finish returns you to your starting page.' },
   ]);
   let walkthroughDialog, walkthroughStep = 0, walkthroughReturnFocus, releaseWalkthroughFocus;
+  let walkthroughOrigin, walkthroughObserver, walkthroughResize, walkthroughTarget, walkthroughFrame = 0;
+
+  function positionWalkthrough() {
+    if (!walkthroughDialog?.open) return;
+    cancelAnimationFrame(walkthroughFrame);
+    walkthroughFrame = requestAnimationFrame(() => {
+      if (!walkthroughDialog?.open) return;
+      const moveFocus = walkthroughDialog.dataset.ready !== 'true';
+      const step = WALKTHROUGH[walkthroughStep];
+      const candidate = document.querySelector(step.target);
+      const bounds = candidate?.getBoundingClientRect();
+      const found = bounds?.width > 0 && bounds.height > 24 ? candidate : null;
+      const target = found || $('page-title');
+      const changed = walkthroughTarget !== target;
+      walkthroughTarget = target;
+      $('ws-walkthrough-status').textContent = found ? '' : 'This section is loading or unavailable. The page heading is highlighted; you can continue or skip.';
+      $('ws-walkthrough-context').textContent = 'Highlighted page content: ' + target.textContent.trim().slice(0, 1200);
+      if (changed) {
+        walkthroughResize.disconnect();
+        walkthroughResize.observe(target);
+        walkthroughResize.observe($('ws-walkthrough-card'));
+        global.scrollTo({ top: Math.max(0, global.scrollY + target.getBoundingClientRect().top - 32), behavior: 'instant' });
+      }
+      const panel = $('ws-walkthrough-card'), light = $('ws-walkthrough-spotlight');
+      const width = document.documentElement.clientWidth, height = global.innerHeight;
+      const mobile = width < 760;
+      const rect = target.getBoundingClientRect();
+      const panelWidth = Math.min(360, width - 24);
+      panel.style.width = panelWidth + 'px';
+      panel.style.maxHeight = (mobile ? Math.min(height * .48, height - 140) : height - 32) + 'px';
+      const panelHeight = panel.getBoundingClientRect().height;
+      let left = Math.max(12, Math.min(width - panelWidth - 12, rect.left));
+      let top;
+      const besideRight = !mobile && width - rect.right >= panelWidth + 32;
+      const besideLeft = !mobile && rect.left >= panelWidth + 32;
+      if (besideRight || besideLeft) {
+        left = besideRight ? rect.right + 20 : rect.left - panelWidth - 20;
+        top = Math.max(16, Math.min(rect.top, height - panelHeight - 16));
+      } else {
+        top = height - panelHeight - 12;
+        // Keep the actual target above the guide, even after a resize or a late
+        // response changes its position. A tall section is spotlighted in part.
+        if (rect.top > top - 90 || rect.top < 16) {
+          global.scrollTo({ top: Math.max(0, global.scrollY + rect.top - 32), behavior: 'instant' });
+        }
+        if (mobile) left = (width - panelWidth) / 2;
+      }
+      panel.style.left = left + 'px'; panel.style.top = top + 'px';
+      const actual = target.getBoundingClientRect();
+      const x = Math.max(8, actual.left - 6), y = Math.max(8, actual.top - 6);
+      const bottom = Math.min(actual.bottom + 6, besideRight || besideLeft ? height - 8 : top - 14);
+      Object.assign(light.style, { left: x + 'px', top: y + 'px', width: Math.max(0, Math.min(width - 8, actual.right + 6) - x) + 'px', height: Math.max(0, bottom - y) + 'px' });
+      light.dataset.target = found ? step.target : '#page-title';
+      walkthroughDialog.dataset.ready = 'true';
+      if (moveFocus) $('ws-walkthrough-title').focus({ preventScroll: true });
+    });
+  }
 
   function renderWalkthrough() {
+    walkthroughDialog.dataset.ready = 'false';
+    walkthroughObserver?.disconnect();
+    walkthroughTarget = null;
     const step = WALKTHROUGH[walkthroughStep];
+    if (current !== step.tab) navigate(step.tab, { tour: true });
     $('ws-walkthrough-step').textContent = `Step ${walkthroughStep + 1} of ${WALKTHROUGH.length} · About 2 minutes`;
     $('ws-walkthrough-progress').value = walkthroughStep + 1;
     $('ws-walkthrough-title').textContent = step.title;
     $('ws-walkthrough-where').textContent = step.where;
     $('ws-walkthrough-text').textContent = step.text;
     $('ws-walkthrough-takeaway').textContent = step.takeaway;
-    $('ws-walkthrough-art').innerHTML = art(step.art);
     $('ws-walkthrough-back').disabled = walkthroughStep === 0;
     $('ws-walkthrough-next').textContent = walkthroughStep === WALKTHROUGH.length - 1 ? 'Finish' : 'Next →';
-    $('ws-walkthrough-title').focus();
-    walkthroughDialog.scrollTop = 0;
+    $('ws-walkthrough-title').focus({ preventScroll: true });
+    $('ws-walkthrough-card').scrollTop = 0;
+    walkthroughObserver.observe($(step.tab), { childList: true, subtree: true, characterData: true });
+    positionWalkthrough();
   }
 
   function openWalkthrough() {
@@ -293,10 +361,11 @@
     walkthroughReturnFocus = $('ws-help').contains(document.activeElement)
       ? $('ws-help').querySelector('summary') : document.activeElement;
     $('ws-help').open = false;
+    walkthroughOrigin = { tab: current, state: history.state, url: global.location.href, scroll: global.scrollY };
     walkthroughStep = 0;
     walkthroughDialog.showModal();
     document.body.classList.add('ws-walkthrough-open');
-    releaseWalkthroughFocus = global.SeoBuddyCore.trapDialogFocus(walkthroughDialog, () => walkthroughDialog.close());
+    releaseWalkthroughFocus = global.SeoBuddyCore.trapDialogFocus($('ws-walkthrough-card'), () => walkthroughDialog.close());
     renderWalkthrough();
     return true;
   }
@@ -307,14 +376,19 @@
     walkthroughDialog.id = 'ws-walkthrough';
     walkthroughDialog.className = 'ws-walkthrough';
     walkthroughDialog.setAttribute('aria-labelledby', 'ws-walkthrough-title');
-    walkthroughDialog.innerHTML = `<div class="ws-walkthrough-top"><span id="ws-walkthrough-step"></span><button type="button" class="btn btn-secondary" id="ws-walkthrough-skip">Skip tour</button></div>
+    walkthroughDialog.setAttribute('aria-describedby', 'ws-walkthrough-text ws-walkthrough-context');
+    walkthroughDialog.innerHTML = `<div id="ws-walkthrough-spotlight" aria-hidden="true"></div><section id="ws-walkthrough-card"><div class="ws-walkthrough-top"><span id="ws-walkthrough-step"></span><button type="button" class="btn btn-secondary" id="ws-walkthrough-skip">Skip tour</button></div>
       <progress id="ws-walkthrough-progress" max="5" value="1" aria-label="Walkthrough progress"></progress>
-      <div id="ws-walkthrough-art" aria-hidden="true"></div><p class="ws-eyebrow" id="ws-walkthrough-where"></p>
+      <p class="ws-eyebrow" id="ws-walkthrough-where"></p>
       <h2 id="ws-walkthrough-title" tabindex="-1"></h2><p id="ws-walkthrough-text"></p>
-      <div class="ws-walkthrough-note"><strong>What to remember</strong><p id="ws-walkthrough-takeaway"></p></div>
-      <p class="ws-walkthrough-safe">Read-only guide. No scans, publishing, or settings changes.</p>
-      <div class="ws-walkthrough-actions"><button type="button" class="btn btn-secondary" id="ws-walkthrough-back">← Back</button><button type="button" class="btn btn-primary" id="ws-walkthrough-next">Next →</button></div>`;
+      <p id="ws-walkthrough-takeaway" class="ws-walkthrough-note"></p><p id="ws-walkthrough-status" role="status"></p><span id="ws-walkthrough-context" class="sr-only"></span>
+      <p class="ws-walkthrough-safe">View-only tour. No publishing or settings changes.</p>
+      <div class="ws-walkthrough-actions"><button type="button" class="btn btn-secondary" id="ws-walkthrough-back">← Back</button><button type="button" class="btn btn-primary" id="ws-walkthrough-next">Next →</button></div></section>`;
     document.body.append(walkthroughDialog);
+    walkthroughObserver = new MutationObserver(positionWalkthrough);
+    walkthroughResize = new ResizeObserver(positionWalkthrough);
+    global.addEventListener('resize', positionWalkthrough);
+    global.addEventListener('scroll', positionWalkthrough, { passive: true });
     $('ws-start-walkthrough').addEventListener('click', openWalkthrough);
     $('ws-walkthrough-skip').addEventListener('click', () => walkthroughDialog.close());
     $('ws-walkthrough-back').addEventListener('click', () => { if (walkthroughStep > 0) { walkthroughStep--; renderWalkthrough(); } });
@@ -325,9 +399,21 @@
     // Native modal inertness blocks background interaction; the shared focus
     // guard also stops Tab from leaving the last control for browser chrome.
     walkthroughDialog.addEventListener('close', () => {
+      walkthroughObserver.disconnect();
+      walkthroughResize.disconnect();
+      cancelAnimationFrame(walkthroughFrame);
       releaseWalkthroughFocus?.();
       releaseWalkthroughFocus = null;
       document.body.classList.remove('ws-walkthrough-open');
+      const origin = walkthroughOrigin;
+      walkthroughOrigin = null;
+      if (origin && current !== origin.tab) {
+        navigate(origin.tab, { tour: true });
+      }
+      if (origin) {
+        history.replaceState(origin.state, '', origin.url);
+        global.scrollTo({ top: origin.scroll, behavior: 'instant' });
+      }
       const target = walkthroughReturnFocus?.isConnected && walkthroughReturnFocus.getClientRects().length
         ? walkthroughReturnFocus : $('ws-help').querySelector('summary');
       target.focus({ preventScroll: true });
