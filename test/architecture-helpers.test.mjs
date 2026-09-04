@@ -1908,6 +1908,7 @@ test('recorded-content routes preserve media validation, bounded prompts, usage,
 test('assistant routes preserve grounding, bounded context, and confirmation-only action proposals', async () => {
   const toolNames = ASSISTANT_TOOLS[0].functionDeclarations.map(tool => tool.name);
   assert.deepEqual(toolNames, [
+    'open_walkthrough',
     'set_local_listing_relevance',
     'run_ai_visibility_check',
     'run_factcheck',
@@ -1927,6 +1928,10 @@ test('assistant routes preserve grounding, bounded context, and confirmation-onl
   assert.equal(article.endpoint, '/api/generate-article');
   assert.deepEqual(resolveAssistantAction('draft_google_business_post', null).body, { text: '' });
   assert.equal(resolveAssistantAction('generate_pdf_report').clientAction, 'pdf');
+  const walkthrough = resolveAssistantAction('open_walkthrough');
+  assert.equal(walkthrough.clientAction, 'walkthrough');
+  assert.equal(walkthrough.endpoint, undefined);
+  assert.equal(walkthrough.body, undefined);
   assert.equal(resolveAssistantAction('unsupported_action', {}), null);
 
   const context = {
@@ -1937,6 +1942,9 @@ test('assistant routes preserve grounding, bounded context, and confirmation-onl
     monthlyReport: { ready: true, nextRunAt: '2026-10-01T13:00:00Z' },
   };
   const prompt = assistantSystemPrompt(context);
+  assert.match(prompt, /Help → Walkthrough/);
+  assert.match(prompt, /call open_walkthrough/);
+  assert.doesNotMatch(prompt, /Show me around|start the guided Quick Guide|I can see everything/);
   assert.match(prompt, /GROUND every answer in the DATA below/);
   assert.match(prompt, /nothing publishes or sends on its own/);
   assert.match(prompt, /LIVE DATA for Best Day Fitness/);

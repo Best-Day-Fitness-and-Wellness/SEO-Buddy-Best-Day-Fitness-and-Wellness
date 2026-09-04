@@ -31,12 +31,22 @@ document.addEventListener('DOMContentLoaded', () => {
       r.innerHTML = BOT_AV + inner;
       msgsEl.appendChild(r); scrollDown();
       r.querySelectorAll('.asst-chip').forEach(ch => ch.addEventListener('click', () => {
+        if (ch.dataset.tour) { launchWalkthrough(); return; }
         send(ch.dataset.send);
       }));
       if (action && (action.endpoint || action.clientAction)) renderAction(r.querySelector('.asst-botwrap'), action);
     }
     function replaceBtns(card, html) { const b = card.querySelector('.asst-action-btns'); if (b) b.outerHTML = html; }
     function htmlToText(h) { const d = document.createElement('div'); d.innerHTML = h || ''; return (d.textContent || d.innerText || '').replace(/\s+/g, ' ').trim(); }
+    function launchWalkthrough() {
+      if (!window.SeoBuddyWorkspace?.openWalkthrough) {
+        window.SeoBuddyCore.showToast('Return to the redesigned workspace to use Help → Walkthrough.');
+        return;
+      }
+      close();
+      fab.focus();
+      window.SeoBuddyWorkspace.openWalkthrough();
+    }
     // After a confirm succeeds, some actions produce a follow-up card from the response.
     const CHAIN = {
       write_article: d => (d && d.content) ? { kind: 'content', id: 'publish_article', title: `Publish “${String(d.title || 'your article').slice(0, 60)}”`, preview: htmlToText(d.content).slice(0, 220) + '…', confirmLabel: 'Publish it', endpoint: '/api/publish-ghl', method: 'POST', body: { title: d.title, content: d.content, status: 'published', keyword: d.title }, tab: 'publish-tab', done: 'Published to your site.' } : null,
@@ -63,6 +73,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const copyBtn = card.querySelector('[data-act="copy"]');
       if (copyBtn) copyBtn.addEventListener('click', () => { try { navigator.clipboard.writeText(action.kind === 'email' ? (action.previewBody || '') : (action.preview || '')); } catch (e) {} copyBtn.innerText = 'Copied ✓'; });
       card.querySelector('[data-act="go"]').addEventListener('click', async (e) => {
+        if (action.clientAction === 'walkthrough') { launchWalkthrough(); return; }
         const go = e.currentTarget; go.disabled = true; go.innerText = 'Working…';
         try {
           // Client-side actions (e.g. build a PDF) run in the browser, no endpoint.
@@ -95,7 +106,8 @@ document.addEventListener('DOMContentLoaded', () => {
   
     function greet() {
       if (greeted) return; greeted = true;
-      addBot("Hi! I can see everything in your SEO Buddy. Ask me how you're doing, what to fix next, or how a tool works.", [
+      addBot("Hi! I can help explain the measurements and connection status available to SEO Buddy. Ask what needs attention or how a tool works. Some checks may be missing or out of date.", [
+        ...(window.SeoBuddyWorkspace ? [{ label: 'Start walkthrough', tour: true }] : []),
         { label: 'How am I doing?' },
         { label: 'Who’s beating me in AI?', send: "Who's beating me in AI search right now?" },
         { label: 'What should I fix first?' }

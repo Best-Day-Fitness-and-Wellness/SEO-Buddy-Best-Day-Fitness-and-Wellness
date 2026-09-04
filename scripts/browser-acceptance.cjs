@@ -9,7 +9,7 @@ const net = require('node:net');
 const { spawn } = require('node:child_process');
 const { chromium } = require('playwright');
 const root = path.resolve(__dirname, '..');
-const output = path.join(root, 'test-results');
+const output = path.join(root, 'test-results', process.env.WALKTHROUGH_ONLY === '1' ? 'walkthrough' : '');
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'seo-buddy-browser-'));
 const results = { journeys: [], screens: [], errors: [], externalRequests: [], startup: [] };
 let child, browser;
@@ -96,6 +96,14 @@ async function exercise(base, viewport) {
 
   if (process.env.REPORT_ONLY === '1') {
     await require('./browser-report.cjs')({ page, base, prefix, journey, writes, responses, output });
+    await context.close();
+    return;
+  }
+
+  if (process.env.WALKTHROUGH_ONLY === '1') {
+    await require('./browser-workspace.cjs')({ page, base, prefix,
+      journey: (name, action) => name.includes('walkthrough') ? journey(name, action) : Promise.resolve(),
+      audit, writes, responses });
     await context.close();
     return;
   }

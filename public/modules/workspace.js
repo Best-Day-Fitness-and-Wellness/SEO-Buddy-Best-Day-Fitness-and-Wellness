@@ -250,6 +250,90 @@
     $('ws-tool-search').focus();
   }
 
+  // An orientation, not a live demo: never navigate, fetch, or mutate business
+  // state while paging through it. In-progress forms stay exactly as they are.
+  const WALKTHROUGH = Object.freeze([
+    { title: 'Today: start with what needs you', art: 'autopilot', where: 'Main navigation → Today',
+      text: 'Your daily briefing brings decisions and automation checks together. Review flagged areas first, then look at what happens next.',
+      takeaway: 'Scheduled means planned, not completed. Open a status row to inspect its date, evidence, and controls.' },
+    { title: 'Your score: a guide, not a ranking', art: 'gsc', where: 'Today → Your progress',
+      text: 'The optimization score summarizes measured SEO signals. It is not your position on Google, and a higher score does not guarantee more customers.',
+      takeaway: 'Check the measured results and their dates before drawing conclusions. Missing data is not proof that everything is fine.' },
+    { title: 'Approvals: know what you are allowing', art: 'autopilot', where: 'Main navigation → Approvals',
+      text: 'This is where you review decisions, drafts, and setup needs. Read the permission before approving: enabling autopilot can authorize ongoing publishing.',
+      takeaway: 'A draft is not live. “Marked as posted” is an owner record; only a Google publishing receipt verifies direct publication.' },
+    { title: 'Results: look for real changes', art: 'gsc', where: 'Main navigation → Results',
+      text: 'Review search performance alongside the available measurements and dates. Use “Open reports & email” to download a report or manage monthly delivery.',
+      takeaway: 'Compare matching time periods. A generated article is not evidence of more traffic, and a recorded email send does not prove it was read.' },
+    { title: 'Connections: understand what is ready', art: 'gemini', where: 'Settings → Your connections',
+      text: 'See which services are configured and which still need setup. Optional AI providers can stay disconnected; their visibility results will not be available.',
+      takeaway: 'Configured does not mean a live test passed. Use Tools for deeper work and Business for your details. Reopen this guide anytime from Help → Walkthrough.' },
+  ]);
+  let walkthroughDialog, walkthroughStep = 0, walkthroughReturnFocus, releaseWalkthroughFocus;
+
+  function renderWalkthrough() {
+    const step = WALKTHROUGH[walkthroughStep];
+    $('ws-walkthrough-step').textContent = `Step ${walkthroughStep + 1} of ${WALKTHROUGH.length} · About 2 minutes`;
+    $('ws-walkthrough-progress').value = walkthroughStep + 1;
+    $('ws-walkthrough-title').textContent = step.title;
+    $('ws-walkthrough-where').textContent = step.where;
+    $('ws-walkthrough-text').textContent = step.text;
+    $('ws-walkthrough-takeaway').textContent = step.takeaway;
+    $('ws-walkthrough-art').innerHTML = art(step.art);
+    $('ws-walkthrough-back').disabled = walkthroughStep === 0;
+    $('ws-walkthrough-next').textContent = walkthroughStep === WALKTHROUGH.length - 1 ? 'Finish' : 'Next →';
+    $('ws-walkthrough-title').focus();
+    walkthroughDialog.scrollTop = 0;
+  }
+
+  function openWalkthrough() {
+    if (!walkthroughDialog || walkthroughDialog.open) return false;
+    // A button inside a closed <details> can still report layout rectangles.
+    // Remember its visible summary instead of trying to focus hidden content.
+    walkthroughReturnFocus = $('ws-help').contains(document.activeElement)
+      ? $('ws-help').querySelector('summary') : document.activeElement;
+    $('ws-help').open = false;
+    walkthroughStep = 0;
+    walkthroughDialog.showModal();
+    document.body.classList.add('ws-walkthrough-open');
+    releaseWalkthroughFocus = global.SeoBuddyCore.trapDialogFocus(walkthroughDialog, () => walkthroughDialog.close());
+    renderWalkthrough();
+    return true;
+  }
+
+  function setupWalkthrough() {
+    $('ws-orientation').insertAdjacentHTML('beforeend', `<details id="ws-help" class="ws-help"><summary>Help</summary><div class="ws-help-menu"><p>New to SEO Buddy?</p><button type="button" class="btn btn-secondary" id="ws-start-walkthrough">Walkthrough — start here</button></div></details>`);
+    walkthroughDialog = document.createElement('dialog');
+    walkthroughDialog.id = 'ws-walkthrough';
+    walkthroughDialog.className = 'ws-walkthrough';
+    walkthroughDialog.setAttribute('aria-labelledby', 'ws-walkthrough-title');
+    walkthroughDialog.innerHTML = `<div class="ws-walkthrough-top"><span id="ws-walkthrough-step"></span><button type="button" class="btn btn-secondary" id="ws-walkthrough-skip">Skip tour</button></div>
+      <progress id="ws-walkthrough-progress" max="5" value="1" aria-label="Walkthrough progress"></progress>
+      <div id="ws-walkthrough-art" aria-hidden="true"></div><p class="ws-eyebrow" id="ws-walkthrough-where"></p>
+      <h2 id="ws-walkthrough-title" tabindex="-1"></h2><p id="ws-walkthrough-text"></p>
+      <div class="ws-walkthrough-note"><strong>What to remember</strong><p id="ws-walkthrough-takeaway"></p></div>
+      <p class="ws-walkthrough-safe">Read-only guide. No scans, publishing, or settings changes.</p>
+      <div class="ws-walkthrough-actions"><button type="button" class="btn btn-secondary" id="ws-walkthrough-back">← Back</button><button type="button" class="btn btn-primary" id="ws-walkthrough-next">Next →</button></div>`;
+    document.body.append(walkthroughDialog);
+    $('ws-start-walkthrough').addEventListener('click', openWalkthrough);
+    $('ws-walkthrough-skip').addEventListener('click', () => walkthroughDialog.close());
+    $('ws-walkthrough-back').addEventListener('click', () => { if (walkthroughStep > 0) { walkthroughStep--; renderWalkthrough(); } });
+    $('ws-walkthrough-next').addEventListener('click', () => {
+      if (walkthroughStep === WALKTHROUGH.length - 1) walkthroughDialog.close();
+      else { walkthroughStep++; renderWalkthrough(); }
+    });
+    // Native modal inertness blocks background interaction; the shared focus
+    // guard also stops Tab from leaving the last control for browser chrome.
+    walkthroughDialog.addEventListener('close', () => {
+      releaseWalkthroughFocus?.();
+      releaseWalkthroughFocus = null;
+      document.body.classList.remove('ws-walkthrough-open');
+      const target = walkthroughReturnFocus?.isConnected && walkthroughReturnFocus.getClientRects().length
+        ? walkthroughReturnFocus : $('ws-help').querySelector('summary');
+      target.focus({ preventScroll: true });
+    });
+  }
+
   function start(render) {
     renderTab = render;
     // Move, do not duplicate, the same four primary controls on phones.
@@ -321,7 +405,8 @@
     $('owner-business-tab').insertAdjacentHTML('afterbegin', `<div class="ws-result-links"><button class="btn btn-secondary" type="button" id="ws-edit-business">Edit business details</button>${button('brand-tab', 'Edit brand voice')}<button class="btn btn-secondary" type="button" data-settings-section="connections">Manage connections</button></div>`);
     $('ws-edit-business').addEventListener('click', () => global.openSetupWizard());
     navigate(tabFromHash());
+    setupWalkthrough();
   }
 
-  global.SeoBuddyWorkspace = Object.freeze({ start, navigate, loadToday, loadApprovals, enhanceTools, routes: ROUTES });
+  global.SeoBuddyWorkspace = Object.freeze({ start, navigate, loadToday, loadApprovals, enhanceTools, openWalkthrough, routes: ROUTES });
 })(window);

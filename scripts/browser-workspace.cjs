@@ -871,6 +871,73 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
     } finally { if (previous) responses.set('/api/gbp-status', previous); else responses.delete('/api/gbp-status'); }
   });
 
+  await journey(`${prefix}: five-step walkthrough preserves the page and unsaved settings without business writes`, async () => {
+    await load('settings');
+    await page.locator('[data-connection-key="openai"]').click();
+    const draft = page.locator('#settings-openai-key');
+    await draft.fill('test-only-unsaved-walkthrough');
+    const before = writes.length;
+    const url = page.url();
+    await page.locator('#ws-help summary').click();
+    await open('#ws-start-walkthrough');
+    assert.equal(await page.locator('#ws-walkthrough-back').isDisabled(), true);
+    const titles = ['Today:', 'Your score:', 'Approvals:', 'Results:', 'Connections:'];
+    for (let index = 0; index < titles.length; index++) {
+      assert.ok((await page.locator('#ws-walkthrough-title').innerText()).startsWith(titles[index]));
+      assert.match(await page.locator('#ws-walkthrough-step').innerText(), new RegExp(`Step ${index + 1} of 5`));
+      assert.equal(await page.locator('#ws-walkthrough-title').evaluate(el => el === document.activeElement), true);
+      await audit('walkthrough-step-' + (index + 1));
+      if (index === 1) {
+        await open('#ws-walkthrough-back');
+        assert.match(await page.locator('#ws-walkthrough-title').innerText(), /^Today:/);
+        await open('#ws-walkthrough-next');
+      }
+      await open('#ws-walkthrough-next');
+    }
+    assert.equal(await page.locator('#ws-walkthrough').isVisible(), false);
+    assert.equal(page.url(), url);
+    assert.equal(await draft.inputValue(), 'test-only-unsaved-walkthrough');
+    assert.equal(writes.length, before);
+    await page.waitForFunction(() => document.activeElement === document.querySelector('#ws-help summary'));
+    // Restart begins at the beginning; Escape and Skip both restore focus.
+    for (const escape of [true, false]) {
+      await page.locator('#ws-help summary').click();
+      await open('#ws-start-walkthrough');
+      assert.match(await page.locator('#ws-walkthrough-title').innerText(), /^Today:/);
+      await page.locator('#ws-walkthrough-next').focus();
+      await page.keyboard.press('Tab');
+      assert.equal(await page.locator('#ws-walkthrough').evaluate(el => el.contains(document.activeElement)), true, 'Tab must stay inside the modal');
+      if (escape) await page.keyboard.press('Escape'); else await open('#ws-walkthrough-skip');
+      await page.waitForFunction(() => !document.getElementById('ws-walkthrough').open);
+      await page.waitForFunction(() => document.activeElement === document.querySelector('#ws-help summary'));
+    }
+    await draft.fill('');
+  });
+
+  await journey(`${prefix}: assistant opens the real walkthrough locally and from an offered action`, async () => {
+    await load('today');
+    const before = writes.length;
+    await open('#asst-fab');
+    assert.doesNotMatch(await page.locator('#asst-msgs').innerText(), /I can see everything/);
+    await page.locator('.asst-chip[data-tour]').click();
+    await page.locator('#ws-walkthrough').waitFor({ state: 'visible' });
+    assert.equal(writes.length, before, 'The help chip must work without an AI request or key');
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => !document.getElementById('ws-walkthrough').open);
+    assert.equal(await page.locator('#asst-fab').evaluate(el => el === document.activeElement), true);
+    const previous = responses.get('/api/assistant');
+    try {
+      responses.set('/api/assistant', { json: { success: true, reply: 'Start the read-only walkthrough.', action: { kind: 'help', clientAction: 'walkthrough', title: 'Get to know SEO Buddy', confirmLabel: 'Start walkthrough' } } });
+      await open('#asst-fab');
+      await page.locator('#asst-text').fill('Is there a walkthrough?');
+      await open('#asst-send');
+      await page.locator('.asst-action [data-act="go"]').last().click();
+      await page.locator('#ws-walkthrough').waitFor({ state: 'visible' });
+      assert.equal(writes.length, before + 1, 'Opening a proposed tour must not call an action endpoint');
+      await open('#ws-walkthrough-skip');
+    } finally { if (previous) responses.set('/api/assistant', previous); else responses.delete('/api/assistant'); }
+  });
+
   const routes = await page.evaluate(() => Object.keys(window.SeoBuddyWorkspace.routes));
   for (const id of routes) {
     await page.evaluate(id => window.switchTab(id), id);
@@ -878,6 +945,9 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
     await audit('preview-' + id);
   }
   await page.evaluate(() => document.getElementById('theme-toggle').click());
+  await page.evaluate(() => window.SeoBuddyWorkspace.openWalkthrough());
+  await audit('walkthrough-dark');
+  await open('#ws-walkthrough-skip');
   for (const id of ['workspace-today-tab', 'approvals-tab', 'owner-results-tab', 'explore-tab', 'owner-business-tab', 'settings-tab']) {
     await page.evaluate(id => window.switchTab(id), id);
     assert.equal(await page.locator('#ws-classic').isVisible(), false);
