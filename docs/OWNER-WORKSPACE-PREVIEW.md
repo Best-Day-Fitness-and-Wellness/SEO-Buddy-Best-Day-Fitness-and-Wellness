@@ -25,9 +25,9 @@ fake responses for every mutation, and an external-request firewall.
 
 | Destination | Owner question | Detail stays available |
 | --- | --- | --- |
-| Today | What needs me, and what happens next? | Six automation status summaries and expandable evidence |
+| Today | What needs me, and what happens next? | Seven automation status summaries and expandable evidence |
 | Approvals | What decision or prepared work needs review? | Review links; publishing permission requires confirmation |
-| Results | Are search outcomes improving? | Detailed performance, attributable leads, advanced dashboard |
+| Results | Are search outcomes improving? | Prominent reports/email entry, detailed performance, attributable leads, advanced dashboard |
 | Tools | Where can I do a specific job? | Searchable catalog; advanced reports collapsed initially |
 | Business (secondary) | Are our facts and voice right? | Existing business setup and brand editor |
 | Settings (secondary) | Do access, assumptions or connections need attention? | Credentials and diagnostics inside a disclosure |
@@ -36,6 +36,14 @@ The same four primary destinations are a sidebar on desktop and a bottom bar
 on mobile. Tool routes retain their parent destination, title, breadcrumb,
 Back button, browser Back/Forward and `#/…` direct link. No mode switch is
 required to use a detailed tool.
+
+Reports and monthly email controls are linked at the top of Results. Tools also
+includes a Reports & email delivery destination, discoverable with searches such
+as “email my monthly report” or “download a PDF”. Tool search ignores common
+filler words, supports a small explicit alias catalog, and has a keyboard-friendly
+clear button. It does not invoke AI or trigger any operation. Detail breadcrumbs
+have clickable parent destinations, separate from history-based Back. A missing
+report setup links to the report controls rather than unrelated Settings fields.
 
 The visual refinement keeps the approved Direction A paper/ink/teal/coral
 artwork in the daily briefing, with one primary action. Automation status is
@@ -136,7 +144,7 @@ URL entry, hidden legacy entry across normal routes, emergency bookmarks and
 return links, saved-mode preservation, old preview bookmarks, recovery when the
 workspace module cannot load, and hiding recovery again after startup succeeds.
 
-After deployment, run the strict production smoke suite. It checks the six
+After deployment, run the strict production smoke suite. It checks the seven
 automation summaries and the content-hashed workspace asset as well as the
 existing readiness, storage and live-search contracts. Verify the exact
 deployed commit; a successful local test is not deployment evidence.

@@ -23,6 +23,18 @@
     'grow-tab': ['tools/actions', 'All recommended actions', 'tools'],
   });
   const aliases = { 'today-tab': 'workspace-today-tab', 'owner-today-tab': 'workspace-today-tab' };
+  const PARENTS = { tools: 'explore-tab', results: 'owner-results-tab', business: 'owner-business-tab' };
+  const SEARCH_TERMS = Object.freeze({
+    'performance-tab': 'report reports pdf download email monthly weekly digest delivery progress results',
+    'ai-tab': 'write create draft article blog post recording',
+    'local-tab': 'google business profile gbp post write reply review address phone nap listings',
+    'publish-tab': 'publish article blog autopilot automation schedule indexing',
+    'gsc-tab': 'google search keywords rankings traffic opportunities',
+    'citations-tab': 'directories directory citations listings sources',
+    'settings-tab': 'connections connect credentials account password api key',
+  });
+  const searchWords = value => value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(/\s+/).filter(word => word && !['a', 'an', 'the', 'to', 'my', 'our', 'your', 'for', 'and', 'i', 'want', 'need', 'please'].includes(word));
+  const featureDestination = feature => feature.status === 'needs-setup' && !['digest', 'monthly-report'].includes(feature.key) ? 'settings-tab' : feature.tab;
   let renderTab, current = null, depth = 0, todayRequest = 0, approvalsRequest = 0;
   const $ = id => document.getElementById(id);
   const pendingDraft = () => { const draft = global.SeoBuddyContent?.getDraftSummary?.(); return draft?.title && draft.publicationStatus !== 'published' ? draft : null; };
@@ -84,13 +96,17 @@
     document.title = title + ' · SEO Buddy';
     $('page-title').textContent = title;
     if (tab === 'explore-tab') $('page-subtitle').textContent = 'Find the tool you need. Everyday decisions live in Today and Approvals.';
+    if (tab === 'performance-tab') $('page-subtitle').textContent = 'Download your report, manage email delivery, and inspect search trends and leads.';
     document.querySelectorAll('#workspace-nav .nav-item, #ws-nav-business, #nav-settings').forEach(item => {
       const target = ROUTES[item.dataset.tab];
       const active = target && target[2] === group;
       item.classList.toggle('active', !!active);
       if (active) item.setAttribute('aria-current', 'page'); else item.removeAttribute('aria-current');
     });
-    $('ws-location').textContent = slug.includes('/') ? `${group === 'tools' ? 'Tools' : group === 'results' ? 'Results' : 'Business'} / ${title}` : title;
+    const parent = slug.includes('/') && PARENTS[group];
+    $('ws-location').innerHTML = parent
+      ? `<button type="button" class="ws-parent" data-ws-tab="${parent}">${esc(ROUTES[parent][1])}</button><span aria-hidden="true">/</span><span aria-current="page">${esc(title)}</span>`
+      : `<span aria-current="page">${esc(title)}</span>`;
     $('ws-back').hidden = tab === 'workspace-today-tab' && depth === 0;
     updateJourney();
     const previousFocus = document.activeElement;
@@ -121,7 +137,7 @@
     return `<article class="ws-automation"><details><summary><span class="ws-row-icon">${icon(feature.key)}</span><span class="ws-row-title">${esc(feature.title)}</span><span class="ws-status ${esc(feature.status)}">${esc(feature.label)}</span><span class="ws-chevron" aria-hidden="true">›</span></summary>
       <div class="ws-evidence"><h3>Evidence &amp; controls</h3><p>${esc(reason)}</p><dl><dt>Last recorded activity</dt><dd>${esc(date(feature.lastRecordedAt))}</dd>
       <dt>${feature.nextRunEstimated ? 'Next eligible check (estimated)' : 'Next scheduled check'}</dt><dd>${feature.nextRunAt ? esc(date(feature.nextRunAt)) : 'Not confirmed'}</dd></dl>
-      ${button(feature.status === 'needs-setup' ? 'settings-tab' : feature.tab, feature.status === 'needs-setup' ? 'Review connections' : 'View details')}</div></details></article>`;
+      ${button(featureDestination(feature), feature.status === 'needs-setup' ? (['digest', 'monthly-report'].includes(feature.key) ? 'Review report setup' : 'Review connections') : 'View details')}</div></details></article>`;
   }
 
   async function loadToday() {
@@ -144,7 +160,7 @@
     $('ws-approval-count').textContent = moves ? (decisionCount || '') : '?';
     const priority = !verified ? '<button type="button" class="btn btn-primary" data-ws-retry="today">Retry checks <span aria-hidden="true">↗</span></button>'
       : decisionCount ? `<button type="button" class="btn btn-primary" data-ws-tab="approvals-tab">Review ${decisionCount} decision${decisionCount === 1 ? '' : 's'} <span aria-hidden="true">↗</span></button>`
-      : attention.length ? `<button type="button" class="btn btn-primary" data-ws-tab="${esc(attention[0].status === 'needs-setup' ? 'settings-tab' : attention[0].tab)}">Review flagged area <span aria-hidden="true">↗</span></button>`
+      : attention.length ? `<button type="button" class="btn btn-primary" data-ws-tab="${esc(featureDestination(attention[0]))}">Review flagged area <span aria-hidden="true">↗</span></button>`
       : '<button type="button" class="btn btn-primary" data-ws-tab="owner-results-tab">Explore your results <span aria-hidden="true">↗</span></button>';
     $('ws-today').innerHTML = `<div class="ws-overview"><div class="ws-briefing"><span class="ws-eyebrow"><span class="ws-eyebrow-line" aria-hidden="true"></span>Your daily briefing</span><h2>${headline}</h2>
       <p>${!verified ? 'Some checks did not load. Retry before relying on the status below.' : decisionCount ? 'Your next step is ready. Review what needs a decision, then see what is scheduled below.' : attention.length ? 'A recent check needs attention. Open the flagged area to see the evidence.' : 'Your decision list is clear. Review the latest evidence and see how your results are moving.'}</p>
@@ -199,13 +215,15 @@
 
   function filterTools() {
     const query = $('ws-tool-search').value.trim().toLowerCase();
+    const words = searchWords(query);
+    $('ws-tool-clear').hidden = !query;
     let count = 0;
     document.querySelectorAll('#exp-groups .exp-group').forEach(group => {
       let shown = 0;
       group.querySelectorAll('.exp-row').forEach(row => {
         const tab = (row.dataset.go || '').replace('tab:', '');
-        const text = `${row.textContent} ${ROUTES[tab]?.[1] || ''}`.toLowerCase();
-        row.hidden = !query.split(/\s+/).every(word => text.includes(word));
+        const text = searchWords(`${row.textContent} ${ROUTES[tab]?.[1] || ''} ${SEARCH_TERMS[tab] || ''}`).join(' ');
+        row.hidden = !words.every(word => text.includes(word));
         if (!row.hidden) { count++; shown++; }
       });
       group.hidden = shown === 0;
@@ -252,6 +270,7 @@
     form.closest('.content-card').querySelector('h2 + p').textContent = 'Manage access and value assumptions. Open technical options when a connection needs attention.';
     $('ws-back').addEventListener('click', () => depth > 0 ? history.back() : navigate('workspace-today-tab'));
     $('ws-tool-search').addEventListener('input', filterTools);
+    $('ws-tool-clear').addEventListener('click', () => { $('ws-tool-search').value = ''; filterTools(); $('ws-tool-search').focus(); });
     global.addEventListener('popstate', () => navigate(tabFromHash(), { replay: true }));
     global.addEventListener('hashchange', () => { const tab = tabFromHash(); if (tab !== current) navigate(tab, { replay: true }); });
     document.addEventListener('seo:content-changed', updateJourney);
@@ -276,7 +295,8 @@
       } catch (error) { showToast(error.message); target.disabled = false; }
     });
     // Summary-level destinations link to detail without changing the navigation.
-    $('owner-results-tab').insertAdjacentHTML('beforeend', `<div class="ws-result-links">${button('performance-tab', 'Search performance and attributable leads')}${button('summary-tab', 'Advanced dashboard')}</div>`);
+    $('owner-results-tab').insertAdjacentHTML('afterbegin', `<section class="ws-report-entry" aria-label="Reports and email delivery"><div><h2>Reports &amp; email delivery</h2><p>Download your progress report or manage the monthly owner email.</p></div>${button('performance-tab', 'Open reports & email')}</section>`);
+    $('owner-results-tab').insertAdjacentHTML('beforeend', `<div class="ws-result-links">${button('summary-tab', 'Advanced dashboard')}</div>`);
     $('owner-business-tab').insertAdjacentHTML('afterbegin', `<div class="ws-result-links"><button class="btn btn-secondary" type="button" id="ws-edit-business">Edit business details</button>${button('brand-tab', 'Edit brand voice')}${button('settings-tab', 'Connections and value assumptions')}</div>`);
     $('ws-edit-business').addEventListener('click', () => global.openSetupWizard());
     navigate(tabFromHash());

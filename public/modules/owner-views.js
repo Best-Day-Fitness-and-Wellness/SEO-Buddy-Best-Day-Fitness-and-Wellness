@@ -71,7 +71,7 @@
         document.getElementById('ow-rev').innerHTML =
           tile('Shown on your reviews site', i.published,
                Object.entries(bp).map(([k, v]) => `${v} ${k}`).join(' · ')) +
-          tile('Average rating there', i.avgRating, 'Latest inventory · no trend comparison') +
+          tile('Average rating there', i.avgRating ?? '—', i.avgRating == null ? 'No rating recorded yet' : 'Latest inventory · no trend comparison') +
           tile('Review page health', rv.score + '<small> / 100</small>',
                (rv.problems || 0) + ' small fix' + ((rv.problems || 0) === 1 ? '' : 'es') + ' suggested');
       }

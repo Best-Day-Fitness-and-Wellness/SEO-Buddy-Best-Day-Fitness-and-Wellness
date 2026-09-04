@@ -309,6 +309,71 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
     await location('results/dashboard');
   });
 
+  await journey(`${prefix}: reports are prominent in Results and parent breadcrumbs work with history`, async () => {
+    const before = writes.length;
+    await load('results', '?report-navigation=1');
+    const entry = page.locator('.ws-report-entry');
+    await entry.waitFor();
+    assert.equal(await entry.evaluate(el => el.parentElement.firstElementChild === el), true);
+    const bounds = await entry.boundingBox();
+    assert.ok(bounds.y + bounds.height < page.viewportSize().height - (prefix === 'mobile' ? 80 : 0), 'Report entry must fit above the fold');
+    await audit('reports-entry');
+    await entry.getByRole('button', { name: 'Open reports & email' }).click();
+    await location('results/detail');
+    await page.locator('#perf-download-pdf').waitFor();
+    assert.match(await page.locator('#page-subtitle').innerText(), /manage email delivery/);
+    const parent = page.locator('#ws-location').getByRole('button', { name: 'Results', exact: true });
+    await parent.focus();
+    await page.keyboard.press('Enter');
+    await location('results');
+    await page.goBack();
+    await location('results/detail');
+    assert.equal(await page.locator('#ws-nav-results').getAttribute('aria-current'), 'page');
+    await load('business/voice', '?parent-navigation=1');
+    await page.locator('#ws-location').getByRole('button', { name: 'Business', exact: true }).click();
+    await location('business');
+    // Existing digest read receipts are intentional; navigation must never
+    // send email, generate content, or save configuration.
+    assert.deepEqual(writes.slice(before).filter(write => write.path !== '/api/performance-digest/seen'), []);
+  });
+
+  await journey(`${prefix}: tool search understands report and Google post requests and can be cleared`, async () => {
+    const before = writes.length;
+    await load('tools', '?search-words=1');
+    for (const [term, tab] of [['email my monthly report', 'performance-tab'], ['download a PDF', 'performance-tab'], ['write a Google post', 'local-tab'], ['write a post', 'ai-tab']]) {
+      await page.locator('#ws-tool-search').fill(term);
+      assert.equal(await page.locator(`.exp-row[data-go="tab:${tab}"]`).isVisible(), true, term);
+    }
+    await page.locator('#ws-tool-search').fill('email my monthly report');
+    await page.locator('.exp-row[data-go="tab:performance-tab"]').click();
+    await location('results/detail');
+    await page.goBack();
+    await location('tools');
+    await page.locator('#ws-tool-search').fill('no-such-destination');
+    assert.equal(await page.locator('.exp-row:visible').count(), 0);
+    await page.locator('#ws-tool-clear').click();
+    assert.equal(await page.locator('#ws-tool-search').inputValue(), '');
+    assert.equal(await page.locator('#ws-tool-search').evaluate(el => el === document.activeElement), true);
+    assert.equal(await page.locator('#ws-tool-clear').isVisible(), false);
+    assert.ok(await page.locator('.exp-row:visible').count() > 5);
+    if (prefix === 'mobile') await page.setViewportSize({ width: 320, height: 640 });
+    try {
+      await page.locator('#ws-tool-search').fill('email report');
+      await audit('report-search');
+    } finally { if (prefix === 'mobile') await page.setViewportSize({ width: 390, height: 844 }); }
+    assert.equal(writes.length, before);
+  });
+
+  await journey(`${prefix}: missing report setup opens report controls instead of unrelated settings`, async () => {
+    const before = writes.length;
+    await load('today', '?report-setup-navigation=1');
+    const row = page.locator('.ws-automation').filter({ hasText: 'Monthly owner report' });
+    await row.locator('summary').click();
+    await row.getByRole('button', { name: 'Review report setup' }).click();
+    await location('results/detail');
+    assert.equal(writes.length, before);
+  });
+
   await journey(`${prefix}: draft survives navigation and publication is distinct from indexing`, async () => {
     await tool('search', 'gsc-tab');
     await page.locator('.btn-gen-trigger').first().click();

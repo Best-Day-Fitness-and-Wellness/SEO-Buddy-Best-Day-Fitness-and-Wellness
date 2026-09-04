@@ -1525,6 +1525,7 @@ document.addEventListener('DOMContentLoaded', () => {
       { icon: 'globe', b: 'AI visibility', s: "Do ChatGPT & Google's AI recommend you", tab: 'aio-tab' },
       { icon: 'bars', b: 'Reviews site', s: 'Review counts, growth & structured-data health', tab: 'reviews-tab' } ] },
     { g: 'More detail', items: [
+      { icon: 'brief', b: 'Reports & email delivery', s: 'Download your PDF, manage monthly emails, and inspect search trends', tab: 'performance-tab' },
       { icon: 'bars', b: 'Full dashboard', s: 'The detailed metrics view', tab: 'summary-tab' },
       { icon: 'todo', b: 'All to-dos', s: 'Your full prioritized list', tab: 'grow-tab' } ] },
     { g: 'Setup & help', items: [

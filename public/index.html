@@ -163,7 +163,7 @@
         <div class="exp-wrap">
           <div class="workspace-only ws-tool-search">
             <label for="ws-tool-search">Find a tool or tell us what you want to do</label>
-            <input id="ws-tool-search" type="search" class="form-input" placeholder="Try: write a post, listings, reviews…" autocomplete="off">
+            <div class="ws-search-controls"><input id="ws-tool-search" type="search" class="form-input" placeholder="Try: email report, Google post, reviews…" autocomplete="off" aria-describedby="ws-tool-count"><button type="button" class="btn btn-secondary" id="ws-tool-clear" hidden>Clear search</button></div>
             <p id="ws-tool-count" class="text-muted" role="status"></p>
           </div>
           <!-- Get-started cards first while there is anything left to do; the

@@ -76,6 +76,16 @@ test('Results retains comparisons, score, reviews, and opportunity-not-revenue l
   assert.match(h.html('ow-worth'), /Not measured revenue/);
 });
 
+test('a missing review rating is labelled without printing null or inventing zero', async () => {
+  for (const avgRating of [null, undefined]) {
+    const h = harness({ ...resultsData, '/api/reviews-stats': { inventory: { published: 0, avgRating }, score: 30 } });
+    await h.window.loadOwnerResults();
+    assert.match(h.html('ow-rev'), /No rating recorded yet/);
+    assert.doesNotMatch(h.html('ow-rev'), /null|undefined/);
+    assert.match(h.html('ow-rev'), /Average rating there<\/div><div class="v">—/);
+  }
+});
+
 test('unavailable Results does not claim a disconnection, zero reviews, or revenue', async () => {
   const h = harness();
   await h.window.loadOwnerResults();
