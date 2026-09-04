@@ -2069,6 +2069,7 @@ body.dark .sum-ap-new{color:#ffb3ac;}
 .ow-note{background:var(--bg-card);border:1px solid var(--border-color);border-left:3px solid var(--color-primary);
   border-radius:0 16px 16px 0;padding:15px 17px;margin-top:14px;}
 .ow-note.warn{border-left-color:var(--color-warning);}
+.ow-note > [data-settings-section]{margin-top:12px;}
 .ow-note b{color:var(--text-main);} .ow-note p{margin:6px 0 0;color:var(--text-muted);font-size:var(--font-sm);}
 .ow-f{background:var(--bg-card);border:1px solid var(--border-color);border-radius:12px;padding:13px 15px;}
 .ow-f .k{font-size:var(--font-xs);color:var(--text-muted);font-weight:750;text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px;}

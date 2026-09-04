@@ -47,7 +47,7 @@
                <p>Google Search Console is connected — this looks like a hiccup fetching the figures, not a setup problem. Everything else on this page still works.
                <button class="btn btn-primary" style="width:auto;margin-top:10px" data-ow-retry>Try again</button></p></div>`
           : connected === false ? `<div class="ow-note warn"><b>We can’t show your search numbers yet.</b>
-               <p>Google Search Console isn’t connected, so we have nothing real to compare. Review your connections in Settings.</p></div>`
+               <p>Google Search Console isn’t connected, so we have nothing real to compare.</p><button type="button" class="btn btn-secondary" data-settings-section="connections">Review connection settings</button></div>`
           : `<div class="ow-note warn" role="alert"><b>Search figures and connection status are unavailable.</b><p>We could not verify the connection. This does not mean it is disconnected.</p><button class="btn btn-secondary" data-ow-retry>Try again</button></div>`;
       } else if (pf && pf.current) {
         const c = pf.current, p = pf.previous || {};

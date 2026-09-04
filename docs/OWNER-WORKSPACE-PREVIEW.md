@@ -45,6 +45,13 @@ clear button. It does not invoke AI or trigger any operation. Detail breadcrumbs
 have clickable parent destinations, separate from history-based Back. A missing
 report setup links to the report controls rather than unrelated Settings fields.
 
+Results and the Advanced dashboard offer a keyboard-accessible **Edit estimate
+assumptions** button. It opens and focuses the existing value section in Settings,
+preserving unsaved form edits. Confirmed missing Search Console setup similarly
+offers **Review connection settings**, opening the technical disclosure. These
+shortcuts navigate only: they do not save, test credentials, or change the score.
+An unavailable connection check still offers a retry, not a claim of disconnection.
+
 The visual refinement keeps the approved Direction A paper/ink/teal/coral
 artwork in the daily briefing, with one primary action. Automation status is
 a single compact list of keyboard-expandable rows, not six separate cards.

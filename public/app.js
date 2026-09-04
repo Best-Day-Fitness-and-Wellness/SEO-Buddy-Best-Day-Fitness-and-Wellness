@@ -1754,8 +1754,27 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   const sumRefreshBtn = document.getElementById('sum-refresh');
   if (sumRefreshBtn) sumRefreshBtn.addEventListener('click', loadSummary);
-  const sumEditAssump = document.getElementById('sum-edit-assump');
-  if (sumEditAssump) sumEditAssump.addEventListener('click', () => switchTab('settings-tab'));
+  // Context links open the existing form, never save it or reset its draft.
+  document.addEventListener('click', event => {
+    const link = event.target.closest('[data-settings-section]');
+    if (!link) return;
+    const section = link.dataset.settingsSection;
+    if (!['value', 'connections'].includes(section)) return;
+    const previousFocus = document.activeElement;
+    switchTab('settings-tab');
+    const connections = document.getElementById('ws-connections');
+    if (section === 'connections' && connections) connections.open = true;
+    const target = section === 'connections' && connections
+      ? connections.querySelector('summary')
+      : document.getElementById(`settings-${section}-heading`);
+    requestAnimationFrame(() => {
+      // Router focus runs first. Do not steal focus after another user action.
+      if (state.activeTab !== 'settings-tab' || !target) return;
+      if (![previousFocus, pageTitle, document.body].includes(document.activeElement)) return;
+      target.focus({ preventScroll: true });
+      target.scrollIntoView({ block: 'center', behavior: 'instant' });
+    });
+  });
 
   setInterval(() => {
     if (state.activeTab === 'publish-tab') {

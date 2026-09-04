@@ -209,7 +209,7 @@
             <div class="sum-value-label">Current Visibility Value <span class="sum-est-tag">ESTIMATE</span></div>
             <div class="sum-value-num" id="sum-cur-value">&mdash;</div>
             <div class="sum-value-sub" id="sum-cur-value-sub">What your existing search traffic is worth.</div>
-            <div class="sum-assump">Estimates based on your assumptions &mdash; <a id="sum-edit-assump">adjust in Settings</a>.</div>
+            <div class="sum-assump">Estimates based on your assumptions &mdash; <button type="button" class="btn btn-secondary btn-xs" id="sum-edit-assump" data-settings-section="value">Edit estimate assumptions</button>.</div>
           </div>
         </div>
 
@@ -1352,7 +1352,8 @@
         <div class="ow-h">What it's worth</div>
         <div class="ow-tiles" id="ow-worth"></div>
         <div class="ow-note"><b>Estimates, not invoices.</b>
-          <p>Built from your own numbers, which you can change under <b>Business</b>.</p></div>
+          <p>Built from your value and conversion assumptions in Settings. Changing these does not change your measured optimization score.</p>
+          <button type="button" class="btn btn-secondary" data-settings-section="value">Edit estimate assumptions</button></div>
       </section>
 
       <section class="tab-content" id="owner-business-tab">
@@ -1421,8 +1422,8 @@
               <small class="text-muted">If the server is locked (public deployment), enter the same password here to authorise publishing, listing pages with Google, saving settings and writing content. Stored only in this browser.</small>
             </div>
 
-            <div class="settings-section-title">Business Value (powers the Summary dashboard estimates)</div>
-            <p class="text-muted" style="font-size:var(--font-xs);margin:-4px 0 12px;">These are the same three numbers you set in <b>Setup &amp; business info</b> &mdash; changing them here changes them there.</p>
+            <div class="settings-section-title" id="settings-value-heading" role="heading" aria-level="3" tabindex="-1">Business value assumptions</div>
+            <p class="text-muted" style="font-size:var(--font-xs);margin:-4px 0 12px;">Used for estimates in Results and the Advanced dashboard, not your measured optimization score. These are the same three numbers available in business setup.</p>
             <div class="form-row">
               <div class="form-group col">
                 <label for="settings-client-value">Value of a new client ($)</label>
@@ -1441,7 +1442,7 @@
               <small class="text-muted">Of the searches where you currently get no clicks, roughly what share you'd win as visits if you ranked well. A conservative 3&ndash;8% is realistic.</small>
             </div>
 
-            <div class="settings-section-title">Generative AI API</div>
+            <div class="settings-section-title" id="settings-connections-heading" role="heading" aria-level="3" tabindex="-1">Generative AI API</div>
             <div class="form-group">
               <label for="settings-gemini-key">Google Gemini key</label>
               <input type="password" id="settings-gemini-key" class="form-input" placeholder="AI Studio Key (leaves server env unchanged if empty)">

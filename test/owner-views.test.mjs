@@ -121,6 +121,15 @@ test('unavailable Results does not claim a disconnection, zero reviews, or reven
   assert.match(h.html('ow-rev'), /Review figures are unavailable/);
   assert.match(h.html('ow-worth'), /need real visit numbers/);
   assert.doesNotMatch(h.html('ow-rev'), /No reviews site connected/);
+  assert.doesNotMatch(h.html('ow-find-note'), /data-settings-section/);
+});
+
+test('confirmed missing Search Console offers connection settings rather than a dead-end instruction', async () => {
+  const h = harness({ '/api/deploy-readiness': { checks: [{ key: 'gsc', ok: false }] } });
+  await h.window.loadOwnerResults();
+  assert.match(h.html('ow-find-note'), /data-settings-section="connections"/);
+  assert.match(h.html('ow-find-note'), /Review connection settings/);
+  assert.equal(h.navigations.length, 0);
 });
 
 test('Business keeps escaped details and brand-owned review evidence', async () => {

@@ -337,6 +337,54 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
     await location('results/dashboard');
   });
 
+  await journey(`${prefix}: estimate links focus the existing Settings controls without saving or losing drafts`, async () => {
+    const before = writes.length;
+    await load('results', '?estimate-navigation=1');
+    const edit = page.locator('#owner-results-tab [data-settings-section="value"]');
+    await edit.focus();
+    await page.keyboard.press('Enter');
+    await location('settings');
+    await page.locator('#settings-value-heading:focus').waitFor();
+    await page.waitForFunction(() => typeof window.loadSettingsWorkspace === 'function' && document.getElementById('settings-client-value').value !== '');
+    assert.equal(await page.locator('#ws-connections').getAttribute('open'), null);
+    assert.equal(await page.locator('#settings-gemini-key').isVisible(), false);
+    await page.locator('#settings-client-value').fill('777');
+    await page.goBack();
+    await location('results');
+    await edit.click();
+    await page.locator('#settings-value-heading:focus').waitFor();
+    assert.equal(await page.locator('#settings-client-value').inputValue(), '777');
+    await audit('estimate-settings-navigation');
+    await load('results/dashboard', '?estimate-dashboard=1');
+    const dashboardEdit = page.getByRole('button', { name: 'Edit estimate assumptions', exact: true });
+    await dashboardEdit.focus();
+    await page.keyboard.press('Enter');
+    await location('settings');
+    await page.locator('#settings-value-heading:focus').waitFor();
+    assert.deepEqual(writes.slice(before), []);
+  });
+
+  await journey(`${prefix}: disconnected search links open connection controls without claiming a repair`, async () => {
+    const before = writes.length;
+    const previous = ['/api/performance', '/api/deploy-readiness'].map(path => [path, responses.get(path)]);
+    responses.set('/api/performance', { status: 503, json: { success: false } });
+    responses.set('/api/deploy-readiness', { json: { checks: [{ key: 'gsc', ok: false }] } });
+    try {
+      await load('results', '?connection-navigation=1');
+      await page.getByRole('button', { name: 'Review connection settings' }).click();
+      await location('settings');
+      await page.locator('#ws-connections > summary:focus').waitFor();
+      assert.equal(await page.locator('#settings-gemini-key').isVisible(), true);
+      await audit('connection-settings-navigation');
+      await page.goBack();
+      await location('results');
+      await page.getByRole('button', { name: 'Review connection settings' }).waitFor();
+      assert.deepEqual(writes.slice(before), []);
+    } finally {
+      for (const [path, value] of previous) { if (value) responses.set(path, value); else responses.delete(path); }
+    }
+  });
+
   await journey(`${prefix}: reports are prominent in Results and parent breadcrumbs work with history`, async () => {
     const before = writes.length;
     await load('results', '?report-navigation=1');
