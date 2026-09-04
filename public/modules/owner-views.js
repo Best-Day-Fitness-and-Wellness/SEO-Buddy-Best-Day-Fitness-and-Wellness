@@ -5,6 +5,7 @@
   const { readCheckedJson: readOwnerData, uiEsc: owEsc } = global.SeoBuddyCore;
   // Each view owns its refresh generation; late responses must not undo a retry.
   let resultsRequest = 0, businessRequest = 0;
+  const measuredNumber = value => Number.isFinite(value) && value >= 0 ? value : null;
 
   function readinessCheck(readiness, key) {
     if (!Array.isArray(readiness?.checks)) return null;
@@ -61,15 +62,23 @@
                <p>Google Search Console isn’t connected, so we have nothing real to compare.</p><button type="button" class="btn btn-secondary" data-settings-section="connections">Review connection settings</button></div>`
           : `<div class="ow-note warn" role="alert"><b>Search figures and connection status are unavailable.</b><p>We could not verify the connection. This does not mean it is disconnected.</p><button class="btn btn-secondary" data-ow-retry>Try again</button></div>`;
       } else if (pf && pf.current) {
-        const c = pf.current, p = pf.previous || {};
+        const searchMetrics = period => Object.fromEntries(['clicks', 'impressions', 'avgPosition'].map(key => [key, measuredNumber(period?.[key])]));
+        const c = searchMetrics(pf.current), p = searchMetrics(pf.previous);
+        const score = measuredNumber(hs?.overall);
+        const validScore = score !== null && score <= 100 ? score : null;
+        const previousScore = validScore !== null && Number.isFinite(hs?.delta) ? measuredNumber(validScore - hs.delta) : null;
         find.innerHTML =
-          tile('Visits from Google', c.clicks, arrow(c.clicks, p.clicks)) +
-          tile('Times you appeared', (c.impressions || 0).toLocaleString(), arrow(c.impressions, p.impressions)) +
-          tile('Typical position', c.avgPosition, arrow(c.avgPosition, p.avgPosition, true) + ' · lower is better') +
-          tile('Optimization score', (hs && hs.overall != null ? hs.overall : '–') + '<small> / 100</small>',
-               hs && hs.delta != null ? arrow(hs.overall, hs.overall - hs.delta) : '<span class="ow-flat">■ building history</span>');
-        const down = (c.clicks || 0) < (p.clicks || 0);
-        document.getElementById('ow-find-note').innerHTML = down
+          tile('Visits from Google', c.clicks ?? '—', arrow(c.clicks, p.clicks)) +
+          tile('Times you appeared', c.impressions === null ? '—' : c.impressions.toLocaleString(), arrow(c.impressions, p.impressions)) +
+          tile('Typical position', c.avgPosition ?? '—', arrow(c.avgPosition, p.avgPosition, true) + ' · lower is better') +
+          tile('Optimization score', (validScore ?? '–') + '<small> / 100</small>',
+               previousScore !== null && previousScore <= 100 ? arrow(validScore, previousScore) : '<span class="ow-flat">■ no comparison yet</span>');
+        const partial = Object.values(c).includes(null);
+        document.getElementById('ow-find-note').innerHTML = partial
+          ? '<div class="ow-note warn" role="status"><b>Some search figures are unavailable.</b><p>A dash means the figure could not be verified, not zero activity. Available figures are still shown.</p><button type="button" class="btn btn-secondary" data-ow-retry>Retry search figures</button></div>'
+          : p.clicks === null
+          ? '<div class="ow-note"><b>Not enough search history to compare yet.</b><p>Current figures are shown above. A previous-period click count is needed before we can describe the trend.</p></div>'
+          : c.clicks < p.clicks
           ? `<div class="ow-note warn"><b>This period went the wrong way, and we’re not going to dress that up.</b>
                <p>This comparison does not identify the cause. Review the underlying searches and pages before deciding what to change.</p></div>`
           : `<div class="ow-note"><b>Holding steady or improving.</b><p>We’ll show you this same comparison next month either way.</p></div>`;
@@ -88,11 +97,15 @@
       }
       const cv = parseFloat(localStorage.getItem('seo_client_value')) || 1395;
       const cr = (parseFloat(localStorage.getItem('seo_conv_rate')) || 2) / 100;
-      const visits = (pf && pf.current && pf.current.clicks) || 0;
-      if (!visits) {
+      const visits = measuredNumber(pf?.current?.clicks);
+      if (visits === null) {
         document.getElementById('ow-worth').innerHTML =
           `<div class="ow-note"><b>We need real visit numbers before we can estimate value.</b>
              <p>This fills in on its own once the search figures load.</p></div>`;
+        return;
+      }
+      if (visits === 0) {
+        document.getElementById('ow-worth').innerHTML = '<div class="ow-note"><b>No search visits were recorded for this period.</b><p>There are no recorded search clicks to use for an opportunity estimate.</p></div>';
         return;
       }
       document.getElementById('ow-worth').innerHTML =

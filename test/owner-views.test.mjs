@@ -205,6 +205,59 @@ test('a missing review rating is labelled without printing null or inventing zer
   }
 });
 
+test('partial search results preserve valid figures without inventing activity or a trend', async () => {
+  for (const missing of [null, undefined, '100', '', false, -1, NaN, Infinity, '<img src=x onerror=alert(1)>']) {
+    const h = harness({ ...resultsData, '/api/performance': { current: { clicks: 10, impressions: missing, avgPosition: 4 }, previous: { clicks: 12 } } });
+    await h.window.loadOwnerResults();
+    assert.match(h.html('ow-find'), /Visits from Google<\/div><div class="v">10/);
+    assert.match(h.html('ow-find'), /Times you appeared<\/div><div class="v">—/);
+    assert.match(h.html('ow-find-note'), /Some search figures are unavailable/);
+    assert.match(h.html('ow-find-note'), /data-ow-retry/);
+    assert.doesNotMatch(h.html('ow-find-note'), /Holding steady|went the wrong way/);
+    assert.doesNotMatch(h.html('ow-find'), /NaN|undefined|Infinity|<img/);
+    assert.match(h.html('ow-worth'), /\$279/);
+  }
+});
+
+test('unknown clicks cannot produce a value estimate or a fabricated comparison', async () => {
+  for (const clicks of [undefined, '10', false, -1, Infinity]) {
+    const h = harness({ ...resultsData, '/api/performance': { current: { clicks, impressions: 1000, avgPosition: 4 } } });
+    await h.window.loadOwnerResults();
+    assert.match(h.html('ow-find'), /Visits from Google<\/div><div class="v">—/);
+    assert.match(h.html('ow-worth'), /need real visit numbers/);
+    assert.doesNotMatch(h.html('ow-worth'), /Estimated opportunity value/);
+  }
+});
+
+test('missing prior-period clicks are not a zero baseline and genuine zeros remain measured', async () => {
+  for (const clicks of [null, undefined, '0', -1, Infinity]) {
+    const h = harness({ ...resultsData, '/api/performance': { current: { clicks: 0, impressions: 0, avgPosition: 0 }, previous: { clicks } } });
+    await h.window.loadOwnerResults();
+    assert.match(h.html('ow-find'), /Visits from Google<\/div><div class="v">0/);
+    assert.match(h.html('ow-find'), /Times you appeared<\/div><div class="v">0/);
+    assert.match(h.html('ow-find-note'), /Not enough search history/);
+    assert.match(h.html('ow-worth'), /No search visits were recorded/);
+    assert.doesNotMatch(h.html('ow-find-note'), /Holding steady|went the wrong way|unavailable/);
+  }
+  const h = harness({ ...resultsData, '/api/performance': { current: { clicks: 0, impressions: 0, avgPosition: 0 }, previous: { clicks: 0, impressions: 0, avgPosition: 0 } } });
+  await h.window.loadOwnerResults();
+  assert.match(h.html('ow-find-note'), /Holding steady/);
+});
+
+test('invalid optimization scores and deltas cannot render false measurements', async () => {
+  for (const overall of [undefined, '70', -1, 101, NaN, Infinity, '<script>']) {
+    const h = harness({ ...resultsData, '/api/health-score': { overall, delta: 1 } });
+    await h.window.loadOwnerResults();
+    assert.match(h.html('ow-find'), /Optimization score<\/div><div class="v">–<small>/);
+    assert.doesNotMatch(h.html('ow-find'), /NaN|undefined|Infinity|<script>/);
+  }
+  for (const delta of [undefined, '1', Infinity, 80, -40]) {
+    const h = harness({ ...resultsData, '/api/health-score': { overall: 69, delta } });
+    await h.window.loadOwnerResults();
+    assert.match(h.html('ow-find'), /69<small> \/ 100<\/small><\/div><div class="d"><span class="ow-flat">■ no comparison yet/);
+  }
+});
+
 test('unavailable Results does not claim a disconnection, zero reviews, or revenue', async () => {
   const h = harness();
   await h.window.loadOwnerResults();

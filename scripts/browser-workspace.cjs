@@ -618,6 +618,34 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
     }
   });
 
+  await journey(`${prefix}: partial search results stay honest and recover through retry`, async () => {
+    const before = writes.length;
+    const previous = responses.get('/api/performance');
+    responses.set('/api/performance', { json: { current: { avgPosition: 4 }, previous: { clicks: 12 } } });
+    try {
+      await load('results', '?partial-search-results=1');
+      const retry = page.getByRole('button', { name: 'Retry search figures' });
+      await retry.waitFor();
+      const tile = label => page.locator('#ow-find .ow-tile').filter({ hasText: label }).locator('.v');
+      assert.equal(await tile('Visits from Google').innerText(), '—');
+      assert.equal(await tile('Times you appeared').innerText(), '—');
+      assert.equal(await tile('Typical position').innerText(), '4');
+      assert.match(await page.locator('#ow-worth').innerText(), /need real visit numbers/);
+      assert.doesNotMatch(await page.locator('#ow-find-note').innerText(), /Holding steady|went the wrong way/);
+      await audit('partial-search-results');
+      responses.set('/api/performance', { json: { current: { clicks: 10, impressions: 1000, avgPosition: 4 } } });
+      await retry.focus();
+      await page.keyboard.press('Enter');
+      await page.getByText('Not enough search history to compare yet.', { exact: true }).waitFor();
+      assert.equal(await tile('Visits from Google').innerText(), '10');
+      assert.equal(await retry.count(), 0);
+      assert.match(await page.locator('#ow-worth').innerText(), /Estimated opportunity value/);
+      assert.deepEqual(writes.slice(before), []);
+    } finally {
+      if (previous) responses.set('/api/performance', previous); else responses.delete('/api/performance');
+    }
+  });
+
   // Audit every preview route in light mode; core destinations also in dark.
   await page.evaluate(() => { if (document.body.classList.contains('dark')) document.getElementById('theme-toggle').click(); });
   const routes = await page.evaluate(() => Object.keys(window.SeoBuddyWorkspace.routes));
