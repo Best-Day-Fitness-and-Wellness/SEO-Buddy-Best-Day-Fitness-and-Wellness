@@ -611,7 +611,7 @@ test('autopilot routes preserve schedule, queue, target, and run contracts', asy
   registerAutopilotRoutes(app, {
     requireAuth: () => {},
     state,
-    startScheduler: () => { schedulerStarts += 1; state.nextRunTime = null; },
+    startScheduler: () => { schedulerStarts += 1; saves += 1; state.nextRunTime = null; },
     saveConfig: () => { saves += 1; },
     runCycle: async () => ({ title: 'Balance guide', indexWarning: false }),
     explainIndexError: message => `explained: ${message}`,
@@ -1924,12 +1924,18 @@ test('assistant routes preserve grounding, bounded context, and confirmation-onl
   assert.equal(resolveAssistantAction('generate_pdf_report').clientAction, 'pdf');
   assert.equal(resolveAssistantAction('unsupported_action', {}), null);
 
-  const context = { business: { name: 'Best Day Fitness' }, score: 72 };
+  const context = {
+    business: { name: 'Best Day Fitness' }, optimizationScore: 72,
+    scoreStatus: 'current-dashboard-calculation',
+    googlePost: { status: 'owner-marked' },
+    connections: { googleBusinessProfilePublishing: false },
+    monthlyReport: { ready: true, nextRunAt: '2026-10-01T13:00:00Z' },
+  };
   const prompt = assistantSystemPrompt(context);
   assert.match(prompt, /GROUND every answer in the DATA below/);
   assert.match(prompt, /nothing publishes or sends on its own/);
   assert.match(prompt, /LIVE DATA for Best Day Fitness/);
-  assert.match(prompt, /"score":72/);
+  assert.match(prompt, /"optimizationScore":72/);
 
   const sourceMessages = Array.from({ length: 13 }, (_, index) => ({
     role: index % 2 ? 'assistant' : 'user',
@@ -1971,7 +1977,7 @@ test('assistant routes preserve grounding, bounded context, and confirmation-onl
     hasGeminiKey: () => hasKey,
     usageOverBudget: () => overBudget,
     getBudget: () => 25,
-    getContext: () => { contextCalls += 1; return context; },
+    getContext: async () => { contextCalls += 1; return context; },
     geminiGenerate: async (...args) => {
       requests.push(args);
       if (geminiError) throw geminiError;
@@ -2012,6 +2018,10 @@ test('assistant routes preserve grounding, bounded context, and confirmation-onl
   assert.equal(requests[0][0].contents.length, 12);
   assert.equal(requests[0][0].config.temperature, 0.4);
   assert.strictEqual(requests[0][0].config.tools, ASSISTANT_TOOLS);
+  assert.match(requests[0][0].config.systemInstruction, /"optimizationScore":72/);
+  assert.match(requests[0][0].config.systemInstruction, /"googleBusinessProfilePublishing":false/);
+  assert.match(requests[0][0].config.systemInstruction, /"status":"owner-marked"/);
+  assert.match(requests[0][0].config.systemInstruction, /"nextRunAt":"2026-10-01T13:00:00Z"/);
   assert.deepEqual(requests[0][1], { usageKind: 'assistant' });
 
   geminiResult = { candidates: [{ content: { parts: [{ functionCall: {

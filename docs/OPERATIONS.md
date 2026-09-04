@@ -98,6 +98,24 @@ In production, jobs live in PostgreSQL `durable_jobs`; `jobs.json` is a legacy
 import/local-development artifact. Do not edit either queue by hand while the
 worker is running. Shared scheduling stops before worker shutdown.
 
+## Content schedule and publication evidence
+
+Content autopilot persists `nextRunTime` in tenant configuration. Restarts restore
+that deadline; migration uses the last successful run plus the configured interval
+(or the current time plus the interval when there is no history). A late restart
+queues one catch-up job using the deadline as its durable idempotency key, then
+advances to the next slot in the original cadence. Queue/save failures retry the
+same deadline. Manual runs do not move the scheduled slot. An explicit interval
+change starts a new cadence; pausing hides, but retains, the deadline. This is an
+elapsed-hours cadence, not a timezone/DST-aware wall-clock appointment.
+
+Google posts are only labelled Google-confirmed when the posting API returns a
+successful receipt with a post resource name. Legacy and manually marked posts
+remain owner-marked, not verified by Google. Existing post text is unchanged.
+The assistant uses the dashboard's current score calculation and current connection,
+monthly-report delivery and content-schedule metadata. Configured credentials do
+not prove a working connection; a scheduled or sent report does not prove receipt.
+
 ## Backup and restore
 
 The daily backup job stores secret-free, tenant-scoped, checksummed snapshots.

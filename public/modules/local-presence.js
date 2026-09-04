@@ -89,8 +89,9 @@
   function laRenderGbp(draft) {
     if (!laGbpBody) return;
     if (!draft) { laGbpBadge.innerHTML = ''; laGbpBody.innerHTML = '<span class="lr-muted">No post yet — one is written each week, or click Run now.</span>'; return; }
-    laGbpBadge.innerHTML = draft.posted ? '<span class="la-badge ok">POSTED</span>' : (draft.isNew ? '<span class="la-badge new">NEW</span>' : '');
-    const postedNote = draft.posted ? `<span class="lr-muted" style="color:var(--color-success)">Posted to Google ${laAgo(draft.postedAt)} ✓</span>`
+    const googleConfirmed = draft.publicationSource === 'google-api' && !!draft.googlePostName;
+    laGbpBadge.innerHTML = draft.posted ? `<span class="la-badge ok">${googleConfirmed ? 'GOOGLE CONFIRMED' : 'MARKED AS POSTED'}</span>` : (draft.isNew ? '<span class="la-badge new">NEW</span>' : '');
+    const postedNote = draft.posted ? `<span class="lr-muted">${googleConfirmed ? 'Google confirmed publication' : 'Marked as posted — not verified by Google'} ${laAgo(draft.postedAt)}</span>`
       : (draft.postError ? `<span class="nap-bad">Auto-post failed: ${citEsc(draft.postError)}</span>` : '');
     const postBtn = (laGbpConfigured && !draft.posted) ? `<button class="btn btn-primary btn-xs" id="la-gbp-post" type="button">Post to Google now</button>` : '';
     // Manual flow (no GBP API): let the owner confirm they posted it to Google themselves.
@@ -113,7 +114,7 @@
         const r = await authFetch('/api/gbp-mark-posted', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
         const dd = await r.json();
         if (!r.ok || !dd.success) throw new Error(dd.error || 'failed');
-        draft.posted = true; draft.postedAt = new Date().toISOString(); laRenderGbp(draft);
+        draft.posted = true; draft.publicationSource = 'owner'; draft.postedAt = new Date().toISOString(); laRenderGbp(draft);
         if (window.loadHome) window.loadHome();
         if (window.loadGrow) window.loadGrow();
       } catch (e) { alert('Could not update: ' + e.message); mb.disabled = false; mb.innerHTML = '&#10003; Mark as posted'; }
@@ -125,8 +126,8 @@
         const r = await authFetch('/api/gbp-post', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: draft.text }) });
         const dd = await r.json();
         if (dd.needsSetup) { alert(dd.message); pb.disabled = false; pb.innerText = 'Post to Google now'; return; }
-        if (!r.ok || !dd.success) throw new Error(dd.error || 'Post failed');
-        draft.posted = true; draft.postedAt = new Date().toISOString(); laRenderGbp(draft);
+        if (!r.ok || !dd.success || dd.posted !== true || !dd.name) throw new Error(dd.error || 'Google did not confirm the post.');
+        draft.posted = true; draft.publicationSource = 'google-api'; draft.googlePostName = dd.name; draft.postedAt = new Date().toISOString(); laRenderGbp(draft);
       } catch (e) { alert('Post error: ' + e.message); pb.disabled = false; pb.innerText = 'Post to Google now'; }
     };
   }

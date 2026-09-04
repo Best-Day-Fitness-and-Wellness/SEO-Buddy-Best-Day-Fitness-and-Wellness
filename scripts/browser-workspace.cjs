@@ -796,16 +796,17 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
     const path = '/api/local-autopilot';
     const previous = responses.get(path);
     try {
-      for (const state of ['posted', 'new', 'ordinary', 'empty']) {
-        const gbpDraft = state === 'empty' ? null : { text: 'Test-only Google post. No publishing occurs.', posted: state === 'posted', isNew: state === 'new', createdAt: '2026-09-04T12:00:00Z', postedAt: state === 'posted' ? '2026-09-04T13:00:00Z' : null };
+      for (const state of ['posted', 'verified', 'new', 'ordinary', 'empty']) {
+        const gbpDraft = state === 'empty' ? null : { text: 'Test-only Google post. No publishing occurs.', posted: ['posted', 'verified'].includes(state), publicationSource: state === 'verified' ? 'google-api' : undefined, googlePostName: state === 'verified' ? 'accounts/test/locations/test/localPosts/test' : undefined, isNew: state === 'new', createdAt: '2026-09-04T12:00:00Z', postedAt: ['posted', 'verified'].includes(state) ? '2026-09-04T13:00:00Z' : null };
         responses.set(path, { json: { success: true, enabled: true, hasKey: true, gbpDraft, napExclusions: [] } });
         await load('tools/local', '?google-post-badge=' + state);
         await page.waitForFunction(() => typeof window.loadLocalAutopilot === 'function');
         await page.evaluate(() => window.loadLocalAutopilot());
         const title = page.locator('#la-gbp-title');
         const badge = page.locator('#la-gbp-badge .la-badge');
-        if (state === 'posted' || state === 'new') {
-          assert.equal(await badge.innerText(), state === 'posted' ? 'POSTED' : 'NEW');
+        if (['posted', 'verified', 'new'].includes(state)) {
+          assert.equal(await badge.innerText(), state === 'posted' ? 'MARKED AS POSTED' : state === 'verified' ? 'GOOGLE CONFIRMED' : 'NEW');
+          if (state === 'posted') assert.match(await page.locator('#la-gbp-body').innerText(), /not verified by Google/);
           const a = await title.boundingBox(), b = await badge.boundingBox();
           assert.ok(a && b);
           assert.ok(a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y, 'Status must not cover the title');

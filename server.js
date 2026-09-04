@@ -43,6 +43,8 @@ const { createUsageMeter } = require('./lib/usage-meter');
 const { createUsageRepository } = require('./lib/usage-repository');
 const { registerGscRoutes } = require('./lib/gsc-routes');
 const { registerAutopilotRoutes } = require('./lib/autopilot-routes');
+const { createContentScheduler } = require('./lib/content-scheduler');
+const { recordGbpPublication, gbpPublicationStatus } = require('./lib/gbp-publication');
 const { registerContentRoutes } = require('./lib/content-routes');
 const { registerAiVisibilityRoutes } = require('./lib/ai-visibility-routes');
 const { registerAiAuditRoutes } = require('./lib/ai-audit-routes');
@@ -1527,7 +1529,7 @@ async function indexUrlHelper(url) {
 // ----------------------------------------------------
 // Autopilot Agent Logic
 // ----------------------------------------------------
-let autopilotInterval = null;
+let contentScheduler = null;
 let autopilotEnabled = true;   // default ON so fresh franchise installs publish content hands-off
 let autopilotIntervalHours = 24;
 let nextRunTime = null;
@@ -1544,7 +1546,7 @@ let autopilotTargetIndex = 0; // rotation cursor
 // and queue survive redeploys. The scheduler itself is restored at startup.
 const AUTOPILOT_CONFIG_FILE = path.join(DATA_DIR, 'autopilot-config.json');
 function saveAutopilotConfig() {
-  saveJsonFileSync(AUTOPILOT_CONFIG_FILE, { enabled: autopilotEnabled, intervalHours: autopilotIntervalHours, queue: autopilotQueue, targets: autopilotTargets, targetIndex: autopilotTargetIndex, lastRun: lastAutopilotRun }, 'Autopilot Config');
+  return saveJsonFileSync(AUTOPILOT_CONFIG_FILE, { enabled: autopilotEnabled, intervalHours: autopilotIntervalHours, nextRunTime, queue: autopilotQueue, targets: autopilotTargets, targetIndex: autopilotTargetIndex, lastRun: lastAutopilotRun }, 'Autopilot Config');
 }
 // Build sensible default target terms from the business location + niche so a
 // fresh franchise install pursues its own "[service] [city]" money terms.
@@ -1568,6 +1570,7 @@ try {
     if (Array.isArray(cfg.targets)) autopilotTargets = cfg.targets.filter(t => typeof t === 'string' && t.trim());
     if (Number.isInteger(cfg.targetIndex)) autopilotTargetIndex = cfg.targetIndex;
     if (cfg.lastRun) lastAutopilotRun = cfg.lastRun;
+    if (Number.isFinite(Date.parse(cfg.nextRunTime))) nextRunTime = cfg.nextRunTime;
   }
 } catch (e) { console.error('[Autopilot Config] load failed:', e.message); }
 // Seed defaults on first run (empty targets) so the autopilot proactively
@@ -1741,34 +1744,19 @@ async function runAutopilotCycle() {
   }
 }
 
-function calculateNextRun() {
-  if (autopilotEnabled) {
-    nextRunTime = new Date(Date.now() + autopilotIntervalHours * 60 * 60 * 1000).toISOString();
-  } else {
-    nextRunTime = null;
-  }
-}
-
-function startAutopilotScheduler() {
-  if (autopilotInterval) clearInterval(autopilotInterval);
-  
-  if (autopilotEnabled) {
-    logAutopilotActivity(`Background Autopilot enabled. Schedule: Run every ${autopilotIntervalHours} hours.`);
-    calculateNextRun();
-    
-    autopilotInterval = setInterval(() => {
-      const intervalMs = autopilotIntervalHours * 60 * 60 * 1000;
-      enqueueDurableJob('content.autopilot', {}, {
-        idempotencyKey: durableJobKey('content.autopilot', intervalMs),
-        maxAttempts: 5,
-      });
-      calculateNextRun();
-    }, autopilotIntervalHours * 60 * 60 * 1000);
-    autopilotInterval.unref?.();
-  } else {
-    logAutopilotActivity('Background Autopilot scheduler stopped.');
-    nextRunTime = null;
-  }
+function startAutopilotScheduler(options) {
+  if (!contentScheduler) contentScheduler = createContentScheduler({
+    state: {
+      get enabled() { return autopilotEnabled; },
+      get intervalHours() { return autopilotIntervalHours; },
+      get lastRun() { return lastAutopilotRun; },
+      get nextRunTime() { return nextRunTime; },
+      set nextRunTime(value) { nextRunTime = value; },
+    },
+    save: saveAutopilotConfig, enqueue: enqueueDurableJob,
+  });
+  contentScheduler.start(options);
+  logAutopilotActivity(autopilotEnabled ? `Content schedule restored. Next check: ${nextRunTime}.` : 'Background Autopilot scheduler stopped.');
 }
 
 // ----------------------------------------------------
@@ -2399,15 +2387,17 @@ registerAiAuditRoutes(app, {
 });
 
 // ============================================================
-// SEO BUDDY ASSISTANT (Stage 1 — grounded, read-only)
+// SEO BUDDY ASSISTANT — current dashboard data and confirmed action proposals
 // A plain-English copilot that answers from the owner's REAL stored data.
-// Uses cheap in-memory sources only (no live GSC per message). Scoped to
-// SEO/AEO; grounds every answer; declines off-topic; cannot act yet.
+// Reuses the dashboard score calculation and configured connection metadata.
+// External actions still require the owner's confirmation.
 // ============================================================
-function assistantContext() {
+async function assistantContext() {
+  let currentScore = null;
+  try { currentScore = await buildHealthScoreResponse(); } catch (_) { /* unavailable is not a stale score */ }
   const prof = (businessProfile() && businessProfile().profile) || {};
   const healthSnapshots = scoreHistory.snapshots;
-  const lastScore = healthSnapshots.length ? healthSnapshots[healthSnapshots.length - 1].overall : null;
+  const lastScore = currentScore?.overall ?? null;
   let scoreDelta = null;
   if (lastScore != null && healthSnapshots.length > 1) {
     const target = Date.now() - 28 * 86400000; let best = null;
@@ -2426,6 +2416,12 @@ function assistantContext() {
   return {
     business: { name: prof.name || BUSINESS.name, city: BUSINESS.addressLocality, region: BUSINESS.addressRegion, phone: prof.phone || BUSINESS.telephone, website: prof.website || ('https://' + siteDomain().replace(/^https?:\/\//, '')) },
     optimizationScore: lastScore, scoreChangeLast28Days: scoreDelta,
+    scoreStatus: currentScore ? 'current-dashboard-calculation' : 'unavailable',
+    contextCheckedAt: new Date().toISOString(),
+    connections: { googleBusinessProfilePublishing: gbpConfigured(), gmail: !!gmailClient(), websitePublishing: !!process.env.GHL_ACCESS_TOKEN && !!process.env.GHL_LOCATION_ID, searchConsole: !!(process.env.GSC_SITE_URL && getGoogleAuth()) },
+    googlePost: { status: gbpPublicationStatus(localDb.gbpDraft), recordedAt: localDb.gbpDraft?.postedAt || localDb.gbpDraft?.createdAt || null },
+    monthlyReport: monthlyReportService ? monthlyReportService.status() : { ready: false },
+    contentSchedule: { enabled: autopilotEnabled, nextRunAt: autopilotEnabled ? nextRunTime : null, lastSuccessfulRunAt: lastAutopilotRun },
     aiVisibility: vis ? { visibilityScorePct: vis.visibilityScore, shareOfVoicePct: vis.shareOfVoice, sentimentScore: vis.sentimentScore, enginesRun: vis.engines, leaderboard: (vis.leaderboard || []).slice(0, 6).map(l => ({ name: l.name, scorePct: l.score, isYou: !!l.isBrand })), byEngine: vis.perEngine } : null,
     factCheck: fc ? { totalWrongClaims: fc.totalWrong, byEngine: (fc.results || []).map(r => ({ engine: r.label, accuracyPct: r.accuracy, wrongClaims: (r.issues || []).filter(i => !i.correct).map(i => ({ aiSaid: i.aiClaim, actualTruth: i.truth })) })) } : null,
     aiCrawlerAccess: cr ? { blockedCount: cr.blocked, totalChecked: cr.total, blockedBots: (cr.bots || []).filter(b => b.status === 'blocked').map(b => b.label) } : null,
@@ -2836,9 +2832,8 @@ async function maybeRunLocalAutopilot(force) {
           // If GBP posting is connected, publish it automatically; otherwise it stays a ready-to-paste draft.
           try {
             if (typeof gbpConfigured === 'function' && gbpConfigured()) {
-              await postGbpLocalPost(draft.text);
-              localDb.gbpDraft.posted = true;
-              localDb.gbpDraft.postedAt = new Date().toISOString();
+              const receipt = await postGbpLocalPost(draft.text);
+              recordGbpPublication(localDb.gbpDraft, receipt);
             }
           } catch (gbpErr) { localDb.gbpDraft.postError = gbpErr.message; console.error('[Local Autopilot] GBP auto-post failed:', gbpErr.message); }
         }
@@ -3109,9 +3104,8 @@ registerDeliveryRoutes(app, {
   gbpConfigured,
   postGbpLocalPost,
   getGbpDraft: () => localDb.gbpDraft,
-  markGbpDraftPosted: () => {
-    localDb.gbpDraft.posted = true;
-    localDb.gbpDraft.postedAt = new Date().toISOString();
+  markGbpDraftPosted: result => {
+    recordGbpPublication(localDb.gbpDraft, result);
     saveLocal();
   },
   defaultDigestRecipient: () => process.env.DIGEST_EMAIL || process.env.GMAIL_SENDER || '',
@@ -3421,23 +3415,7 @@ if (autopilotEnabled) {
   try { startAutopilotScheduler(); } catch (e) { console.error('[Autopilot] restore failed:', e.message); }
 }
 
-// Content autopilot redeploy catch-up: the recurring 24h setInterval resets on
-// every restart, so on frequent redeploys it could otherwise never fire. On boot,
-// if content autopilot is enabled and overdue (>= its interval since the last
-// successful run), run one cycle. Staggered after the other workers' catch-ups.
-const autopilotCatchupTimer = setTimeout(() => {
-  if (!autopilotEnabled) return;
-  const hoursSince = lastAutopilotRun ? (Date.now() - new Date(lastAutopilotRun).getTime()) / 3.6e6 : Infinity;
-  if (hoursSince >= autopilotIntervalHours) {
-    logAutopilotActivity(`Startup catch-up: content autopilot overdue (${lastAutopilotRun ? Math.round(hoursSince) + 'h' : 'never run'}). Queueing one cycle.`);
-    const intervalMs = autopilotIntervalHours * 60 * 60 * 1000;
-    enqueueDurableJob('content.autopilot', {}, {
-      idempotencyKey: durableJobKey('content.autopilot', intervalMs),
-      maxAttempts: 5,
-    });
-  }
-}, 105000);
-autopilotCatchupTimer.unref?.();
+// The persisted content deadline also handles one bounded overdue catch-up.
 
 // Start the Express Server
 // After boot: re-submit any posts whose URL was just repaired by the migration
@@ -3646,6 +3624,7 @@ const server = app.listen(PORT, () => {
 function gracefulShutdown(signal) {
   if (isShuttingDown) return;
   isShuttingDown = true;
+  contentScheduler?.stop();
   jobDispatcher.stop();
   logger.info('server.shutdown_started', { signal });
   const forceExit = setTimeout(() => {
