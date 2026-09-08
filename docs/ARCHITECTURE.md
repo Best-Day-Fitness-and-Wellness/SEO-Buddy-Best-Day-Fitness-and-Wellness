@@ -233,6 +233,7 @@ so one production replica remains the supported topology.
 | `lib/json-file-store.js` | Atomic document replacement |
 | `lib/backup-service.js` | Secret-free checksummed backup and restore |
 | `lib/operational-health.js` | Pure owner-safe projection of provider, schedule, delivery, storage, and backup evidence |
+| `lib/reliability-alerts.js` | Owner-controlled, deduplicated incident notification policy and HTTP contracts |
 | `lib/postgres-store.js` | Advisory-locked migrations and staged state mirror |
 | `lib/access-control.js` / `audit-log.js` | Roles, authorization, tamper-evident mutation trail |
 | `lib/configuration-routes.js` | Owner-only settings validation, secret persistence, activation, and storage status |

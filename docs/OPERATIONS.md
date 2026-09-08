@@ -62,6 +62,7 @@ Use the protected endpoints without copying credentials into tickets or logs:
 | `/api/job-queue` | worker running; no old pending jobs; terminal failures understood |
 | `/api/audit-status` | mutation chain verifies |
 | `/api/storage-backups` | latest backup exists and verifies |
+| `/api/reliability-alerts` | owner preference is intentional; when enabled, Gmail and a masked report recipient are ready |
 
 Never include provider tokens, service-account JSON, admin credentials, request
 bodies, or generated customer content in incident notes.
@@ -84,6 +85,16 @@ badge. Provider request evidence, credential-replacement timestamps, and the
 verified backup timestamp are durable across deployments. Entering a replacement
 secret clears that provider's earlier pass/fail result until a real request uses
 the new credential; leaving the field blank preserves the existing secret.
+
+Failure email alerts are **off by default** and can be enabled only by an owner
+under **Settings → Your connections → System health**. They reuse the monthly
+report address; saving the preference does not send email. The durable queue checks
+health hourly. It sends one message for a distinct unresolved incident set, records
+only a fingerprint and bounded timestamps, and does not repeat that message until
+the incident set changes or clears and later recurs. A failed alert delivery is
+eligible for another hourly attempt after a cooldown, without the queue's immediate
+retry behavior. Gmail cannot report its own outage, so the in-app System health
+view remains the authoritative fallback when Gmail delivery is unhealthy.
 
 Read operations may use an explicitly allowed recent cached value during a
 transient provider failure. Publish, send, and indexing operations are not
@@ -110,8 +121,8 @@ worker is running. Shared scheduling stops before worker shutdown.
 
 Settings shows a passive connection overview: `/api/ai-engines` exposes only
 provider IDs, labels and configuration booleans without nudging any scan. The
-overview also reads GBP and monthly-report status, treats malformed or failed
-reads as unknown, and opens existing controls without saving or sending. API key
+overview also reads GBP, monthly-report, and failure-alert status, treats malformed
+or failed reads as unknown, and opens existing controls without saving or sending. API key
 shortcuts expand the technical disclosure and focus the exact field. Saving now
 stays on Settings with an inline result; failed saves retain entered secrets for
 retry, while successful saves clear them from the form. The Business view reads

@@ -147,6 +147,14 @@ test('lifecycle probes and protected diagnostics expose truthful process state',
   assert.ok(Array.isArray(integrationBody.overview.systems));
   assert.ok(Array.isArray(integrationBody.overview.integrations));
   assert.equal(integrationBody.overview.integrations.some(item => Object.hasOwn(item, 'lastError')), false);
+
+  const unauthorizedAlerts = await request('/api/reliability-alerts', { auth: false });
+  assert.equal(unauthorizedAlerts.status, 401);
+  const alertStatus = await request('/api/reliability-alerts');
+  const alertBody = await alertStatus.json();
+  assert.equal(alertStatus.status, 200);
+  assert.equal(alertBody.enabled, false);
+  assert.equal(alertBody.recipient, undefined);
 });
 
 test('public contracts expose stable schemas and hardened response boundaries', async () => {
@@ -566,7 +574,7 @@ test('every mutating or credit-spending route is password protected', async () =
     '/api/gbp-mark-posted', '/api/performance-digest/toggle',
     '/api/performance-digest/run', '/api/performance-digest/seen',
     '/api/performance-digest/send', '/api/monthly-report', '/api/monthly-report/send',
-    '/api/transcribe', '/api/social-pack', '/api/storage-backups',
+    '/api/transcribe', '/api/social-pack', '/api/storage-backups', '/api/reliability-alerts',
   ];
   for (const path of paths) {
     const response = await request(path, { method: 'POST', auth: false, body: {} });
@@ -606,6 +614,12 @@ test('operator credentials can run workflows but cannot change owner settings', 
   });
   assert.equal(monthlyReport.status, 403);
   assert.equal((await monthlyReport.json()).code, 'INSUFFICIENT_ROLE');
+
+  const reliabilityAlerts = await request('/api/reliability-alerts', {
+    method: 'POST', auth: false, headers: operatorHeaders, body: { enabled: true },
+  });
+  assert.equal(reliabilityAlerts.status, 403);
+  assert.equal((await reliabilityAlerts.json()).code, 'INSUFFICIENT_ROLE');
 });
 
 test('saving an unchanged brand voice marks it reviewed', async () => {

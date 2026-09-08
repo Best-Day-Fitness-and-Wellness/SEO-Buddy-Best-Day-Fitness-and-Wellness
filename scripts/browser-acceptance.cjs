@@ -72,6 +72,11 @@ async function exercise(base, viewport) {
     if (url.pathname === '/api/publish-ghl') return fulfill({ success: true, source: 'mock_ghl', message: 'Test-only publication accepted' });
     if (url.pathname === '/api/index-url') return fulfill({ success: true, message: 'Test-only indexing accepted' });
     if (url.pathname === '/api/save-settings') return fulfill({ success: true, message: 'Test-only settings accepted' });
+    if (url.pathname === '/api/reliability-alerts') return fulfill({
+      success: true, enabled: request.postDataJSON().enabled === true, ready: false,
+      gmailConfigured: false, recipientConfigured: false, recipientMasked: '',
+      lastSentAt: null, hasDeliveryProblem: false,
+    });
     if (url.pathname === '/api/autopilot-queue/add') return fulfill({ success: true, queue: [{ topic: request.postDataJSON().topic }] });
     if (url.pathname === '/api/autopilot-queue/remove') return fulfill({ success: true, queue: [] });
     if (url.pathname === '/api/autopilot-run-now') return fulfill({ success: true, message: 'Test-only run accepted' });
@@ -282,6 +287,20 @@ async function exercise(base, viewport) {
     assert.equal(await page.locator('#settings-tab').evaluate(el => el.classList.contains('active')), true);
     await page.locator('#settings-gemini-key').fill('');
     responses.delete('/api/save-settings');
+  });
+
+  await journey(`${prefix}: failure email alerts are explicit, owner-controlled, and do not send on save`, async () => {
+    await nav('#nav-settings');
+    await page.waitForFunction(() => /Off|incomplete/.test(document.getElementById('settings-failure-alert-status')?.textContent || ''));
+    const before = writes.length;
+    await page.locator('#settings-health-details').evaluate(element => { element.open = true; });
+    await page.locator('#settings-failure-alert-enabled').check();
+    await page.locator('#settings-failure-alert-save').click();
+    await page.waitForFunction(() => document.getElementById('settings-failure-alert-status').textContent.includes('incomplete'));
+    const mutations = writes.slice(before);
+    assert.deepEqual(mutations.map(item => item.path), ['/api/reliability-alerts']);
+    assert.deepEqual(mutations[0].body, { enabled: true });
+    assert.match(await page.locator('#settings-failure-alert-note').innerText(), /does not send an email/);
   });
 
   await journey(`${prefix}: carousel stays compact and advances`, async () => {

@@ -1397,6 +1397,16 @@
             <div id="settings-health-alerts" role="status"></div>
             <div id="settings-health-list"></div>
             <p class="text-muted" id="settings-health-note">A successful connection time is shown only after the server records a real request.</p>
+            <div class="settings-failure-alerts" id="settings-failure-alerts">
+              <div>
+                <strong>Failure email alerts</strong>
+                <span id="settings-failure-alert-status">Checking alert preference…</span>
+              </div>
+              <label class="pd-toggle" title="Email the monthly report recipient when SEO Buddy finds a new operational failure"><span class="pd-switch"><input type="checkbox" id="settings-failure-alert-enabled"><span class="pd-slider"></span></span><span>Email me</span></label>
+              <button class="btn btn-secondary btn-xs" id="settings-failure-alert-save" type="button">Save preference</button>
+              <button class="btn btn-secondary btn-xs" id="settings-failure-alert-report" type="button">Report email settings</button>
+              <p class="text-muted" id="settings-failure-alert-note">Uses the monthly report address. Saving this preference does not send an email.</p>
+            </div>
           </details>
         </div>
         <div class="content-card max-width-md" id="storage-status-card" style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">

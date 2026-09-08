@@ -31,13 +31,20 @@
   const healthAlerts = document.getElementById('settings-health-alerts');
   const healthList = document.getElementById('settings-health-list');
   const healthNote = document.getElementById('settings-health-note');
+  const failureAlertEnabled = document.getElementById('settings-failure-alert-enabled');
+  const failureAlertStatus = document.getElementById('settings-failure-alert-status');
+  const failureAlertSave = document.getElementById('settings-failure-alert-save');
+  const failureAlertReport = document.getElementById('settings-failure-alert-report');
+  const failureAlertNote = document.getElementById('settings-failure-alert-note');
   const keyControls = { gemini: 'settings-gemini-key', openai: 'settings-openai-key', perplexity: 'settings-perplexity-key', gbp: 'settings-gbp-access-status' };
 
-  async function readOperationalHealth() {
-    const response = await authFetch('/api/integration-health');
-    if (!response.ok) throw new Error(response.status === 401 ? 'Enter the owner password in Settings to verify system health.' : 'System health is temporarily unavailable.');
+  async function readOperationalHealthStatus(path) {
+    const response = await authFetch(path);
+    if (!response.ok) throw new Error(response.status === 401 ? 'Enter the owner password in Settings to verify this status.' : 'This status is temporarily unavailable.');
     return response.json();
   }
+
+  const readOperationalHealth = () => readOperationalHealthStatus('/api/integration-health');
 
   function renderOperationalHealth(data) {
     const overview = data?.overview;
@@ -83,6 +90,27 @@
       : `No successful provider request is recorded for the current credentials. Configured does not mean tested.${persistentHistory ? '' : ' History is not guaranteed to survive a deployment until storage is persistent.'}`;
   }
 
+  function renderFailureAlerts(data) {
+    if (!failureAlertEnabled || !failureAlertStatus || !failureAlertSave || !failureAlertNote) return;
+    if (!data || typeof data.enabled !== 'boolean') {
+      failureAlertEnabled.checked = false;
+      failureAlertEnabled.disabled = true;
+      failureAlertSave.disabled = true;
+      failureAlertStatus.textContent = 'Unable to verify the saved preference.';
+      failureAlertNote.textContent = data?.alertError || 'Enter the owner password and refresh. No preference was changed.';
+      return;
+    }
+    failureAlertEnabled.disabled = false;
+    failureAlertSave.disabled = false;
+    failureAlertEnabled.checked = data.enabled;
+    if (!data.enabled) failureAlertStatus.textContent = 'Off. No failure emails are sent.';
+    else if (!data.ready) failureAlertStatus.textContent = 'Enabled, but the monthly report email setup is incomplete.';
+    else failureAlertStatus.textContent = `Enabled · ${data.recipientMasked || 'owner address'} · checked hourly${data.lastSentAt ? ` · last sent ${relativeTime(data.lastSentAt)}` : ''}.`;
+    failureAlertNote.textContent = data.hasDeliveryProblem
+      ? 'The latest alert email could not be delivered. SEO Buddy will retry after the cooldown; the same successful alert is never repeated.'
+      : 'Uses the monthly report address. Saving this preference does not send an email; each distinct incident set is sent once.';
+  }
+
   function gbpApprovalText(gbp) {
     if (!gbp || typeof gbp.configured !== 'boolean') return 'Status could not be checked. No connection change is being claimed.';
     if (gbp.configured) return 'Ready for direct publishing. A post counts as verified only after Google returns a receipt.';
@@ -106,11 +134,12 @@
     refreshConnections.disabled = true;
     connectionList.setAttribute('aria-busy', 'true');
     connectionNote.textContent = 'Checking saved configuration…';
-    const [ai, gbp, report, health] = await Promise.all([
+    const [ai, gbp, report, health, failureAlerts] = await Promise.all([
       readCheckedJson('/api/ai-engines').catch(() => null),
       readCheckedJson('/api/gbp-status').catch(() => null),
       readCheckedJson('/api/monthly-report').catch(() => null),
       readOperationalHealth().catch(error => ({ healthError: error.message })),
+      readOperationalHealthStatus('/api/reliability-alerts').catch(error => ({ alertError: error.message })),
     ]);
     if (request !== connectionRequest) return;
     let unavailable = false;
@@ -139,6 +168,7 @@
     connectionNote.textContent = unavailable ? 'Some status checks are unavailable. Refresh before changing credentials.' : 'Configuration checked just now. No scans, posts or emails were sent.';
     refreshConnections.disabled = false;
     renderOperationalHealth(health);
+    renderFailureAlerts(failureAlerts);
   }
   refreshConnections?.addEventListener('click', loadConnections);
   connectionList?.addEventListener('click', event => {
@@ -173,6 +203,27 @@
       button.disabled = false;
     }
   });
+  failureAlertSave?.addEventListener('click', async () => {
+    failureAlertSave.disabled = true;
+    const enabled = failureAlertEnabled.checked;
+    failureAlertStatus.textContent = 'Saving alert preference…';
+    try {
+      const response = await authFetch('/api/reliability-alerts', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || 'Could not save the alert preference.');
+      renderFailureAlerts(data);
+      showToast(enabled
+        ? (data.ready ? 'Failure email alerts enabled. No email was sent.' : 'Alerts enabled. Complete the monthly report email setup before delivery can work.')
+        : 'Failure email alerts turned off.');
+    } catch (error) {
+      failureAlertEnabled.checked = !enabled;
+      failureAlertStatus.textContent = error.message;
+      failureAlertSave.disabled = false;
+    }
+  });
+  failureAlertReport?.addEventListener('click', () => global.switchTab('performance-tab'));
 
   function loadSettingsWorkspace() {
     loadConnections();

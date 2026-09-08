@@ -67,6 +67,7 @@ const { createReviewsService, registerReviewsRoutes } = require('./lib/reviews-r
 const { registerConfigurationRoutes } = require('./lib/configuration-routes');
 const { buildOperationalHealth } = require('./lib/operational-health');
 const { createCredentialMetadata } = require('./lib/credential-metadata');
+const { createReliabilityAlertService, registerReliabilityAlertRoutes } = require('./lib/reliability-alerts');
 
 // Load UI-saved secrets from the durable storage root. Tenant state is isolated
 // below this root after configuration is loaded; host-provided variables still
@@ -759,6 +760,28 @@ providerRuntime.setConfigured('reviews-site', true);
 providerRuntime.setConfigured('web-audit', true);
 providerRuntime.setConfigured('trustpilot', () => Boolean(process.env.TRUSTPILOT_API_KEY && process.env.TRUSTPILOT_DOMAIN));
 
+function currentBudgetStatus() {
+  return {
+    limitUSD: usageMeter.budgetUSD,
+    usedUSD: currentUsage().estCostUSD,
+    reached: usageOverBudget(),
+  };
+}
+
+async function currentOperationalHealth({ budget = currentBudgetStatus(), providerSnapshot = providerRuntime.snapshot() } = {}) {
+  const queue = await durableJobQueue.snapshot(100);
+  return buildOperationalHealth({
+    budget,
+    providerSnapshot,
+    storage: storageReadiness(),
+    workerRunning: jobWorker.status().running,
+    backups: backupService.list(),
+    automation: buildAutomationStatus(getAutomationFeatures(), queue, jobWorker.status().running),
+    monthlyReport: monthlyReportService?.status() || null,
+    credentialMetadata: credentialMetadata.snapshot(),
+  });
+}
+
 registerOperationsRoutes(app, {
   requireAuth,
   requireOwner,
@@ -777,27 +800,11 @@ registerOperationsRoutes(app, {
   stateRepository,
   getPostgresStatus: () => postgresStatus,
   providerRuntime,
-  getBudget: () => ({
-    limitUSD: usageMeter.budgetUSD,
-    usedUSD: currentUsage().estCostUSD,
-    reached: usageOverBudget(),
-  }),
+  getBudget: currentBudgetStatus,
   backupService,
   durableJobQueue,
   isJobWorkerRunning: () => jobWorker.status().running,
-  getOperationalHealth: async ({ budget, providerSnapshot }) => {
-    const queue = await durableJobQueue.snapshot(100);
-    return buildOperationalHealth({
-      budget,
-      providerSnapshot,
-      storage: storageReadiness(),
-      workerRunning: jobWorker.status().running,
-      backups: backupService.list(),
-      automation: buildAutomationStatus(getAutomationFeatures(), queue, jobWorker.status().running),
-      monthlyReport: monthlyReportService?.status() || null,
-      credentialMetadata: credentialMetadata.snapshot(),
-    });
-  },
+  getOperationalHealth: currentOperationalHealth,
 });
 
 // ----------------------------------------------------
@@ -3047,6 +3054,24 @@ function saveMonthlyReport() {
   saveJsonFileSync(MONTHLY_REPORT_FILE, monthlyReportDb, 'Monthly Report');
 }
 let monthlyReportService = null;
+const RELIABILITY_ALERTS_FILE = path.join(DATA_DIR, 'reliability-alerts.json');
+let savedReliabilityAlerts = {};
+try { savedReliabilityAlerts = stateRepository.readJson('reliability-alerts.json', {}); }
+catch (error) { logger.warn('reliability_alerts.state_unreadable', { error }); }
+const reliabilityAlertsDb = Object.assign({
+  enabled: false,
+  lastCheckedAt: null,
+  lastAttemptAt: null,
+  lastSentAt: null,
+  lastResolvedAt: null,
+  lastIncidentFingerprint: null,
+  lastFailedFingerprint: null,
+  lastDeliveryFailed: false,
+}, savedReliabilityAlerts);
+function saveReliabilityAlerts() {
+  saveJsonFileSync(RELIABILITY_ALERTS_FILE, reliabilityAlertsDb, 'Reliability alerts');
+}
+let reliabilityAlertService = null;
 
 // ============================================================
 // 19. Performance weekly digest — a scheduled snapshot of search performance
@@ -3551,6 +3576,14 @@ monthlyReportService = createMonthlyReportService({
   sendGmail,
 });
 registerMonthlyReportRoutes(app, { requireOwner, service: monthlyReportService });
+reliabilityAlertService = createReliabilityAlertService({
+  state: reliabilityAlertsDb,
+  saveState: saveReliabilityAlerts,
+  gmailConfigured: () => !!gmailClient(),
+  recipient: () => monthlyReportService.deliveryRecipient(),
+  sendEmail: sendGmail,
+});
+registerReliabilityAlertRoutes(app, { requireOwner, service: reliabilityAlertService });
 // ===========================================================================
 // RECORDED ANSWERS  —  turning the owner's own words into content
 // ---------------------------------------------------------------------------
@@ -3593,6 +3626,13 @@ function scheduleMonthlyOwnerReport() {
   jobDispatcher.scheduleDaily('report.monthly-email', 150000, 13 * 60);
 }
 
+function scheduleReliabilityAlerts() {
+  // Backups start after two minutes. Waiting five minutes avoids reporting a
+  // missing backup during the normal startup window; hourly checks are enough
+  // for owner-facing operational alerts without adding noisy background work.
+  scheduleDurableCheck('operations.alert-check', 5 * 60 * 1000, 60 * 60 * 1000);
+}
+
 function registerDurableJobHandlers() {
   jobHandlers.set('content.autopilot', async () => {
     if (!autopilotEnabled) return { skipped: 'disabled' };
@@ -3605,6 +3645,7 @@ function registerDurableJobHandlers() {
   jobHandlers.set('onsite.autopilot', async () => { await maybeRunOnsiteAutopilot(false); return { checked: true }; });
   jobHandlers.set('performance.digest', async () => { await maybeRunPerfDigest(false); return { checked: true }; });
   jobHandlers.set('report.monthly-email', async () => monthlyReportService.runScheduled());
+  jobHandlers.set('operations.alert-check', async () => reliabilityAlertService.check(await currentOperationalHealth()));
   jobHandlers.set('health.snapshot', async () => { await recordDailyHealthSnapshot(); return { recorded: true }; });
   jobHandlers.set('storage.backup', async () => {
     const today = new Date().toISOString().slice(0, 10);
@@ -3621,6 +3662,7 @@ function startBackgroundWork() {
   scheduleDailyHealthSnapshots();
   scheduleDailyStateBackups();
   scheduleMonthlyOwnerReport();
+  scheduleReliabilityAlerts();
 }
 
 const server = app.listen(PORT, () => {

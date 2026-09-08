@@ -78,6 +78,7 @@ SEO Buddy is built to run itself between logins. Each autopilot keeps its own st
 - **On‑Site SEO autopilot** — periodic keyword/title‑meta refresh.
 - **Weekly citation auto‑scan** — re‑discovers the sources AI cites and diffs in new domains.
 - **Weekly performance digest** — writes a plain‑English recap (leading with your Optimization Score) and can **email it automatically** via Gmail.
+- **Failure email alerts** — an owner can opt in to an hourly check of provider, automation, report-delivery, storage, and backup health. A distinct unresolved incident set is emailed once, using the monthly-report recipient, and repeated checks are deduplicated.
 
 > **Note on indexing ownership.** Google's Indexing API requires the service account to be an **Owner** in Search Console (not just "Full"). With only "Full", indexing calls fail with *"Permission denied — failed to verify URL ownership"*; the rest of the app (GSC reads, publishing) still works.
 
@@ -360,6 +361,8 @@ Deploying by hand (GitHub web upload): keep `server.js`, `lib/`, `public/`, and 
 | POST | `/api/storage-backups` | 🔒 owner | Create a backup, or verify one by ID. Restore is deliberately CLI-only while the server is stopped. |
 | GET | `/api/job-queue` | 🔒 operator | Read bounded durable-job counts and recent execution status without payloads. |
 | GET | `/api/integration-health` | 🔒 operator | Read non-secret provider health, latency, retry, cache, circuit, and budget status. |
+| GET | `/api/reliability-alerts` | 🔒 owner | Read the opt-in failure-alert status, masked recipient, and bounded delivery evidence. |
+| POST | `/api/reliability-alerts` | 🔒 owner | Enable or disable failure alerts. Saving the preference never sends a test or live message. |
 
 ### Content
 | Method | Endpoint | Auth | Purpose |
@@ -486,6 +489,7 @@ State is stored as atomic JSON inside `DATA_DIR/tenants/<TENANT_ID>/`. On the fi
 | `autopilot-config.json` · `autopilot-logs.json` | Content autopilot config (incl. topic queue) + run logs. |
 | `performance-digest.json` | Saved weekly digests + settings. |
 | `monthly-report.json` | Monthly PDF delivery preference, owner recipient, and last-send evidence. Public status masks the address. |
+| `reliability-alerts.json` | Opt-in failure-alert preference, incident fingerprint, and bounded send/resolution evidence; never the recipient or provider errors. |
 | `integration-health.json` | Durable provider success/failure timestamps and counters; never credentials or upstream error bodies. |
 | `credential-metadata.json` | Last replacement timestamp for UI-managed provider credentials; never credential values. |
 | `business-profile.json` | Business identity (name/address/phone/socials). |

@@ -3278,6 +3278,12 @@ body.workspace-preview .ow-note { border-radius: 12px; }
 .settings-provider-health { margin-top:10px; padding-top:4px; border-top:1px solid var(--border-color); }
 .settings-provider-health > summary { padding:10px 0; cursor:pointer; color:var(--text-main); font-size:var(--font-xs); font-weight:700; }
 #settings-health-note { margin:12px 0 0; font-size:var(--font-xs); }
+.settings-failure-alerts { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-top:14px; padding:14px; border:1px solid var(--border-color); border-radius:12px; background:var(--bg-secondary); }
+.settings-failure-alerts > div { flex:1 1 220px; min-width:0; }
+.settings-failure-alerts > div strong, .settings-failure-alerts > div span { display:block; }
+.settings-failure-alerts > div span { margin-top:3px; color:var(--text-muted); font-size:var(--font-xs); }
+.settings-failure-alerts .btn { width:auto; }
+.settings-failure-alerts > p { flex-basis:100%; margin:0; font-size:var(--font-xs); }
 @media (max-width:520px) { .settings-health-row { grid-template-columns:1fr; } .settings-health-state { text-align:left; } }
 #settings-save-status:empty { display:none; }
 .ws-help { margin-left:auto; position:relative; color:var(--text-main); }
