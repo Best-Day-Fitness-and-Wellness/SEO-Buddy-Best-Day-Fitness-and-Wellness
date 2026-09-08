@@ -2418,7 +2418,7 @@ async function assistantContext() {
     optimizationScore: lastScore, scoreChangeLast28Days: scoreDelta,
     scoreStatus: currentScore ? 'current-dashboard-calculation' : 'unavailable',
     contextCheckedAt: new Date().toISOString(),
-    connections: { googleBusinessProfilePublishing: gbpConfigured(), gmail: !!gmailClient(), websitePublishing: !!process.env.GHL_ACCESS_TOKEN && !!process.env.GHL_LOCATION_ID, searchConsole: !!(process.env.GSC_SITE_URL && getGoogleAuth()) },
+    connections: { googleBusinessProfilePublishing: gbpConfigured(), googleBusinessProfile: gbpReadiness(), gmail: !!gmailClient(), websitePublishing: !!process.env.GHL_ACCESS_TOKEN && !!process.env.GHL_LOCATION_ID, searchConsole: !!(process.env.GSC_SITE_URL && getGoogleAuth()) },
     googlePost: { status: gbpPublicationStatus(localDb.gbpDraft), recordedAt: localDb.gbpDraft?.postedAt || localDb.gbpDraft?.createdAt || null },
     monthlyReport: monthlyReportService ? monthlyReportService.status() : { ready: false },
     contentSchedule: { enabled: autopilotEnabled, nextRunAt: autopilotEnabled ? nextRunTime : null, lastSuccessfulRunAt: lastAutopilotRun },
@@ -2989,7 +2989,7 @@ scheduleDurableCheck('onsite.autopilot', 45000, 12 * 60 * 60 * 1000);
 // existing compose-link / paste flow. Nothing breaks when unconfigured.
 // ============================================================
 const googleDelivery = createGoogleDelivery({ google, providerRuntime, siteDomain, env: process.env });
-const { gmailClient, sendGmail, gbpConfigured, postGbpLocalPost } = googleDelivery;
+const { gmailClient, sendGmail, gbpConfigured, gbpReadiness, postGbpLocalPost } = googleDelivery;
 
 // Monthly owner reports have their own durable state. Recipient addresses are
 // operational configuration rather than secrets, and are masked in public
@@ -3102,6 +3102,7 @@ registerDeliveryRoutes(app, {
   gmailSender: () => process.env.GMAIL_SENDER || '',
   sendGmail,
   gbpConfigured,
+  gbpReadiness,
   postGbpLocalPost,
   getGbpDraft: () => localDb.gbpDraft,
   markGbpDraftPosted: result => {

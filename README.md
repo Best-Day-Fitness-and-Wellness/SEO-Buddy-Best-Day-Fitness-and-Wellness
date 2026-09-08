@@ -175,6 +175,16 @@ The multi‑engine AI Visibility dashboard and FactCheck run on **Google alone**
 | `GOOGLE_APPLICATION_CREDENTIALS` | *(unset)* | Path to a service‑account JSON key **or** the full raw JSON string (auto‑detects a value starting with `{`). Powers Search Console reads + the Indexing API. |
 | `GSC_SITE_URL` | *(unset)* | Your verified property, matching its type **exactly**: `sc-domain:example.com` (Domain) or `https://example.com/` (URL‑prefix). |
 
+### Google Business Profile publishing
+| Variable | Default | Description |
+|---|---|---|
+| `GBP_API_ACCESS_STATUS` | `not-recorded` | Owner-maintained application stage: `not-requested`, `pending`, `approved`, or `declined`. This is tracking metadata, not proof from Google. |
+| `GBP_API_CASE_ID` | *(unset)* | Optional Google support case ID shown in the owner-facing readiness status. |
+| `GBP_API_SUBMITTED_AT` | *(unset)* | Optional application date in `YYYY-MM-DD` format. |
+| `GBP_CLIENT_ID` / `GBP_CLIENT_SECRET` | falls back to `GMAIL_*` | OAuth client credentials used after Google approves API access. |
+| `GBP_REFRESH_TOKEN` | *(unset)* | OAuth refresh token with the Business Profile management scope. Treat as a secret. |
+| `GBP_ACCOUNT_ID` / `GBP_LOCATION_ID` | *(unset)* | The authorized Google Business Profile account and location. Direct publishing remains unavailable until all required values exist. |
+
 ### GoHighLevel
 | Variable | Description |
 |---|---|

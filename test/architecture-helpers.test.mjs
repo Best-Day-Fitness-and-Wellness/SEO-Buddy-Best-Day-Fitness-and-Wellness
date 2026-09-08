@@ -1053,7 +1053,21 @@ test('Google delivery adapter owns OAuth, Gmail encoding, and Business Profile p
   const delivery = createGoogleDelivery({ google, providerRuntime, env, siteDomain: () => 'https://example.com' });
   assert.equal(delivery.gmailClient(), null);
   assert.equal(delivery.gbpConfigured(), false);
+  assert.deepEqual(delivery.gbpReadiness(), {
+    configured: false,
+    status: 'needs-approval',
+    approval: { status: 'not-recorded', caseId: null, submittedAt: null },
+    steps: { apiAccessApproved: false, googleAccountAuthorized: false, businessAccountSelected: false, locationSelected: false },
+  });
   assert.deepEqual(await delivery.postGbpLocalPost('Draft'), { posted: false, needsSetup: true });
+
+  Object.assign(env, { GBP_API_ACCESS_STATUS: 'pending', GBP_API_CASE_ID: '6-1234000012345', GBP_API_SUBMITTED_AT: '2026-09-08' });
+  assert.deepEqual(delivery.gbpReadiness(), {
+    configured: false,
+    status: 'pending-approval',
+    approval: { status: 'pending', caseId: '6-1234000012345', submittedAt: '2026-09-08' },
+    steps: { apiAccessApproved: false, googleAccountAuthorized: false, businessAccountSelected: false, locationSelected: false },
+  });
 
   Object.assign(env, {
     GMAIL_CLIENT_ID: 'gmail-client',
@@ -1063,9 +1077,12 @@ test('Google delivery adapter owns OAuth, Gmail encoding, and Business Profile p
     GBP_REFRESH_TOKEN: 'gbp-refresh',
     GBP_ACCOUNT_ID: 'account-1',
     GBP_LOCATION_ID: 'location-1',
+    GBP_API_ACCESS_STATUS: 'approved',
   });
   assert.ok(delivery.gmailClient());
   assert.equal(delivery.gbpConfigured(), true);
+  assert.equal(delivery.gbpReadiness().status, 'ready');
+  assert.deepEqual(delivery.gbpReadiness().steps, { apiAccessApproved: true, googleAccountAuthorized: true, businessAccountSelected: true, locationSelected: true });
   assert.equal(await delivery.sendGmail(' editor@example.com ', 'A subject', 'A body'), 'gmail-123');
   assert.deepEqual(providerCalls, [{ provider: 'gmail', options: { policy: { retries: 0, timeoutMs: 30000 } } }]);
   const encoded = gmailMessages[0].requestBody.raw.replace(/-/g, '+').replace(/_/g, '/');
@@ -1133,6 +1150,9 @@ test('delivery routes preserve setup, validation, send, draft, and digest contra
       return sendResult;
     },
     gbpConfigured: () => gbpConnected,
+    gbpReadiness: () => gbpConnected
+      ? { configured: true, status: 'ready' }
+      : { configured: false, status: 'pending-approval', approval: { status: 'pending', caseId: '6-1234000012345', submittedAt: '2026-09-08' } },
     postGbpLocalPost: async () => {
       if (gbpResult instanceof Error) throw gbpResult;
       if (typeof gbpResult === 'function') return gbpResult();
@@ -1165,7 +1185,7 @@ test('delivery routes preserve setup, validation, send, draft, and digest contra
   assert.deepEqual(gmailStatus.body, { configured: false, from: 'owner@example.com' });
   const gbpStatus = response();
   handler('GET', '/api/gbp-status')({}, gbpStatus);
-  assert.deepEqual(gbpStatus.body, { configured: false });
+  assert.deepEqual(gbpStatus.body, { configured: false, status: 'pending-approval', approval: { status: 'pending', caseId: '6-1234000012345', submittedAt: '2026-09-08' } });
 
   const pitchSetup = response();
   await handler('POST', '/api/send-pitch')({ body: { to: 'invalid' } }, pitchSetup);
@@ -1381,6 +1401,7 @@ test('configuration routes preserve secrets, credentials, validation, activation
   assert.ok(PRESERVED_SETTINGS.includes('GOOGLE_APPLICATION_CREDENTIALS'));
   assert.ok(PRESERVED_SETTINGS.includes('ADMIN_PASSWORD'));
   assert.ok(PRESERVED_SETTINGS.includes('TRUSTPILOT_API_KEY'));
+  assert.ok(PRESERVED_SETTINGS.includes('GBP_API_ACCESS_STATUS'));
   assert.equal(cleanSettingValue('  value  ', 10), 'value');
   assert.equal(cleanSettingValue('123456', 4), '1234');
 
@@ -1400,11 +1421,22 @@ test('configuration routes preserve secrets, credentials, validation, activation
     GHL_BLOG_PATH_PREFIX: 'articles',
     ADMIN_PASSWORD: 'owner-secret',
   });
+  assert.deepEqual(normalizeSettings({ gbpAccessStatus: 'pending', gbpCaseId: ' 6-1234000012345 ', gbpSubmittedAt: '2026-09-08' }, {}), {
+    GBP_API_ACCESS_STATUS: 'pending',
+    GBP_API_CASE_ID: '6-1234000012345',
+    GBP_API_SUBMITTED_AT: '2026-09-08',
+  });
+  assert.deepEqual(normalizeSettings({ gbpAccessStatus: 'not-requested', gbpCaseId: '6-should-clear', gbpSubmittedAt: '2026-09-08' }, {
+    GBP_API_CASE_ID: '6-old', GBP_API_SUBMITTED_AT: '2026-08-01',
+  }), { GBP_API_ACCESS_STATUS: 'not-requested' });
   assert.throws(() => normalizeSettings({ geminiKey: 'valid\nINJECTED=value' }, {}), /control characters/);
   assert.equal(validateSavedSettings({ GSC_SITE_URL: 'sc-domain:bestdayfitness.com' }), null);
   assert.equal(validateSavedSettings({ GSC_SITE_URL: 'sc-domain:https://bad.example' }), 'Search Console domain properties must look like sc-domain:example.com.');
   assert.equal(validateSavedSettings({ GSC_SITE_URL: 'ftp://bad.example' }), 'The site URL must start with http:// or https://.');
   assert.equal(validateSavedSettings({ GHL_AUTHOR_URL: 'not a URL' }), 'The author URL must start with http:// or https://.');
+  assert.equal(validateSavedSettings({ GBP_API_ACCESS_STATUS: 'guessing' }), 'Choose a valid Google Business Profile approval status.');
+  assert.equal(validateSavedSettings({ GBP_API_CASE_ID: 'bad case!' }), 'The Google support case ID can contain only letters, numbers, and dashes.');
+  assert.equal(validateSavedSettings({ GBP_API_SUBMITTED_AT: '09/08/2026' }), 'The Google application date must use YYYY-MM-DD.');
   const prefix = { GHL_BLOG_PATH_PREFIX: 'post' };
   assert.equal(validateSavedSettings(prefix), null);
   assert.equal(prefix.GHL_BLOG_PATH_PREFIX, '/post');

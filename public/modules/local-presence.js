@@ -86,24 +86,29 @@
     } catch (error) { button.disabled = false; alert(error.message); }
   });
 
+  let laGbpReadiness = null;
   function laRenderGbp(draft) {
     if (!laGbpBody) return;
-    if (!draft) { laGbpBadge.innerHTML = ''; laGbpBody.innerHTML = '<span class="lr-muted">No post yet — one is written each week, or click Run now.</span>'; return; }
+    const approvalNote = laGbpReadiness?.status === 'pending-approval'
+      ? `<div class="gsc-fix"><b>Direct posting is waiting for Google.</b> Your API application${laGbpReadiness.approval?.caseId ? ` (case ${citEsc(laGbpReadiness.approval.caseId)})` : ''} is under review. Drafting and manual posting still work.</div>`
+      : laGbpReadiness?.status === 'needs-authorization'
+        ? '<div class="gsc-fix"><b>Google approved API access.</b> Connect the Google account and business location in Settings to enable direct posting.</div>' : '';
+    if (!draft) { laGbpBadge.innerHTML = ''; laGbpBody.innerHTML = approvalNote + '<span class="lr-muted">No post yet — one is written each week, or click Run now.</span>'; return; }
     const googleConfirmed = draft.publicationSource === 'google-api' && !!draft.googlePostName;
-    laGbpBadge.innerHTML = draft.posted ? `<span class="la-badge ok">${googleConfirmed ? 'GOOGLE CONFIRMED' : 'MARKED AS POSTED'}</span>` : (draft.isNew ? '<span class="la-badge new">NEW</span>' : '');
-    const postedNote = draft.posted ? `<span class="lr-muted">${googleConfirmed ? 'Google confirmed publication' : 'Marked as posted — not verified by Google'} ${laAgo(draft.postedAt)}</span>`
+    laGbpBadge.innerHTML = draft.posted ? `<span class="la-badge ok">${googleConfirmed ? 'GOOGLE CONFIRMED' : 'RECORDED MANUALLY'}</span>` : (draft.isNew ? '<span class="la-badge new">NEW</span>' : '');
+    const postedNote = draft.posted ? `<span class="lr-muted">${googleConfirmed ? 'Google confirmed publication through the API' : 'Recorded by the owner — Google did not confirm this through the API'} ${laAgo(draft.postedAt)}</span>`
       : (draft.postError ? `<span class="nap-bad">Auto-post failed: ${citEsc(draft.postError)}</span>` : '');
     const postBtn = (laGbpConfigured && !draft.posted) ? `<button class="btn btn-primary btn-xs" id="la-gbp-post" type="button">Post to Google now</button>` : '';
     // Manual flow (no GBP API): let the owner confirm they posted it to Google themselves.
-    const markBtn = !draft.posted ? `<button class="btn btn-secondary btn-xs" id="la-gbp-mark" type="button">&#10003; Mark as posted</button>` : '';
-    laGbpBody.innerHTML = `<div class="la-gbp-text">${citEsc(draft.text)}</div>`
+    const markBtn = !draft.posted ? `<button class="btn btn-secondary btn-xs" id="la-gbp-mark" type="button">&#10003; I posted this manually</button>` : '';
+    laGbpBody.innerHTML = approvalNote + `<div class="la-gbp-text">${citEsc(draft.text)}</div>`
       + `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">`
       + `<button class="btn btn-secondary btn-xs" id="la-gbp-copy" type="button">Copy post</button>`
       + postBtn
       + markBtn
       + `<span class="lr-muted">Topic: ${citEsc(draft.topic || '—')} · written ${laAgo(draft.createdAt)}</span>`
       + `</div>`
-      + (!draft.posted ? `<div class="lr-muted" style="margin-top:6px;">Copy the post into your Google Business Profile, then tap <b>Mark as posted</b> to clear the reminder.</div>` : '')
+      + (!draft.posted ? `<div class="lr-muted" style="margin-top:6px;">Copy the post into your Google Business Profile, then tap <b>I posted this manually</b>. This records your action but does not claim Google verified it.</div>` : '')
       + (postedNote ? `<div style="margin-top:6px;">${postedNote}</div>` : '');
     const cp = document.getElementById('la-gbp-copy');
     if (cp) cp.onclick = () => { navigator.clipboard.writeText(draft.text); cp.innerText = 'Copied ✓'; setTimeout(() => cp.innerText = 'Copy post', 1200); };
@@ -117,7 +122,7 @@
         draft.posted = true; draft.publicationSource = 'owner'; draft.postedAt = new Date().toISOString(); laRenderGbp(draft);
         if (window.loadHome) window.loadHome();
         if (window.loadGrow) window.loadGrow();
-      } catch (e) { alert('Could not update: ' + e.message); mb.disabled = false; mb.innerHTML = '&#10003; Mark as posted'; }
+      } catch (e) { alert('Could not update: ' + e.message); mb.disabled = false; mb.innerHTML = '&#10003; I posted this manually'; }
     };
     const pb = document.getElementById('la-gbp-post');
     if (pb) pb.onclick = async () => {
@@ -155,7 +160,7 @@
   }
 
   async function loadLocalAutopilot() {
-    try { const g = await (await fetch('/api/gbp-status')).json(); laGbpConfigured = !!g.configured; } catch (e) { /* default off */ }
+    try { const g = await (await fetch('/api/gbp-status')).json(); laGbpReadiness = g; laGbpConfigured = !!g.configured; } catch (e) { laGbpReadiness = null; }
     try {
       const res = await fetch('/api/local-autopilot');
       const s = await res.json();

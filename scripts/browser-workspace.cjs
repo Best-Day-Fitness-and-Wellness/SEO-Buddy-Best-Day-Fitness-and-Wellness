@@ -805,8 +805,8 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
         const title = page.locator('#la-gbp-title');
         const badge = page.locator('#la-gbp-badge .la-badge');
         if (['posted', 'verified', 'new'].includes(state)) {
-          assert.equal(await badge.innerText(), state === 'posted' ? 'MARKED AS POSTED' : state === 'verified' ? 'GOOGLE CONFIRMED' : 'NEW');
-          if (state === 'posted') assert.match(await page.locator('#la-gbp-body').innerText(), /not verified by Google/);
+          assert.equal(await badge.innerText(), state === 'posted' ? 'RECORDED MANUALLY' : state === 'verified' ? 'GOOGLE CONFIRMED' : 'NEW');
+          if (state === 'posted') assert.match(await page.locator('#la-gbp-body').innerText(), /did not confirm this through the API/);
           const a = await title.boundingBox(), b = await badge.boundingBox();
           assert.ok(a && b);
           assert.ok(a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y, 'Status must not cover the title');
@@ -826,13 +826,17 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
     const initialWrites = writes.length;
     try {
       responses.set('/api/ai-engines', { json: { success: true, engines: [{ id: 'google', configured: true }, { id: 'openai', configured: false }, { id: 'perplexity', configured: false }] } });
-      responses.set('/api/gbp-status', { json: { configured: false } });
+      responses.set('/api/gbp-status', { json: { configured: false, status: 'pending-approval', approval: { status: 'pending', caseId: '6-1234000012345', submittedAt: '2026-09-08' } } });
       responses.set('/api/monthly-report', { json: { success: true, ready: true, enabled: false } });
       await load('settings');
       await page.waitForFunction(() => document.getElementById('settings-connection-note').textContent.includes('checked just now'));
       assert.equal(await page.locator('.settings-connection-row').count(), 5);
       assert.match(await page.locator('#settings-connection-list').innerText(), /set up but paused/);
+      assert.match(await page.locator('#settings-connection-list').innerText(), /Google reviewing/);
       assert.match(await page.locator('.settings-connection-row').first().innerText(), /Configured/);
+      await page.locator('[data-connection-key="gbp"]').click();
+      assert.equal(await page.evaluate(() => document.activeElement.id), 'settings-gbp-access-status');
+      assert.match(await page.locator('#settings-gbp-approval-note').innerText(), /case 6-1234000012345/);
       await page.locator('[data-connection-key="openai"]').click();
       assert.equal(await page.locator('#ws-connections').getAttribute('open'), '');
       assert.equal(await page.evaluate(() => document.activeElement.id), 'settings-openai-key');

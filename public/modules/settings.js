@@ -13,6 +13,10 @@
   const settingsAuthorName = document.getElementById('settings-author-name');
   const settingsAuthorUrl = document.getElementById('settings-author-url');
   const settingsGscJson = document.getElementById('settings-gsc-json');
+  const settingsGbpAccessStatus = document.getElementById('settings-gbp-access-status');
+  const settingsGbpCaseId = document.getElementById('settings-gbp-case-id');
+  const settingsGbpSubmittedAt = document.getElementById('settings-gbp-submitted-at');
+  const settingsGbpApprovalNote = document.getElementById('settings-gbp-approval-note');
   const settingsAdminPassword = document.getElementById('settings-admin-password');
   const settingsClientValue = document.getElementById('settings-client-value');
   const settingsConvRate = document.getElementById('settings-conv-rate');
@@ -22,7 +26,24 @@
   const connectionList = document.getElementById('settings-connection-list');
   const connectionNote = document.getElementById('settings-connection-note');
   const refreshConnections = document.getElementById('settings-refresh-connections');
-  const keyControls = { gemini: 'settings-gemini-key', openai: 'settings-openai-key', perplexity: 'settings-perplexity-key' };
+  const keyControls = { gemini: 'settings-gemini-key', openai: 'settings-openai-key', perplexity: 'settings-perplexity-key', gbp: 'settings-gbp-access-status' };
+
+  function gbpApprovalText(gbp) {
+    if (!gbp || typeof gbp.configured !== 'boolean') return 'Status could not be checked. No connection change is being claimed.';
+    if (gbp.configured) return 'Ready for direct publishing. A post counts as verified only after Google returns a receipt.';
+    if (gbp.status === 'pending-approval') return `Google is reviewing the API application${gbp.approval?.caseId ? ` (case ${gbp.approval.caseId})` : ''}. Drafting and manual posting still work.`;
+    if (gbp.status === 'approval-declined') return 'Google declined the application. Review the support case before applying again.';
+    if (gbp.status === 'needs-authorization') return 'API access is recorded as approved. Next, authorize the Google account and select the business location.';
+    return 'Apply for Google Business Profile API access before connecting direct publishing.';
+  }
+
+  function showGbpApproval(gbp) {
+    if (!settingsGbpApprovalNote || !gbp) return;
+    settingsGbpApprovalNote.textContent = gbpApprovalText(gbp);
+    if (document.activeElement !== settingsGbpAccessStatus && gbp.approval?.status && gbp.approval.status !== 'not-recorded') settingsGbpAccessStatus.value = gbp.approval.status;
+    if (document.activeElement !== settingsGbpCaseId) settingsGbpCaseId.value = gbp.approval?.caseId || '';
+    if (document.activeElement !== settingsGbpSubmittedAt) settingsGbpSubmittedAt.value = gbp.approval?.submittedAt || '';
+  }
 
   async function loadConnections() {
     if (!connectionList) return;
@@ -37,9 +58,9 @@
     ]);
     if (request !== connectionRequest) return;
     let unavailable = false;
-    const row = (name, configured, detail, action) => {
+    const row = (name, configured, detail, action, stateLabel) => {
       if (configured === null) unavailable = true;
-      return `<div class="settings-connection-row"><div><strong>${uiEsc(name)}</strong><span>${uiEsc(detail)}</span></div><span class="settings-connection-state">${configured === null ? 'Unable to check' : configured ? 'Configured' : 'Not connected'}</span>${action}</div>`;
+      return `<div class="settings-connection-row"><div><strong>${uiEsc(name)}</strong><span>${uiEsc(detail)}</span></div><span class="settings-connection-state">${uiEsc(stateLabel || (configured === null ? 'Unable to check' : configured ? 'Configured' : 'Not connected'))}</span>${action}</div>`;
     };
     let html = ['gemini', 'openai', 'perplexity'].map(id => {
       const matches = Array.isArray(ai?.engines) ? ai.engines.filter(engine => engine?.id === (id === 'gemini' ? 'google' : id)) : [];
@@ -49,9 +70,10 @@
         `<button type="button" class="btn btn-secondary btn-xs" data-connection-key="${id}">${configured === null ? 'Review key' : configured ? 'Manage key' : 'Set up'}</button>`);
     }).join('');
     const gbpReady = typeof gbp?.configured === 'boolean' ? gbp.configured : null;
-    html += row('Google Business Profile publishing', gbpReady,
-      gbpReady === true ? 'Publishing credentials are set. A Google receipt confirms each post.' : gbpReady === false ? 'Drafts work; posting is manual until API approval and account connection are complete.' : 'Status could not be read. This does not mean your connection was removed.',
-      '<button type="button" class="btn btn-secondary btn-xs" data-connection-tab="local-tab">Review posts</button>');
+    const gbpState = gbpReady === null ? 'Unable to check' : gbpReady ? 'Ready' : gbp?.status === 'pending-approval' ? 'Google reviewing' : gbp?.status === 'needs-authorization' ? 'Connect account' : gbp?.status === 'approval-declined' ? 'Review declined' : 'Approval needed';
+    html += row('Google Business Profile publishing', gbpReady, gbpApprovalText(gbp),
+      '<button type="button" class="btn btn-secondary btn-xs" data-connection-key="gbp">View approval</button>', gbpState);
+    showGbpApproval(gbp);
     const reportReady = typeof report?.ready === 'boolean' ? report.ready : null;
     html += row('Monthly report email', reportReady,
       reportReady === null ? 'Status could not be read. Review report controls or retry before changing setup.' : reportReady ? (report.enabled === true ? 'Automatic delivery is enabled. Review the recipient, schedule and delivery history.' : report.enabled === false ? 'Delivery is set up but paused. Review the report controls to resume.' : 'Delivery is set up; its automatic schedule status is unavailable.') : 'Review the recipient and Gmail setup. Opening controls does not send an email.',
@@ -80,19 +102,28 @@
     // Opening another tab must not discard an unsaved connection or author edit.
     if (populated) return;
     const creds = global.getStoredCredentials();
-    settingsGeminiKey.value = creds.geminiKey;
-    settingsGhlToken.value = creds.ghlToken;
-    settingsGhlLocation.value = creds.ghlLocation;
-    settingsGhlBlog.value = creds.ghlBlog;
-    settingsSiteUrl.value = creds.siteUrl || 'https://bestdayfitness.com';
-    settingsBlogPrefix.value = creds.blogPrefix || '/post';
-    settingsAuthorName.value = creds.authorName || '';
-    settingsAuthorUrl.value = creds.authorUrl || '';
-    settingsGscJson.value = creds.gscJson;
-    settingsAdminPassword.value = creds.adminPassword || '';
-    if (settingsClientValue) settingsClientValue.value = creds.clientValue;
-    if (settingsConvRate) settingsConvRate.value = creds.convRate;
-    if (settingsCaptureRate) settingsCaptureRate.value = creds.captureRate;
+    // The settings asset is lazy. A fast owner can focus and type before it
+    // finishes loading, so initialization must never overwrite a live draft.
+    const setInitial = (field, value) => {
+      if (!field || field === document.activeElement || field.value) return;
+      field.value = value || '';
+    };
+    setInitial(settingsGeminiKey, creds.geminiKey);
+    setInitial(settingsGhlToken, creds.ghlToken);
+    setInitial(settingsGhlLocation, creds.ghlLocation);
+    setInitial(settingsGhlBlog, creds.ghlBlog);
+    setInitial(settingsSiteUrl, creds.siteUrl || 'https://bestdayfitness.com');
+    setInitial(settingsBlogPrefix, creds.blogPrefix || '/post');
+    setInitial(settingsAuthorName, creds.authorName);
+    setInitial(settingsAuthorUrl, creds.authorUrl);
+    setInitial(settingsGscJson, creds.gscJson);
+    if (settingsGbpAccessStatus !== document.activeElement) settingsGbpAccessStatus.value = creds.gbpAccessStatus;
+    setInitial(settingsGbpCaseId, creds.gbpCaseId);
+    setInitial(settingsGbpSubmittedAt, creds.gbpSubmittedAt);
+    setInitial(settingsAdminPassword, creds.adminPassword);
+    setInitial(settingsClientValue, creds.clientValue);
+    setInitial(settingsConvRate, creds.convRate);
+    setInitial(settingsCaptureRate, creds.captureRate);
     global.updateSiteUrlBadge(creds.siteUrl);
     populated = true;
   }
@@ -156,6 +187,9 @@
     const authorName = settingsAuthorName.value.trim();
     const authorUrl = settingsAuthorUrl.value.trim();
     const gscJson = settingsGscJson.value.trim();
+    const gbpAccessStatus = settingsGbpAccessStatus.value;
+    const gbpCaseId = settingsGbpCaseId.value.trim();
+    const gbpSubmittedAt = settingsGbpSubmittedAt.value;
     const adminPassword = settingsAdminPassword.value;
 
     try {
@@ -170,12 +204,15 @@
       localStorage.setItem('seo_blog_prefix', blogPrefix);
       localStorage.setItem('seo_author_name', authorName);
       localStorage.setItem('seo_author_url', authorUrl);
+      localStorage.setItem('seo_gbp_access_status', gbpAccessStatus);
+      localStorage.setItem('seo_gbp_case_id', gbpCaseId);
+      localStorage.setItem('seo_gbp_submitted_at', gbpSubmittedAt);
       global.updateSiteUrlBadge(siteUrl);
 
       const response = await authFetch('/api/save-settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ geminiKey, openaiKey, perplexityKey, ghlToken, ghlLocation, ghlBlog, siteUrl, blogPrefix, authorName, authorUrl, gscJson }),
+        body: JSON.stringify({ geminiKey, openaiKey, perplexityKey, ghlToken, ghlLocation, ghlBlog, siteUrl, blogPrefix, authorName, authorUrl, gscJson, gbpAccessStatus, gbpCaseId, gbpSubmittedAt }),
       });
       const data = await response.json();
       if (response.ok && data.success) {

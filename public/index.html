@@ -1485,6 +1485,27 @@
             </div>
 
             <div class="settings-section-title">Google connections</div>
+            <div class="form-group">
+              <label for="settings-gbp-access-status">Business Profile API application</label>
+              <select id="settings-gbp-access-status" class="form-input">
+                <option value="not-requested">Not requested</option>
+                <option value="pending">Google is reviewing it</option>
+                <option value="approved">Google approved it</option>
+                <option value="declined">Google declined it</option>
+              </select>
+              <small class="text-muted">This records your application progress only. It does not grant access or publish anything.</small>
+            </div>
+            <div class="form-row">
+              <div class="form-group col">
+                <label for="settings-gbp-case-id">Google support case ID <span class="text-muted" style="font-weight:400;">(optional)</span></label>
+                <input type="text" id="settings-gbp-case-id" class="form-input" placeholder="e.g. 6-1234000012345">
+              </div>
+              <div class="form-group col">
+                <label for="settings-gbp-submitted-at">Application date <span class="text-muted" style="font-weight:400;">(optional)</span></label>
+                <input type="date" id="settings-gbp-submitted-at" class="form-input">
+              </div>
+            </div>
+            <div id="settings-gbp-approval-note" class="gsc-fix" role="status">Record the application status so SEO Buddy can show the correct next step.</div>
             <div class="form-row">
               <div class="form-group col">
                 <label for="settings-site-url">Verified Search Console site</label>
