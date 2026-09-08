@@ -912,8 +912,11 @@ test('AI audit routes preserve status, concurrency, budget, and error contracts'
   const failed = response();
   await routes.get('POST /api/ai-factcheck/run')({}, failed);
   assert.equal(failed.statusCode, 502);
-  assert.deepEqual(failed.body, { success: false, error: 'provider unavailable' });
-  assert.deepEqual(errors, [['[FactCheck run] failed:', 'provider unavailable']]);
+  assert.deepEqual(failed.body, {
+    success: false,
+    error: 'FactCheck could not be completed because Gemini is temporarily unavailable. Your saved data was not changed; try again.',
+  });
+  assert.deepEqual(errors, [['[FactCheck run] failed:', 'PROVIDER_UNAVAILABLE']]);
   assert.equal(factState.running, false);
 });
 
@@ -1203,7 +1206,7 @@ test('delivery routes preserve setup, validation, send, draft, and digest contra
   const pitchFailed = response();
   await handler('POST', '/api/send-pitch')({ body: { to: 'editor@example.com' } }, pitchFailed);
   assert.equal(pitchFailed.statusCode, 502);
-  assert.equal(pitchFailed.body.error, 'Gmail send failed: mailbox unavailable');
+  assert.equal(pitchFailed.body.error, 'The email could not be completed because Gmail is temporarily unavailable. Your saved data was not changed; try again.');
 
   const gbpMissing = response();
   await handler('POST', '/api/gbp-post')({ body: {} }, gbpMissing);
@@ -1229,7 +1232,7 @@ test('delivery routes preserve setup, validation, send, draft, and digest contra
   const gbpFailed = response();
   await handler('POST', '/api/gbp-post')({ body: { text: 'Another post' } }, gbpFailed);
   assert.equal(gbpFailed.statusCode, 502);
-  assert.equal(gbpFailed.body.error, 'GBP post failed: GBP unavailable');
+  assert.equal(gbpFailed.body.error, 'The Business Profile post could not be completed because Google Business Profile is temporarily unavailable. Your saved data was not changed; try again.');
   gbpDraft = null;
   const noDraft = response();
   handler('POST', '/api/gbp-mark-posted')({ body: {} }, noDraft);
@@ -1251,8 +1254,8 @@ test('delivery routes preserve setup, validation, send, draft, and digest contra
   assert.deepEqual(digestSent.body, { success: true, sent: true, id: 'digest-message', to: 'owner@example.com' });
   assert.deepEqual(sent.at(-1), ['owner@example.com', 'Your weekly SEO performance — Best Day Fitness', 'Fresh digest']);
   assert.deepEqual(errors, [
-    ['[Gmail send] failed:', 'mailbox unavailable'],
-    ['[GBP post] failed:', 'GBP unavailable'],
+    ['[Gmail send] failed:', 'PROVIDER_UNAVAILABLE'],
+    ['[GBP post] failed:', 'PROVIDER_UNAVAILABLE'],
   ]);
 });
 
@@ -1395,8 +1398,11 @@ test('local SEO routes preserve NAP, generation, validation, and reply-history c
   const failed = response();
   await handler('/api/local-generate')({ body: { kind: 'review-request' } }, failed);
   assert.equal(failed.statusCode, 502);
-  assert.deepEqual(failed.body, { success: false, error: 'generation unavailable' });
-  assert.deepEqual(errors.at(-1), ['[Local Generate] failed:', 'generation unavailable']);
+  assert.deepEqual(failed.body, {
+    success: false,
+    error: 'The local content request could not be completed because Gemini is temporarily unavailable. Your saved data was not changed; try again.',
+  });
+  assert.deepEqual(errors.at(-1), ['[Local Generate] failed:', 'PROVIDER_UNAVAILABLE']);
 });
 
 test('configuration routes preserve secrets, credentials, validation, activation, and storage contracts', () => {
@@ -1674,8 +1680,12 @@ test('reviews service preserves parsing, audits, snapshots, coalescing, caching,
   routeError = new Error('reviews unavailable');
   const failed = routeResponse();
   await routes.get('GET /api/reviews-stats').at(-1)({}, failed);
-  assert.deepEqual([failed.statusCode, failed.body], [500, { success: false, error: 'reviews unavailable' }]);
-  assert.deepEqual(errors.at(-1), ['[Reviews] stats failed:', 'reviews unavailable']);
+  assert.deepEqual([failed.statusCode, failed.body], [500, {
+    success: false,
+    code: 'PROVIDER_UNAVAILABLE',
+    error: 'The reviews dashboard could not be completed because the review service is temporarily unavailable. Your saved data was not changed; try again.',
+  }]);
+  assert.deepEqual(errors.at(-1), ['[Reviews] stats failed:', 'PROVIDER_UNAVAILABLE']);
 });
 
 test('dashboard routes preserve prioritized moves, weekly digest, readiness, and score contracts', async () => {
@@ -1937,13 +1947,16 @@ test('recorded-content routes preserve media validation, bounded prompts, usage,
   const unusable = response();
   await socialPack({ body: { transcript: source } }, unusable);
   assert.deepEqual([unusable.statusCode, unusable.body], [500, { success: false, error: 'Gemini did not return a usable script — try again.' }]);
-  assert.deepEqual(errors.at(-1), ['[Social pack] failed:', 'Gemini did not return a usable script — try again.']);
+  assert.deepEqual(errors.at(-1), ['[Social pack] failed:', 'PROVIDER_EMPTY_RESPONSE']);
 
   geminiError = new Error('transcription unavailable');
   const failed = response();
   await transcribe({ body: { data: 'abc', mimeType: 'audio/mp3' } }, failed);
-  assert.deepEqual([failed.statusCode, failed.body], [500, { success: false, error: 'transcription unavailable' }]);
-  assert.deepEqual(errors.at(-1), ['[Transcribe] failed:', 'transcription unavailable']);
+  assert.deepEqual([failed.statusCode, failed.body], [500, {
+    success: false,
+    error: 'The transcription could not be completed because Gemini is temporarily unavailable. Your saved data was not changed; try again.',
+  }]);
+  assert.deepEqual(errors.at(-1), ['[Transcribe] failed:', 'PROVIDER_UNAVAILABLE']);
 });
 
 test('assistant routes preserve grounding, bounded context, and confirmation-only action proposals', async () => {
@@ -2101,14 +2114,14 @@ test('assistant routes preserve grounding, bounded context, and confirmation-onl
   assert.deepEqual([failed.statusCode, failed.body], [502, {
     success: false,
     code: 'ASSISTANT_UNAVAILABLE',
-    error: 'The SEO Buddy Assistant is temporarily unavailable. Your data was not changed; please try again in a moment.',
+    error: 'The SEO Buddy Assistant request could not be completed because Gemini is temporarily unavailable. Your saved data was not changed; try again.',
   }]);
   assert.equal(JSON.stringify(failed.body).includes('private upstream response'), false);
   assert.deepEqual(errors.at(-1), ['[Assistant] failed:', 'ASSISTANT_UNAVAILABLE']);
 
   assert.deepEqual(assistantPublicError(Object.assign(new Error('ACCESS_TOKEN_TYPE_UNSUPPORTED: private body'), { status: 401 })), {
     code: 'ASSISTANT_AUTHENTICATION_FAILED',
-    error: 'SEO Buddy could not authenticate with Gemini. Open Settings → Your connections → Gemini, replace the API key, save it, and try again.',
+    error: 'Gemini rejected the saved credential. Open Settings → Your connections → Gemini, replace it, save, and try again.',
   });
   assert.equal(assistantPublicError(Object.assign(new Error('RESOURCE_EXHAUSTED quota'), { status: 429 })).code, 'ASSISTANT_USAGE_LIMIT_REACHED');
   assert.equal(assistantPublicError(Object.assign(new Error('provider timed out'), { code: 'PROVIDER_TIMEOUT' })).code, 'ASSISTANT_PROVIDER_TIMEOUT');
@@ -2259,12 +2272,12 @@ test('core AIO routes preserve grounded citations, best-effort extraction, histo
   assert.equal(failed.statusCode, 502);
   assert.deepEqual(failed.body, {
     success: false,
-    error: 'The live audit could not be completed: grounding unavailable',
+    error: 'The live audit could not be completed because Gemini is temporarily unavailable. Your saved data was not changed; try again.',
   });
   assert.deepEqual(errors, [
     ['[AIO Audit] Competitor extraction failed (non-fatal):', 'Unexpected token \'o\', "not valid json" is not valid JSON'],
     ['[AIO Audits File] Save failed:', 'disk unavailable'],
-    ['[AIO Audit API] Grounded audit failed:', 'grounding unavailable'],
+    ['[AIO Audit API] Grounded audit failed:', 'PROVIDER_UNAVAILABLE'],
   ]);
 });
 
@@ -2474,8 +2487,11 @@ test('on-site routes preserve URL safety, tool validation, generation, AEO, and 
   const generatedFailed = response();
   await onsite({ body: { tool: 'keywords', seed: 'fitness' } }, generatedFailed);
   assert.equal(generatedFailed.statusCode, 502);
-  assert.deepEqual(generatedFailed.body, { success: false, error: 'generation unavailable' });
-  assert.deepEqual(errors.at(-1), ['[On-Site] failed:', 'generation unavailable']);
+  assert.deepEqual(generatedFailed.body, {
+    success: false,
+    error: 'The site optimization request could not be completed because Gemini is temporarily unavailable. Your saved data was not changed; try again.',
+  });
+  assert.deepEqual(errors.at(-1), ['[On-Site] failed:', 'PROVIDER_UNAVAILABLE']);
 
   const schemaResponse = response();
   routes.get('GET /api/onsite-schema').at(-1)({}, schemaResponse);
@@ -2640,7 +2656,11 @@ test('performance service preserves aggregation, trends, persistence, attributio
   const failed = response();
   await route({}, failed);
   assert.equal(failed.statusCode, 500);
-  assert.deepEqual(failed.body, { success: false, error: 'performance unavailable' });
+  assert.deepEqual(failed.body, {
+    success: false,
+    code: 'PROVIDER_UNAVAILABLE',
+    error: 'The performance report could not be completed because the reporting service is temporarily unavailable. Your saved data was not changed; try again.',
+  });
 });
 
 test('citation routes preserve scan, tracker, listing, and pitch contracts', async () => {
@@ -2798,7 +2818,7 @@ test('citation routes preserve scan, tracker, listing, and pitch contracts', asy
   const scanFailed = response();
   await handler('POST', '/api/citation-scan')({ body: { queries: ['fitness'] } }, scanFailed);
   assert.equal(scanFailed.statusCode, 502);
-  assert.equal(scanFailed.body.error, 'Could not complete the scan: search unavailable');
+  assert.equal(scanFailed.body.error, 'The citation scan could not be completed because Gemini is temporarily unavailable. Your saved data was not changed; try again.');
 
   const toggled = response();
   handler('POST', '/api/citation-autopilot/toggle')({ body: { enabled: false } }, toggled);
@@ -2871,7 +2891,7 @@ test('citation routes preserve scan, tracker, listing, and pitch contracts', asy
   const pitchFailed = response();
   await handler('POST', '/api/citation-outreach')({ body: { domain: 'news.example', type: 'news' } }, pitchFailed);
   assert.equal(pitchFailed.statusCode, 502);
-  assert.equal(pitchFailed.body.error, 'grounding failed');
+  assert.equal(pitchFailed.body.error, 'The outreach draft could not be completed because Gemini is temporarily unavailable. Your saved data was not changed; try again.');
 
   targetError = new Error('target search failed');
   const targetsFailed = response();
@@ -2879,7 +2899,7 @@ test('citation routes preserve scan, tracker, listing, and pitch contracts', asy
   assert.equal(targetsFailed.statusCode, 502);
   assert.deepEqual(targetsFailed.body, {
     success: false,
-    error: 'Could not complete citation analysis: target search failed',
+    error: 'The citation analysis could not be completed because Gemini is temporarily unavailable. Your saved data was not changed; try again.',
   });
 
   hasKey = false;
@@ -2905,12 +2925,15 @@ test('citation routes preserve scan, tracker, listing, and pitch contracts', asy
   const kitFailed = response();
   await handler('POST', '/api/listing-kit')({ body: {} }, kitFailed);
   assert.equal(kitFailed.statusCode, 502);
-  assert.deepEqual(kitFailed.body, { success: false, error: 'kit generation failed' });
+  assert.deepEqual(kitFailed.body, {
+    success: false,
+    error: 'The Listing Kit update could not be completed because Gemini is temporarily unavailable. Your saved data was not changed; try again.',
+  });
   assert.deepEqual(errors, [
-    ['[Citation Scan] failed:', 'search unavailable'],
-    ['[Outreach pitch] failed:', 'grounding failed'],
-    ['[Citation Targets] failed:', 'target search failed'],
-    ['[Listing Kit] regenerate failed:', 'kit generation failed'],
+    ['[Citation Scan] failed:', 'PROVIDER_UNAVAILABLE'],
+    ['[Outreach pitch] failed:', 'PROVIDER_UNAVAILABLE'],
+    ['[Citation Targets] failed:', 'PROVIDER_UNAVAILABLE'],
+    ['[Listing Kit] regenerate failed:', 'PROVIDER_UNAVAILABLE'],
   ]);
 });
 
@@ -2983,6 +3006,8 @@ test('provider runtime serves safe cached reads and opens a circuit after repeat
   });
   assert.deepEqual(stale, { call: 1 });
   assert.equal(runtime.snapshot().providers['search-console'].status, 'degraded');
+  assert.equal(runtime.snapshot().providers['search-console'].lastError, 'PROVIDER_UNAVAILABLE');
+  assert.doesNotMatch(JSON.stringify(runtime.snapshot()), /temporary read failure/);
 
   const failing = createProviderRuntime({ now: () => clock, sleep: async () => {} });
   failing.setConfigured('openai', true);

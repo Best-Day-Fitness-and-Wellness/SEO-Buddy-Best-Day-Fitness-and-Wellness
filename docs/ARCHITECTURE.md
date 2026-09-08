@@ -195,7 +195,11 @@ Trustpilot, reviews, and remote audits. It provides per-provider concurrency and
 rolling call limits, deadlines, safe read retries, circuit breakers, bounded
 caching, stale reads where explicitly allowed, spend enforcement, and a
 non-secret health snapshot. POST/publish/send operations are not automatically
-retried.
+retried. `lib/public-provider-error.js` is the presentation boundary: route
+adapters classify authentication, usage-limit, timeout, and availability
+failures into stable owner-facing codes and guidance. Upstream bodies are not
+returned to the browser, stored in health state, or written to provider-failure
+logs.
 
 ### Persistence and backup
 
@@ -224,6 +228,7 @@ so one production replica remains the supported topology.
 | --- | --- |
 | `server.js` | Composition root, HTTP compatibility layer, remaining feature orchestration |
 | `lib/provider-runtime.js` | All outbound reliability, concurrency, caching, and spend policy |
+| `lib/public-provider-error.js` | Shared classification and owner-safe presentation of external provider failures |
 | `lib/credential-metadata.js` | Allowlisted, secret-free credential replacement history |
 | `lib/durable-job-queue.js` | Durable job state, leases, idempotency, retries, bounded history |
 | `lib/job-worker.js` | Queue-agnostic claiming, heartbeats, handler execution, and shutdown |

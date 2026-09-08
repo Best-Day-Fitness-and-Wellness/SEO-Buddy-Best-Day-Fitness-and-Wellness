@@ -64,7 +64,7 @@ behavior-preserving refactoring sequence, see
 
 ### Explore → Setup & help
 
-**Setup & business info** (business identity + a readiness board), the **Quick Guide** tour, **Ask SEO Buddy** (grounded in the current score, System health, report, and alert status), and **Settings** (API keys, admin password, usage budget, business‑value assumptions). Assistant provider failures use short, actionable guidance instead of exposing raw upstream error responses.
+**Setup & business info** (business identity + a readiness board), the **Quick Guide** tour, **Ask SEO Buddy** (grounded in the current score, System health, report, and alert status), and **Settings** (API keys, admin password, usage budget, business‑value assumptions). Provider failures across the assistant, AI tools, Google, Gmail, GoHighLevel, Trustpilot, and remote audits use short, actionable guidance instead of exposing raw upstream error responses.
 
 ---
 

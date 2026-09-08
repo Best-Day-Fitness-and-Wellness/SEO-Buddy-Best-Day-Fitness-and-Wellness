@@ -79,7 +79,7 @@ test('monthly report validates configuration and records retryable send failures
   assert.equal(paused.recipientMasked, 'n**@example.com');
   harness.service.configure({ enabled: true });
   await assert.rejects(harness.service.runScheduled(), /temporary Gmail failure/);
-  assert.equal(harness.state.lastError, 'temporary Gmail failure');
+  assert.equal(harness.state.lastError, 'PROVIDER_UNAVAILABLE');
   assert.equal(harness.state.lastSentMonth, undefined);
 });
 

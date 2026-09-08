@@ -68,6 +68,7 @@ const { registerConfigurationRoutes } = require('./lib/configuration-routes');
 const { buildOperationalHealth } = require('./lib/operational-health');
 const { createCredentialMetadata } = require('./lib/credential-metadata');
 const { createReliabilityAlertService, registerReliabilityAlertRoutes } = require('./lib/reliability-alerts');
+const { publicProviderError } = require('./lib/public-provider-error');
 
 // Load UI-saved secrets from the durable storage root. Tenant state is isolated
 // below this root after configuration is loaded; host-provided variables still
@@ -1519,10 +1520,13 @@ function explainIndexError(message) {
     return `Google refused the indexing request: the service account is not a verified OWNER of the site in Search Console. `
       + `Fix: Search Console → Settings → Users and permissions → add the service-account email (the "client_email" in your Google service-account JSON) with permission = Owner. `
       + `Note: "Full" access — which is enough for the GSC data tabs — is NOT enough for the Indexing API. `
-      + `Also confirm the published URL is on the same verified domain (${process.env.GSC_SITE_URL || 'your property'}). `
-      + `[original: ${m}]`;
+      + `Also confirm the published URL is on the same verified domain (${process.env.GSC_SITE_URL || 'your property'}).`;
   }
-  return m;
+  return publicProviderError({ message: m }, {
+    provider: 'Google Indexing',
+    operation: 'The indexing request',
+    setupPath: 'Settings → Your connections → Google Search Console',
+  }).error;
 }
 
 // 3. Indexing Helper
@@ -1964,7 +1968,14 @@ async function askGoogleEngine(promptText) {
     const gm = (r.candidates && r.candidates[0] && r.candidates[0].groundingMetadata) || {};
     const sources = (gm.groundingChunks || []).map(c => ({ title: (c.web && c.web.title) || '', uri: (c.web && c.web.uri) || '' })).filter(s => s.title || s.uri);
     return { ok: true, answer, sources };
-  } catch (e) { return { ok: false, answer: '', sources: [], error: e.message }; }
+  } catch (error) {
+    const failure = publicProviderError(error, {
+      provider: 'Gemini',
+      operation: 'The Google AI visibility check',
+      setupPath: 'Settings → Your connections → Gemini',
+    });
+    return { ok: false, answer: '', sources: [], code: failure.code, error: failure.error };
+  }
 }
 async function askOpenAiEngine(promptText) {
   const key = process.env.OPENAI_API_KEY;
@@ -1978,7 +1989,14 @@ async function askOpenAiEngine(promptText) {
     const j = await resp.json();
     const answer = ((j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || '').trim();
     return { ok: true, answer, sources: [] };
-  } catch (e) { return { ok: false, answer: '', sources: [], error: e.code === 'PROVIDER_TIMEOUT' ? 'timeout' : e.message }; }
+  } catch (error) {
+    const failure = publicProviderError(error, {
+      provider: 'OpenAI',
+      operation: 'The ChatGPT visibility check',
+      setupPath: 'Settings → Your connections → OpenAI',
+    });
+    return { ok: false, answer: '', sources: [], code: failure.code, error: failure.error };
+  }
 }
 async function askPerplexityEngine(promptText) {
   const key = process.env.PERPLEXITY_API_KEY;
@@ -1993,7 +2011,14 @@ async function askPerplexityEngine(promptText) {
     const answer = ((j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || '').trim();
     const sources = Array.isArray(j.citations) ? j.citations.map(u => ({ title: '', uri: u })) : [];
     return { ok: true, answer, sources };
-  } catch (e) { return { ok: false, answer: '', sources: [], error: e.code === 'PROVIDER_TIMEOUT' ? 'timeout' : e.message }; }
+  } catch (error) {
+    const failure = publicProviderError(error, {
+      provider: 'Perplexity',
+      operation: 'The Perplexity visibility check',
+      setupPath: 'Settings → Your connections → Perplexity',
+    });
+    return { ok: false, answer: '', sources: [], code: failure.code, error: failure.error };
+  }
 }
 async function askEngine(id, promptText) {
   if (id === 'google') return askGoogleEngine(promptText);
@@ -2220,7 +2245,14 @@ Compare the AI's factual claims to the ground truth. Focus on: location (city/st
       field: String(i.field || 'other'), aiClaim: String(i.aiClaim), correct: i.correct !== false, truth: String(i.truth || ''), note: String(i.note || '')
     })) : [];
     return { issues, summary: String(parsed.summary || '') };
-  } catch (e) { return { issues: [], summary: 'Analysis failed: ' + e.message }; }
+  } catch (error) {
+    const failure = publicProviderError(error, {
+      provider: 'Gemini',
+      operation: 'The accuracy analysis',
+      setupPath: 'Settings → Your connections → Gemini',
+    });
+    return { issues: [], summary: failure.error, errorCode: failure.code };
+  }
 }
 
 async function runFactCheck() {
@@ -2310,7 +2342,13 @@ async function runCrawlerAudit() {
     });
     status = resp.status;
     if (resp.ok) { robotsText = await resp.text(); hadRobots = true; }
-  } catch (e) { fetchError = e.code === 'PROVIDER_TIMEOUT' ? 'timeout' : e.message; }
+  } catch (error) {
+    const failure = publicProviderError(error, {
+      provider: 'The website',
+      operation: 'The AI crawler check',
+    });
+    fetchError = failure.error;
+  }
   const groups = parseRobots(robotsText);
   const bots = AI_CRAWLERS.map(b => {
     const v = hadRobots ? crawlerVerdict(groups, b.ua) : { status: 'allowed', reason: 'no robots.txt found (site is open to all)', matchedBy: 'none' };
@@ -2365,7 +2403,14 @@ Return ONLY raw JSON, no markdown: {"threads":[{"title":"the thread title","subr
     const snapshot = { ranAt: new Date().toISOString(), threads };
     redditDb.latest = snapshot; redditDb.updatedAt = snapshot.ranAt; saveReddit();
     return { snapshot };
-  } catch (e) { return { error: e.message }; }
+  } catch (error) {
+    const failure = publicProviderError(error, {
+      provider: 'Gemini',
+      operation: 'The Reddit discovery scan',
+      setupPath: 'Settings → Your connections → Gemini',
+    });
+    return { code: failure.code, error: failure.error };
+  }
 }
 // These three read/run features share one concurrency, budget, and error
 // boundary while retaining their distinct status payloads.

@@ -144,8 +144,12 @@ The assistant uses the dashboard's current score calculation and current connect
 monthly-report delivery, content-schedule, System health, and failure-alert metadata.
 Configured credentials do not prove a working connection; a scheduled or sent
 report does not prove receipt. Provider authentication, quota, timeout, and generic
-assistant failures return stable owner-facing guidance; raw upstream response bodies
-are never rendered in the assistant panel.
+failures return stable owner-facing guidance across AI tools, Search Console,
+GoHighLevel, Gmail/report delivery, Business Profile, Trustpilot, and remote-site
+audits. Raw upstream response bodies are never rendered, persisted as provider
+health, or copied into provider-failure logs. Use the stable failure code and
+request ID for incident correlation; inspect the provider directly for sensitive
+diagnostic detail.
 
 ## Backup and restore
 

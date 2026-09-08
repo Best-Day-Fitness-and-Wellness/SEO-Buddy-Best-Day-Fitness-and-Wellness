@@ -316,13 +316,13 @@ async function exercise(base, viewport) {
     responses.set('/api/assistant', { status: 502, json: {
       success: false,
       code: 'ASSISTANT_AUTHENTICATION_FAILED',
-      error: 'SEO Buddy could not authenticate with Gemini. Open Settings → Your connections → Gemini, replace the API key, save it, and try again.',
+      error: 'Gemini rejected the saved credential. Open Settings → Your connections → Gemini, replace it, save, and try again.',
     } });
     try {
       await page.locator('#asst-fab').click();
       await page.locator('#asst-text').fill('How am I doing?');
       await page.locator('#asst-send').click();
-      await page.getByText(/could not authenticate with Gemini/).waitFor();
+      await page.getByText(/rejected the saved credential/).waitFor();
       const transcript = await page.locator('#asst-msgs').innerText();
       assert.doesNotMatch(transcript, /ACCESS_TOKEN_TYPE_UNSUPPORTED|invalid authentication credentials|password-protected/);
       await page.locator('#asst-close').click();
