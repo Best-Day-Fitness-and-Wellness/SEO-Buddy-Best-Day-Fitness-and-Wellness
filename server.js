@@ -51,6 +51,7 @@ const { DEFAULT_AI_ENGINES, DEFAULT_VIS_PROMPTS, createAiVisibilityService } = r
 const { registerAiAuditRoutes } = require('./lib/ai-audit-routes');
 const { buildFactTruth, createAiFactCheckService } = require('./lib/ai-factcheck-service');
 const { createAiCrawlerService } = require('./lib/ai-crawler-service');
+const { createRedditDiscoveryService } = require('./lib/reddit-discovery-service');
 const { registerScheduledFeatureRoutes } = require('./lib/scheduled-feature-routes');
 const { createGoogleDelivery } = require('./lib/google-delivery');
 const { registerDeliveryRoutes } = require('./lib/delivery-routes');
@@ -2059,45 +2060,17 @@ if (fs.existsSync(REDDIT_FILE)) {
 let redditRunning = false;
 function saveReddit() { saveJsonFileSync(REDDIT_FILE, redditDb, 'Reddit'); }
 
-async function runRedditScan() {
-  const key = process.env.GEMINI_API_KEY;
-  if (!key) return { error: 'Reddit discovery uses live Google Search grounding — add your Gemini API key in Settings.' };
-  const kit = (typeof listingKit === 'function') ? listingKit() : {};
-  const brand = BUSINESS.name;
-  const city = BUSINESS.addressLocality || 'St. Petersburg';
-  const region = BUSINESS.addressRegion || 'FL';
-  const desc = kit.shortDesc || 'a senior-focused fitness & wellness studio for adults 50+';
-  try {
-    const p = `Using current web information, find real, active Reddit threads where a business like "${brand}" — ${desc} in ${city}, ${region} — could genuinely help by participating.
-Look for people asking for recommendations about: senior fitness, personal trainers for adults over 50, mobility/balance/strength for older adults, injury recovery, physical therapy, or gyms in ${city} or the Tampa Bay FL area — plus broader relevant discussions people ask AI about.
-Only include REAL reddit.com thread URLs you actually find in search. For each, give a short authentic, helpful, NON-spammy way to add value (be a real participant, disclose the affiliation, never hard-sell).
-Return ONLY raw JSON, no markdown: {"threads":[{"title":"the thread title","subreddit":"r/...","url":"https://www.reddit.com/...","why":"one line on why it's relevant","angle":"a short, genuine way to contribute value"}]}`;
-    const r = await geminiGenerate({ model: GEMINI_MODEL, contents: p, config: { tools: [{ googleSearch: {} }] } });
-    const parsed = parseGeminiJson(r.text) || {};
-    let threads = Array.isArray(parsed.threads) ? parsed.threads : [];
-    threads = threads
-      .filter(t => t && t.url && /reddit\.com/i.test(t.url))
-      .map(t => ({
-        title: String(t.title || 'Reddit thread').slice(0, 200),
-        subreddit: String(t.subreddit || '').replace(/^\/?r?\/?/i, 'r/').slice(0, 40),
-        url: String(t.url).trim(),
-        why: String(t.why || '').slice(0, 240),
-        angle: String(t.angle || '').slice(0, 300)
-      }));
-    // de-dupe by url
-    const seen = new Set(); threads = threads.filter(t => { if (seen.has(t.url)) return false; seen.add(t.url); return true; }).slice(0, 12);
-    const snapshot = { ranAt: new Date().toISOString(), threads };
-    redditDb.latest = snapshot; redditDb.updatedAt = snapshot.ranAt; saveReddit();
-    return { snapshot };
-  } catch (error) {
-    const failure = publicProviderError(error, {
-      provider: 'Gemini',
-      operation: 'The Reddit discovery scan',
-      setupPath: 'Settings → Your connections → Gemini',
-    });
-    return { code: failure.code, error: failure.error };
-  }
-}
+const redditDiscoveryService = createRedditDiscoveryService({
+  state: redditDb,
+  save: saveReddit,
+  business: BUSINESS,
+  getListingKit: listingKit,
+  geminiGenerate,
+  geminiModel: GEMINI_MODEL,
+  parseJson: parseGeminiJson,
+  env: process.env,
+});
+const runRedditScan = redditDiscoveryService.run;
 // These three read/run features share one concurrency, budget, and error
 // boundary while retaining their distinct status payloads.
 registerAiAuditRoutes(app, {

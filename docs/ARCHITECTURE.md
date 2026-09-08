@@ -255,6 +255,7 @@ so one production replica remains the supported topology.
 | `lib/ai-visibility-service.js` | Multi-engine provider adapters, answer analysis, visibility scoring, snapshot retention, and trend projection |
 | `lib/ai-factcheck-service.js` | Canonical business truth, answer comparison, per-engine accuracy scoring, and FactCheck persistence orchestration |
 | `lib/ai-crawler-service.js` | AI crawler catalog, robots.txt parsing, provider audit, verdict projection, and snapshot persistence |
+| `lib/reddit-discovery-service.js` | Grounded Reddit opportunity prompt, result normalization, deduplication, bounds, safe failures, and persistence |
 | `lib/ai-audit-routes.js` | Shared FactCheck, crawler-access, and Reddit status/run HTTP orchestration |
 | `lib/aio-core-routes.js` | Grounded AIO audit, bounded audit history, and schema HTTP contracts |
 | `lib/assistant-routes.js` | Grounded assistant prompt, bounded conversation, safe provider errors, and confirmation-only action proposal contracts |
@@ -316,6 +317,12 @@ so one production replica remains the supported topology.
    `lib/ai-crawler-service.js`. Provider policy and route concurrency remain
    injected boundaries, and compatibility tests cover blocked, partial,
    missing, and failed robots responses.
+
+   Grounded Reddit opportunity discovery, result shaping, exact-URL
+   deduplication, bounds, and persistence now live in
+   `lib/reddit-discovery-service.js`. The shared AI-audit route retains budget,
+   authentication, and overlapping-run controls without changing the response
+   or stored snapshot.
 2. **Feature state is still process-local during a run.** PostgreSQL mode makes
    the database the startup recovery authority, but one production replica is
    still the supported topology. Move mutations to transactional repository
