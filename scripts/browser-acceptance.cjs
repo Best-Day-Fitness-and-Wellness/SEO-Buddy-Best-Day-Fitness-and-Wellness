@@ -291,6 +291,15 @@ async function exercise(base, viewport) {
 
   await journey(`${prefix}: failure email alerts are explicit, owner-controlled, and do not send on save`, async () => {
     await nav('#nav-settings');
+    const refresh = page.locator('#settings-refresh-connections');
+    await refresh.waitFor();
+    await page.locator('#settings-connection-note').evaluate(element => { element.textContent = 'Acceptance refresh pending'; });
+    await refresh.click();
+    await page.waitForFunction(() => {
+      const note = document.getElementById('settings-connection-note')?.textContent || '';
+      const button = document.getElementById('settings-refresh-connections');
+      return !note.includes('Acceptance refresh pending') && button && !button.disabled;
+    });
     await page.waitForFunction(() => /Off|incomplete/.test(document.getElementById('settings-failure-alert-status')?.textContent || ''));
     const before = writes.length;
     await page.locator('#settings-health-details').evaluate(element => { element.open = true; });
