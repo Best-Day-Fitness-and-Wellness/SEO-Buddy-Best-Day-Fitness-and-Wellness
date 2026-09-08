@@ -143,6 +143,10 @@ test('lifecycle probes and protected diagnostics expose truthful process state',
   assert.equal(integrationBody.budget.reached, false);
   assert.equal(integrationBody.providers.gemini.configured, false);
   assert.equal(integrationBody.providers['reviews-site'].configured, true);
+  assert.ok(['healthy', 'attention'].includes(integrationBody.overview.overall));
+  assert.ok(Array.isArray(integrationBody.overview.systems));
+  assert.ok(Array.isArray(integrationBody.overview.integrations));
+  assert.equal(integrationBody.overview.integrations.some(item => Object.hasOwn(item, 'lastError')), false);
 });
 
 test('public contracts expose stable schemas and hardened response boundaries', async () => {

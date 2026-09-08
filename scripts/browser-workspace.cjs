@@ -821,19 +821,31 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
   // Audit every preview route in light mode; core destinations also in dark.
   await page.evaluate(() => { if (document.body.classList.contains('dark')) document.getElementById('theme-toggle').click(); });
   await journey(`${prefix}: connection overview opens exact controls and distinguishes failed status reads`, async () => {
-    const paths = ['/api/ai-engines', '/api/gbp-status', '/api/monthly-report'];
+    const paths = ['/api/ai-engines', '/api/gbp-status', '/api/monthly-report', '/api/integration-health'];
     const prior = paths.map(path => [path, responses.get(path)]);
     const initialWrites = writes.length;
     try {
       responses.set('/api/ai-engines', { json: { success: true, engines: [{ id: 'google', configured: true }, { id: 'openai', configured: false }, { id: 'perplexity', configured: false }] } });
       responses.set('/api/gbp-status', { json: { configured: false, status: 'pending-approval', approval: { status: 'pending', caseId: '6-1234000012345', submittedAt: '2026-09-08' } } });
       responses.set('/api/monthly-report', { json: { success: true, ready: true, enabled: false } });
+      responses.set('/api/integration-health', { json: { success: true, overview: {
+        overall: 'healthy', alerts: [],
+        systems: [
+          { key: 'storage', label: 'Saved data', state: 'healthy', stateLabel: 'Persistent', detail: 'Saved work survives deployments.', lastSuccessAt: null },
+          { key: 'backups', label: 'Daily backup', state: 'healthy', stateLabel: 'Verified', detail: 'The newest backup passed checksum verification.', lastSuccessAt: '2026-09-08T12:00:00.000Z', latestBackupId: '2026-09-08T12-00-00-000Z' },
+        ],
+        integrations: [{ key: 'gemini', label: 'Gemini', configured: true, optional: false, state: 'healthy', stateLabel: 'Working', detail: 'A successful request is recorded.', lastSuccessAt: '2026-09-08T12:00:00.000Z' }],
+      } } });
       await load('settings');
       await page.waitForFunction(() => document.getElementById('settings-connection-note').textContent.includes('checked just now'));
       assert.equal(await page.locator('.settings-connection-row').count(), 5);
       assert.match(await page.locator('#settings-connection-list').innerText(), /set up but paused/);
       assert.match(await page.locator('#settings-connection-list').innerText(), /Google reviewing/);
       assert.match(await page.locator('.settings-connection-row').first().innerText(), /Configured/);
+      assert.match(await page.locator('#settings-health-badge').innerText(), /No current failures/);
+      await page.locator('#settings-health-details > summary').click();
+      assert.match(await page.locator('#settings-health-list').innerText(), /Daily backup/);
+      assert.match(await page.locator('#settings-health-list').innerText(), /Live connection history/);
       await page.locator('[data-connection-key="gbp"]').click();
       assert.equal(await page.evaluate(() => document.activeElement.id), 'settings-gbp-access-status');
       assert.match(await page.locator('#settings-gbp-approval-note').innerText(), /case 6-1234000012345/);

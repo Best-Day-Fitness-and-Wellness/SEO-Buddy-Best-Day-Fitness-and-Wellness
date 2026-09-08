@@ -1389,6 +1389,15 @@
           <p class="text-muted">See what is set up and jump straight to its controls. Configured does not mean a live connection test has passed.</p>
           <div id="settings-connection-list"></div>
           <p class="text-muted" id="settings-connection-note" role="status">Checking saved configuration…</p>
+          <details class="settings-health" id="settings-health-details">
+            <summary>
+              <span><strong>System health</strong><small>Scheduled work, delivery, storage and backups</small></span>
+              <span class="settings-health-badge is-checking" id="settings-health-badge">Checking…</span>
+            </summary>
+            <div id="settings-health-alerts" role="status"></div>
+            <div id="settings-health-list"></div>
+            <p class="text-muted" id="settings-health-note">A successful connection time is shown only after the server records a real request.</p>
+          </details>
         </div>
         <div class="content-card max-width-md" id="storage-status-card" style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
           <div id="storage-badge" style="display:inline-flex;align-items:center;gap:8px;padding:8px 14px;border-radius:999px;font-weight:600;font-size:13px;background:rgba(148,163,184,.12);color:var(--text-muted);border:1px solid var(--border-color);"><span id="storage-dot" style="width:9px;height:9px;border-radius:50%;background:var(--text-muted);display:inline-block;"></span><span id="storage-label">Checking storage…</span></div>

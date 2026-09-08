@@ -58,7 +58,7 @@ Use the protected endpoints without copying credentials into tickets or logs:
 | `/health/ready` | `status: ready`; storage writable and persistent |
 | `/api/deploy-readiness` | `ready` equals `total`; production mode; mocks disabled |
 | `/api/diagnostics` | bounded request/latency values; process accepting traffic |
-| `/api/integration-health` | configured providers healthy; circuits closed; budget available |
+| `/api/integration-health` | `overview.alerts` is empty; configured providers healthy; budget available |
 | `/api/job-queue` | worker running; no old pending jobs; terminal failures understood |
 | `/api/audit-status` | mutation chain verifies |
 | `/api/storage-backups` | latest backup exists and verifies |
@@ -76,6 +76,12 @@ bodies, or generated customer content in incident notes.
    a token to GitHub.
 5. Redeploy only when configuration is read at boot or a clean restart is
    needed. Verify with the smoke suite.
+
+Owners can review the same bounded signals under **Settings → Your
+connections → System health**. This view distinguishes setup from a recorded
+successful request and never runs provider work merely to produce a green
+badge. Provider request times cover the current server process; the verified
+backup timestamp is durable across deployments.
 
 Read operations may use an explicitly allowed recent cached value during a
 transient provider failure. Publish, send, and indexing operations are not

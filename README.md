@@ -315,7 +315,7 @@ Scheduled content, AI visibility, citations, local SEO, on-site SEO, performance
 
 ### Provider reliability and spend controls
 
-All external integrations run through one provider boundary with per-provider concurrency limits, rolling rate limits, timeouts, safe read retries, circuit breakers, and bounded cache support. Non-idempotent publishing and send operations are never retried automatically. The existing monthly AI budget is enforced inside this shared boundary as well as at user-facing routes, so scheduled work cannot bypass the spend limit. Operators can inspect non-secret status, latency, retry, cache, and failure totals through protected `GET /api/integration-health`; the same snapshot is included in diagnostics.
+All external integrations run through one provider boundary with per-provider concurrency limits, rolling rate limits, timeouts, safe read retries, circuit breakers, and bounded cache support. Non-idempotent publishing and send operations are never retried automatically. The existing monthly AI budget is enforced inside this shared boundary as well as at user-facing routes, so scheduled work cannot bypass the spend limit. The protected `GET /api/integration-health` keeps its operator metrics and adds one owner-readable projection covering live connections, scheduled work, report delivery, persistent storage, and checksum-verified backups. Settings renders that projection without running scans, sending mail, or testing credentials. Provider success times are process-local and explicitly reset after a server restart; backup timestamps remain durable.
 
 ### Explainable score, attribution, and content quality
 

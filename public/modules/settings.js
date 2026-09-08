@@ -1,7 +1,7 @@
 'use strict';
 
 (function exposeSettingsWorkspace(global) {
-  const { authFetch, showToast, uiEsc, readCheckedJson } = global.SeoBuddyCore;
+  const { authFetch, showToast, uiEsc, readCheckedJson, relativeTime } = global.SeoBuddyCore;
 
   const settingsForm = document.getElementById('settings-form');
   const settingsGeminiKey = document.getElementById('settings-gemini-key');
@@ -26,7 +26,57 @@
   const connectionList = document.getElementById('settings-connection-list');
   const connectionNote = document.getElementById('settings-connection-note');
   const refreshConnections = document.getElementById('settings-refresh-connections');
+  const healthDetails = document.getElementById('settings-health-details');
+  const healthBadge = document.getElementById('settings-health-badge');
+  const healthAlerts = document.getElementById('settings-health-alerts');
+  const healthList = document.getElementById('settings-health-list');
+  const healthNote = document.getElementById('settings-health-note');
   const keyControls = { gemini: 'settings-gemini-key', openai: 'settings-openai-key', perplexity: 'settings-perplexity-key', gbp: 'settings-gbp-access-status' };
+
+  async function readOperationalHealth() {
+    const response = await authFetch('/api/integration-health');
+    if (!response.ok) throw new Error(response.status === 401 ? 'Enter the owner password in Settings to verify system health.' : 'System health is temporarily unavailable.');
+    return response.json();
+  }
+
+  function renderOperationalHealth(data) {
+    const overview = data?.overview;
+    if (!healthDetails || !healthBadge || !healthList || !healthAlerts || !healthNote) return;
+    if (!overview || !Array.isArray(overview.systems)) {
+      healthBadge.className = 'settings-health-badge is-checking';
+      healthBadge.textContent = 'Unable to check';
+      healthAlerts.innerHTML = '';
+      healthList.innerHTML = '';
+      healthNote.textContent = data?.healthError || 'Refresh after entering the owner password. No connection or schedule status is being assumed.';
+      return;
+    }
+    const alerts = Array.isArray(overview.alerts) ? overview.alerts : [];
+    healthBadge.className = `settings-health-badge is-${overview.overall === 'attention' ? 'attention' : 'healthy'}`;
+    healthBadge.textContent = alerts.length ? `${alerts.length} need attention` : 'No current failures';
+    healthDetails.open = alerts.length > 0;
+    healthAlerts.innerHTML = alerts.length
+      ? `<div class="settings-health-alert"><strong>${uiEsc(alerts[0].label)}:</strong> ${uiEsc(alerts[0].message)}${alerts.length > 1 ? ` <span>+${alerts.length - 1} more below.</span>` : ''}</div>`
+      : '';
+    const timeLabel = item => item.lastSuccessAt ? ` Last confirmed ${uiEsc(relativeTime(item.lastSuccessAt))}.` : '';
+    const systemRows = overview.systems.map(item => `<div class="settings-health-row">
+      <strong>${uiEsc(item.label)}</strong><span class="settings-health-state is-${uiEsc(item.state)}">${uiEsc(item.stateLabel)}</span>
+      <span class="settings-health-detail">${uiEsc(item.detail)}${timeLabel(item)}</span>
+    </div>`).join('');
+    const visibleConnections = (overview.integrations || []).filter(item => item.configured || !item.optional);
+    const connectionRows = visibleConnections.map(item => `<div class="settings-health-row">
+      <strong>${uiEsc(item.label)}</strong><span class="settings-health-state is-${uiEsc(item.state)}">${uiEsc(item.stateLabel)}</span>
+      <span class="settings-health-detail">${uiEsc(item.detail)}${timeLabel(item)}</span>
+    </div>`).join('');
+    healthList.innerHTML = `${systemRows}<details class="settings-provider-health"><summary>Live connection history (${visibleConnections.length})</summary>${connectionRows}</details>`;
+    const backup = overview.systems.find(item => item.key === 'backups');
+    if (backup?.latestBackupId) {
+      healthList.insertAdjacentHTML('beforeend', `<div class="settings-health-actions"><button type="button" class="btn btn-secondary btn-xs" id="settings-verify-backup" data-backup-id="${uiEsc(backup.latestBackupId)}">Verify latest backup</button><span class="text-muted" id="settings-backup-result"></span></div>`);
+    }
+    const working = (overview.integrations || []).filter(item => item.lastSuccessAt).sort((a, b) => Date.parse(b.lastSuccessAt) - Date.parse(a.lastSuccessAt))[0];
+    healthNote.textContent = working
+      ? `Most recent live connection: ${working.label}, ${relativeTime(working.lastSuccessAt)}. Times reset when the server restarts; backup history does not.`
+      : 'No successful provider request is recorded since this server started. Configured does not mean tested.';
+  }
 
   function gbpApprovalText(gbp) {
     if (!gbp || typeof gbp.configured !== 'boolean') return 'Status could not be checked. No connection change is being claimed.';
@@ -51,10 +101,11 @@
     refreshConnections.disabled = true;
     connectionList.setAttribute('aria-busy', 'true');
     connectionNote.textContent = 'Checking saved configuration…';
-    const [ai, gbp, report] = await Promise.all([
+    const [ai, gbp, report, health] = await Promise.all([
       readCheckedJson('/api/ai-engines').catch(() => null),
       readCheckedJson('/api/gbp-status').catch(() => null),
       readCheckedJson('/api/monthly-report').catch(() => null),
+      readOperationalHealth().catch(error => ({ healthError: error.message })),
     ]);
     if (request !== connectionRequest) return;
     let unavailable = false;
@@ -82,6 +133,7 @@
     connectionList.setAttribute('aria-busy', 'false');
     connectionNote.textContent = unavailable ? 'Some status checks are unavailable. Refresh before changing credentials.' : 'Configuration checked just now. No scans, posts or emails were sent.';
     refreshConnections.disabled = false;
+    renderOperationalHealth(health);
   }
   refreshConnections?.addEventListener('click', loadConnections);
   connectionList?.addEventListener('click', event => {
@@ -95,6 +147,26 @@
     }
     const tab = event.target.closest('[data-connection-tab]')?.dataset.connectionTab;
     if (['local-tab', 'performance-tab'].includes(tab)) global.switchTab(tab);
+  });
+  healthList?.addEventListener('click', async event => {
+    const button = event.target.closest('#settings-verify-backup');
+    if (!button) return;
+    const result = document.getElementById('settings-backup-result');
+    button.disabled = true;
+    result.textContent = 'Verifying checksums…';
+    try {
+      const response = await authFetch('/api/storage-backups', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'verify', id: button.dataset.backupId }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || data.backup?.error || 'Verification failed.');
+      result.textContent = `Verified ${data.backup.files} saved files just now.`;
+    } catch (error) {
+      result.textContent = error.message;
+    } finally {
+      button.disabled = false;
+    }
   });
 
   function loadSettingsWorkspace() {

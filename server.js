@@ -65,6 +65,7 @@ const { registerRecordedContentRoutes } = require('./lib/recorded-content-routes
 const { buildDeployReadiness, buildNextMoves, registerDashboardRoutes } = require('./lib/dashboard-routes');
 const { createReviewsService, registerReviewsRoutes } = require('./lib/reviews-routes');
 const { registerConfigurationRoutes } = require('./lib/configuration-routes');
+const { buildOperationalHealth } = require('./lib/operational-health');
 
 // Load UI-saved secrets from the durable storage root. Tenant state is isolated
 // below this root after configuration is loaded; host-provided variables still
@@ -771,6 +772,18 @@ registerOperationsRoutes(app, {
   backupService,
   durableJobQueue,
   isJobWorkerRunning: () => jobWorker.status().running,
+  getOperationalHealth: async ({ budget, providerSnapshot }) => {
+    const queue = await durableJobQueue.snapshot(100);
+    return buildOperationalHealth({
+      budget,
+      providerSnapshot,
+      storage: storageReadiness(),
+      workerRunning: jobWorker.status().running,
+      backups: backupService.list(),
+      automation: buildAutomationStatus(getAutomationFeatures(), queue, jobWorker.status().running),
+      monthlyReport: monthlyReportService?.status() || null,
+    });
+  },
 });
 
 // ----------------------------------------------------
