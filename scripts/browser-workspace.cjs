@@ -834,7 +834,7 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
           { key: 'storage', label: 'Saved data', state: 'healthy', stateLabel: 'Persistent', detail: 'Saved work survives deployments.', lastSuccessAt: null },
           { key: 'backups', label: 'Daily backup', state: 'healthy', stateLabel: 'Verified', detail: 'The newest backup passed checksum verification.', lastSuccessAt: '2026-09-08T12:00:00.000Z', latestBackupId: '2026-09-08T12-00-00-000Z' },
         ],
-        integrations: [{ key: 'gemini', label: 'Gemini', configured: true, optional: false, state: 'healthy', stateLabel: 'Working', detail: 'A successful request is recorded.', lastSuccessAt: '2026-09-08T12:00:00.000Z' }],
+        integrations: [{ key: 'gemini', label: 'Gemini', configured: true, optional: false, state: 'healthy', stateLabel: 'Working', detail: 'A successful request is recorded.', lastSuccessAt: '2026-09-08T12:00:00.000Z', credentialUpdatedAt: '2026-09-08T11:00:00.000Z' }],
       } } });
       await load('settings');
       await page.waitForFunction(() => document.getElementById('settings-connection-note').textContent.includes('checked just now'));
@@ -846,6 +846,8 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
       await page.locator('#settings-health-details > summary').click();
       assert.match(await page.locator('#settings-health-list').innerText(), /Daily backup/);
       assert.match(await page.locator('#settings-health-list').innerText(), /Live connection history/);
+      await page.locator('.settings-provider-health > summary').click();
+      assert.match(await page.locator('.settings-provider-health').innerText(), /Credential replaced/);
       await page.locator('[data-connection-key="gbp"]').click();
       assert.equal(await page.evaluate(() => document.activeElement.id), 'settings-gbp-access-status');
       assert.match(await page.locator('#settings-gbp-approval-note').innerText(), /case 6-1234000012345/);

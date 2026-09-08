@@ -89,6 +89,7 @@ const {
 const {
   PRESERVED_SETTINGS,
   cleanSettingValue,
+  credentialReplacements,
   normalizeSettings,
   registerConfigurationRoutes,
   validateSavedSettings,
@@ -1404,6 +1405,9 @@ test('configuration routes preserve secrets, credentials, validation, activation
   assert.ok(PRESERVED_SETTINGS.includes('GBP_API_ACCESS_STATUS'));
   assert.equal(cleanSettingValue('  value  ', 10), 'value');
   assert.equal(cleanSettingValue('123456', 4), '1234');
+  assert.deepEqual(credentialReplacements({ geminiKey: '', openaiKey: 'same', ghlToken: 'new-token' }, {
+    OPENAI_API_KEY: 'same', GHL_ACCESS_TOKEN: 'old-token',
+  }), ['gohighlevel']);
 
   const normalized = normalizeSettings({
     geminiKey: ' new-gemini ',
@@ -1458,6 +1462,7 @@ test('configuration routes preserve secrets, credentials, validation, activation
   const reinitialized = [];
   const serialized = [];
   let cacheClears = 0;
+  const credentialChanges = [];
   const errors = [];
   registerConfigurationRoutes(app, {
     requireOwner,
@@ -1473,6 +1478,7 @@ test('configuration routes preserve secrets, credentials, validation, activation
     },
     reinitializeGemini: key => reinitialized.push(key),
     clearCaches: () => { cacheClears += 1; },
+    onCredentialsChanged: providers => credentialChanges.push(providers),
     getStorageStatus: () => ({ persistent: true, backend: 'postgres', tenantId: 'tenant-1', postgresMirror: { ready: true } }),
     writePrivateFile: (file, content, options) => writes.push({ file, content, options }),
     serializeSettings: settings => { serialized.push(structuredClone(settings)); return 'SERIALIZED_ENV'; },
@@ -1525,6 +1531,8 @@ test('configuration routes preserve secrets, credentials, validation, activation
   assert.deepEqual(reloads, [join('/persistent-data', '.env')]);
   assert.deepEqual(reinitialized, ['new-gemini']);
   assert.equal(cacheClears, 1);
+  assert.deepEqual(saved.body.credentialsUpdated, ['gemini', 'search-console']);
+  assert.deepEqual(credentialChanges, [['gemini', 'search-console']]);
 
   const storage = response();
   routes.get('GET /api/storage-status').at(-1)({}, storage);
@@ -2916,6 +2924,28 @@ test('provider runtime retries transient failures and reports bounded integratio
     lastLatencyMs: runtime.snapshot().providers.gemini.lastLatencyMs,
     lastError: null,
   });
+});
+
+test('provider runtime persists non-secret evidence and resets only a replaced credential', async () => {
+  let clock = Date.parse('2026-09-08T12:00:00.000Z');
+  const persisted = [];
+  const runtime = createProviderRuntime({ now: () => clock, onStateChange: state => persisted.push(state) });
+  runtime.setConfigured('gemini', true);
+  await runtime.run('gemini', async () => ({ ok: true }), { policy: { timeoutMs: 1000 } });
+  assert.equal(persisted.length, 1);
+  assert.equal(persisted[0].version, 1);
+  assert.equal(Object.hasOwn(persisted[0].providers.gemini, 'configured'), false);
+  assert.equal(Object.hasOwn(persisted[0].providers.gemini, 'lastError'), false);
+
+  const restarted = createProviderRuntime({ now: () => clock });
+  assert.equal(restarted.hydrate(persisted[0]), true);
+  restarted.setConfigured('gemini', true);
+  assert.equal(restarted.snapshot().providers.gemini.status, 'healthy');
+  assert.equal(restarted.snapshot().providers.gemini.lastSuccessAt, '2026-09-08T12:00:00.000Z');
+  restarted.reset('gemini');
+  assert.equal(restarted.snapshot().providers.gemini.status, 'unknown');
+  assert.equal(restarted.snapshot().providers.gemini.lastSuccessAt, null);
+  assert.equal(restarted.snapshot().providers.gemini.successes, 1);
 });
 
 test('provider runtime serves safe cached reads and opens a circuit after repeated failures', async () => {

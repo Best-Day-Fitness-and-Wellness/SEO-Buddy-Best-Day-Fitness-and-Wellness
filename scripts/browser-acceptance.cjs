@@ -17,7 +17,7 @@ let child, browser;
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function check(name, action) {
   try { await action(); results.journeys.push({ name, passed: true }); console.log(`PASS ${name}`); }
-  catch (error) { results.journeys.push({ name, passed: false, error: error.message }); console.error(`FAIL ${name}: ${error.message}`); }
+  catch (error) { results.journeys.push({ name, passed: false, error: error.message }); console.error(`FAIL ${name}: ${error.stack || error.message}`); }
 }
 
 async function start() {

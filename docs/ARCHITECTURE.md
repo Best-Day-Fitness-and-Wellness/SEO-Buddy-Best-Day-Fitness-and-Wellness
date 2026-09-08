@@ -224,6 +224,7 @@ so one production replica remains the supported topology.
 | --- | --- |
 | `server.js` | Composition root, HTTP compatibility layer, remaining feature orchestration |
 | `lib/provider-runtime.js` | All outbound reliability, concurrency, caching, and spend policy |
+| `lib/credential-metadata.js` | Allowlisted, secret-free credential replacement history |
 | `lib/durable-job-queue.js` | Durable job state, leases, idempotency, retries, bounded history |
 | `lib/job-worker.js` | Queue-agnostic claiming, heartbeats, handler execution, and shutdown |
 | `lib/job-dispatcher.js` | Shared idempotent enqueue, recurring/daily timers, and scheduling shutdown |

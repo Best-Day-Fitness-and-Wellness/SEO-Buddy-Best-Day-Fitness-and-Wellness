@@ -57,7 +57,11 @@
     healthAlerts.innerHTML = alerts.length
       ? `<div class="settings-health-alert"><strong>${uiEsc(alerts[0].label)}:</strong> ${uiEsc(alerts[0].message)}${alerts.length > 1 ? ` <span>+${alerts.length - 1} more below.</span>` : ''}</div>`
       : '';
-    const timeLabel = item => item.lastSuccessAt ? ` Last confirmed ${uiEsc(relativeTime(item.lastSuccessAt))}.` : '';
+    const timeLabel = item => {
+      const confirmed = item.lastSuccessAt ? ` Last confirmed ${uiEsc(relativeTime(item.lastSuccessAt))}.` : '';
+      const replaced = item.credentialUpdatedAt ? ` Credential replaced ${uiEsc(relativeTime(item.credentialUpdatedAt))}.` : '';
+      return confirmed + replaced;
+    };
     const systemRows = overview.systems.map(item => `<div class="settings-health-row">
       <strong>${uiEsc(item.label)}</strong><span class="settings-health-state is-${uiEsc(item.state)}">${uiEsc(item.stateLabel)}</span>
       <span class="settings-health-detail">${uiEsc(item.detail)}${timeLabel(item)}</span>
@@ -73,9 +77,10 @@
       healthList.insertAdjacentHTML('beforeend', `<div class="settings-health-actions"><button type="button" class="btn btn-secondary btn-xs" id="settings-verify-backup" data-backup-id="${uiEsc(backup.latestBackupId)}">Verify latest backup</button><span class="text-muted" id="settings-backup-result"></span></div>`);
     }
     const working = (overview.integrations || []).filter(item => item.lastSuccessAt).sort((a, b) => Date.parse(b.lastSuccessAt) - Date.parse(a.lastSuccessAt))[0];
+    const persistentHistory = overview.systems.find(item => item.key === 'storage')?.state === 'healthy';
     healthNote.textContent = working
-      ? `Most recent live connection: ${working.label}, ${relativeTime(working.lastSuccessAt)}. Times reset when the server restarts; backup history does not.`
-      : 'No successful provider request is recorded since this server started. Configured does not mean tested.';
+      ? `Most recent live connection: ${working.label}, ${relativeTime(working.lastSuccessAt)}. ${persistentHistory ? 'Connection and backup history survive deployments.' : 'History is not guaranteed to survive a deployment until storage is persistent.'}`
+      : `No successful provider request is recorded for the current credentials. Configured does not mean tested.${persistentHistory ? '' : ' History is not guaranteed to survive a deployment until storage is persistent.'}`;
   }
 
   function gbpApprovalText(gbp) {
@@ -293,7 +298,10 @@
         settingsGscJson.value = '';
         if (openaiInput) openaiInput.value = '';
         if (perplexityInput) perplexityInput.value = '';
-        saveStatus.textContent = 'Configuration saved. Secret fields are cleared for privacy; existing keys stay on the server.';
+        const replaced = Array.isArray(data.credentialsUpdated) ? data.credentialsUpdated.length : 0;
+        saveStatus.textContent = replaced
+          ? `Configuration saved. ${replaced} credential${replaced === 1 ? '' : 's'} replaced; its prior connection result was cleared until the new credential is used.`
+          : 'Configuration saved. Secret fields are cleared for privacy; blank fields kept the existing server keys.';
         loadConnections();
         showToast(data.message || 'Configuration saved securely on the server.');
       } else {

@@ -315,7 +315,7 @@ Scheduled content, AI visibility, citations, local SEO, on-site SEO, performance
 
 ### Provider reliability and spend controls
 
-All external integrations run through one provider boundary with per-provider concurrency limits, rolling rate limits, timeouts, safe read retries, circuit breakers, and bounded cache support. Non-idempotent publishing and send operations are never retried automatically. The existing monthly AI budget is enforced inside this shared boundary as well as at user-facing routes, so scheduled work cannot bypass the spend limit. The protected `GET /api/integration-health` keeps its operator metrics and adds one owner-readable projection covering live connections, scheduled work, report delivery, persistent storage, and checksum-verified backups. Settings renders that projection without running scans, sending mail, or testing credentials. Provider success times are process-local and explicitly reset after a server restart; backup timestamps remain durable.
+All external integrations run through one provider boundary with per-provider concurrency limits, rolling rate limits, timeouts, safe read retries, circuit breakers, and bounded cache support. Non-idempotent publishing and send operations are never retried automatically. The existing monthly AI budget is enforced inside this shared boundary as well as at user-facing routes, so scheduled work cannot bypass the spend limit. The protected `GET /api/integration-health` keeps its operator metrics and adds one owner-readable projection covering live connections, scheduled work, report delivery, persistent storage, and checksum-verified backups. Settings renders that projection without running scans, sending mail, or testing credentials. Non-secret provider success/failure evidence and credential-replacement timestamps persist across deployments. Replacing a credential clears only that provider's prior result until the new credential is actually used; a blank secret field always preserves the current value.
 
 ### Explainable score, attribution, and content quality
 
@@ -486,6 +486,8 @@ State is stored as atomic JSON inside `DATA_DIR/tenants/<TENANT_ID>/`. On the fi
 | `autopilot-config.json` · `autopilot-logs.json` | Content autopilot config (incl. topic queue) + run logs. |
 | `performance-digest.json` | Saved weekly digests + settings. |
 | `monthly-report.json` | Monthly PDF delivery preference, owner recipient, and last-send evidence. Public status masks the address. |
+| `integration-health.json` | Durable provider success/failure timestamps and counters; never credentials or upstream error bodies. |
+| `credential-metadata.json` | Last replacement timestamp for UI-managed provider credentials; never credential values. |
 | `business-profile.json` | Business identity (name/address/phone/socials). |
 | `brand-profile.json` | Brand voice: tone, style rules, signature phrases, never‑use list, positioning, keywords, CTA. |
 | `audit-log.jsonl` | Hash-chained mutation audit records (metadata only; never request bodies or secrets). |

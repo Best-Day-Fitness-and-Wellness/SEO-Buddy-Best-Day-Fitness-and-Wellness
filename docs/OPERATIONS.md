@@ -80,8 +80,10 @@ bodies, or generated customer content in incident notes.
 Owners can review the same bounded signals under **Settings → Your
 connections → System health**. This view distinguishes setup from a recorded
 successful request and never runs provider work merely to produce a green
-badge. Provider request times cover the current server process; the verified
-backup timestamp is durable across deployments.
+badge. Provider request evidence, credential-replacement timestamps, and the
+verified backup timestamp are durable across deployments. Entering a replacement
+secret clears that provider's earlier pass/fail result until a real request uses
+the new credential; leaving the field blank preserves the existing secret.
 
 Read operations may use an explicitly allowed recent cached value during a
 transient provider failure. Publish, send, and indexing operations are not

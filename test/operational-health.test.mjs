@@ -10,9 +10,10 @@ test('provider health distinguishes proven success, failure, optional setup, and
     openai: { configured: false, status: 'unconfigured' },
     gohighlevel: { configured: true, status: 'degraded', lastFailureAt: '2026-09-08T12:01:00.000Z', lastError: 'secret response' },
     'search-console': { configured: true, status: 'unknown' },
-  });
+  }, { providers: { gemini: { lastReplacedAt: '2026-09-08T11:00:00.000Z' } } });
 
   assert.equal(providers.find(item => item.key === 'gemini').state, 'healthy');
+  assert.equal(providers.find(item => item.key === 'gemini').credentialUpdatedAt, '2026-09-08T11:00:00.000Z');
   assert.equal(providers.find(item => item.key === 'openai').stateLabel, 'Optional');
   assert.equal(providers.find(item => item.key === 'gohighlevel').state, 'attention');
   assert.equal(providers.find(item => item.key === 'search-console').state, 'ready-to-test');

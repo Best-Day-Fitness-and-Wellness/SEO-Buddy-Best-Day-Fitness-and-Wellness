@@ -66,6 +66,7 @@ const { buildDeployReadiness, buildNextMoves, registerDashboardRoutes } = requir
 const { createReviewsService, registerReviewsRoutes } = require('./lib/reviews-routes');
 const { registerConfigurationRoutes } = require('./lib/configuration-routes');
 const { buildOperationalHealth } = require('./lib/operational-health');
+const { createCredentialMetadata } = require('./lib/credential-metadata');
 
 // Load UI-saved secrets from the durable storage root. Tenant state is isolated
 // below this root after configuration is loaded; host-provided variables still
@@ -174,6 +175,18 @@ const stateRepository = createFileStateRepository({
   tenantId: process.env.TENANT_ID || 'best-day-fitness',
 });
 const DATA_DIR = stateRepository.directory;
+let savedProviderHealth = null;
+try { savedProviderHealth = stateRepository.readJson('integration-health.json', null); }
+catch (error) { logger.warn('provider.health_state_unreadable', { error }); }
+providerRuntime.hydrate(savedProviderHealth);
+providerRuntime.setStateObserver(snapshot => stateRepository.writeJson('integration-health.json', snapshot));
+let savedCredentialMetadata = null;
+try { savedCredentialMetadata = stateRepository.readJson('credential-metadata.json', null); }
+catch (error) { logger.warn('credential.metadata_unreadable', { error }); }
+const credentialMetadata = createCredentialMetadata({
+  initialState: savedCredentialMetadata,
+  save: state => stateRepository.writeJson('credential-metadata.json', state),
+});
 // Without DATA_DIR the files sit on the container filesystem, which the host
 // replaces on every deploy. Anything the owner confirms through the UI is then
 // true until the next deploy and false afterwards, so endpoints that record an
@@ -782,6 +795,7 @@ registerOperationsRoutes(app, {
       backups: backupService.list(),
       automation: buildAutomationStatus(getAutomationFeatures(), queue, jobWorker.status().running),
       monthlyReport: monthlyReportService?.status() || null,
+      credentialMetadata: credentialMetadata.snapshot(),
     });
   },
 });
@@ -1794,6 +1808,14 @@ registerConfigurationRoutes(app, {
     getGscDashboardData.clear();
     computePerformance.clear();
     providerRuntime.clearCache();
+  },
+  onCredentialsChanged: providers => {
+    for (const provider of providers) {
+      providerRuntime.reset(provider);
+      if (provider === 'search-console') providerRuntime.reset('google-indexing');
+    }
+    try { credentialMetadata.record(providers); }
+    catch (error) { logger.warn('credential.metadata_persist_failed', { providers, error }); }
   },
   getStorageStatus: () => {
     const storage = storageReadiness();
