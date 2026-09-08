@@ -254,6 +254,7 @@ so one production replica remains the supported topology.
 | `lib/ai-visibility-routes.js` | AI Visibility status, tracked prompts, schedule, and manual-run HTTP contracts |
 | `lib/ai-visibility-service.js` | Multi-engine provider adapters, answer analysis, visibility scoring, snapshot retention, and trend projection |
 | `lib/ai-factcheck-service.js` | Canonical business truth, answer comparison, per-engine accuracy scoring, and FactCheck persistence orchestration |
+| `lib/ai-crawler-service.js` | AI crawler catalog, robots.txt parsing, provider audit, verdict projection, and snapshot persistence |
 | `lib/ai-audit-routes.js` | Shared FactCheck, crawler-access, and Reddit status/run HTTP orchestration |
 | `lib/aio-core-routes.js` | Grounded AIO audit, bounded audit history, and schema HTTP contracts |
 | `lib/assistant-routes.js` | Grounded assistant prompt, bounded conversation, safe provider errors, and confirmation-only action proposal contracts |
@@ -309,6 +310,12 @@ so one production replica remains the supported topology.
    metering, and snapshot persistence now live in
    `lib/ai-factcheck-service.js`. The existing shared AI-audit route and
    multi-engine adapter remain its HTTP and provider boundaries.
+
+   The crawler-access catalog, robots.txt parser, specific-versus-wildcard
+   verdicts, provider request, and saved audit snapshot now live in
+   `lib/ai-crawler-service.js`. Provider policy and route concurrency remain
+   injected boundaries, and compatibility tests cover blocked, partial,
+   missing, and failed robots responses.
 2. **Feature state is still process-local during a run.** PostgreSQL mode makes
    the database the startup recovery authority, but one production replica is
    still the supported topology. Move mutations to transactional repository

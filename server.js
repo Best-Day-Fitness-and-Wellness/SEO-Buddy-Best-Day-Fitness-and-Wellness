@@ -50,6 +50,7 @@ const { registerAiVisibilityRoutes } = require('./lib/ai-visibility-routes');
 const { DEFAULT_AI_ENGINES, DEFAULT_VIS_PROMPTS, createAiVisibilityService } = require('./lib/ai-visibility-service');
 const { registerAiAuditRoutes } = require('./lib/ai-audit-routes');
 const { buildFactTruth, createAiFactCheckService } = require('./lib/ai-factcheck-service');
+const { createAiCrawlerService } = require('./lib/ai-crawler-service');
 const { registerScheduledFeatureRoutes } = require('./lib/scheduled-feature-routes');
 const { createGoogleDelivery } = require('./lib/google-delivery');
 const { registerDeliveryRoutes } = require('./lib/delivery-routes');
@@ -2029,19 +2030,6 @@ const runFactCheck = aiFactCheckService.run;
 // matters) is verify the site's robots.txt lets the AI bots read it at all.
 // A blocked GPTBot = invisible to ChatGPT no matter how good the content is.
 // ============================================================
-const AI_CRAWLERS = [
-  { ua: 'GPTBot', label: 'GPTBot', purpose: 'OpenAI — trains & feeds ChatGPT' },
-  { ua: 'OAI-SearchBot', label: 'OAI-SearchBot', purpose: 'ChatGPT Search index' },
-  { ua: 'ChatGPT-User', label: 'ChatGPT-User', purpose: 'ChatGPT live browsing' },
-  { ua: 'PerplexityBot', label: 'PerplexityBot', purpose: 'Perplexity index' },
-  { ua: 'ClaudeBot', label: 'ClaudeBot', purpose: 'Anthropic Claude' },
-  { ua: 'Google-Extended', label: 'Google-Extended', purpose: 'Gemini / Google AI' },
-  { ua: 'Applebot-Extended', label: 'Applebot-Extended', purpose: 'Apple Intelligence' },
-  { ua: 'Amazonbot', label: 'Amazonbot', purpose: 'Amazon (Alexa / Rufus)' },
-  { ua: 'meta-externalagent', label: 'Meta-ExternalAgent', purpose: 'Meta AI' },
-  { ua: 'Bytespider', label: 'Bytespider', purpose: 'ByteDance / TikTok AI' },
-  { ua: 'CCBot', label: 'CCBot', purpose: 'Common Crawl — feeds many LLMs' }
-];
 const AI_CRAWLERS_FILE = path.join(DATA_DIR, 'ai-crawlers.json');
 let crawlersDb = { latest: null, updatedAt: null };
 if (fs.existsSync(AI_CRAWLERS_FILE)) {
@@ -2050,59 +2038,13 @@ if (fs.existsSync(AI_CRAWLERS_FILE)) {
 let crawlersRunning = false;
 function saveCrawlers() { saveJsonFileSync(AI_CRAWLERS_FILE, crawlersDb, 'AI Crawlers'); }
 
-function parseRobots(txt) {
-  const groups = []; let cur = null;
-  (txt || '').split(/\r?\n/).forEach(line => {
-    const l = line.replace(/#.*$/, '').trim(); if (!l) return;
-    const m = l.match(/^([a-z-]+)\s*:\s*(.*)$/i); if (!m) return;
-    const field = m[1].toLowerCase(), val = m[2].trim();
-    if (field === 'user-agent') { if (!cur || cur._started) { cur = { agents: [], allow: [], disallow: [], _started: false }; groups.push(cur); } cur.agents.push(val.toLowerCase()); }
-    else if (field === 'disallow' && cur) { cur._started = true; cur.disallow.push(val); }
-    else if (field === 'allow' && cur) { cur._started = true; cur.allow.push(val); }
-  });
-  return groups;
-}
-function crawlerVerdict(groups, ua) {
-  const lua = ua.toLowerCase();
-  let g = groups.find(gr => gr.agents.some(a => a !== '*' && (a === lua || lua.includes(a) || a.includes(lua))));
-  let matchedBy = g ? 'specific rule' : '';
-  if (!g) { g = groups.find(gr => gr.agents.includes('*')); matchedBy = g ? 'the * (all bots) rule' : ''; }
-  if (!g) return { status: 'allowed', reason: 'not restricted', matchedBy: 'no matching rule' };
-  const blocksAll = g.disallow.includes('/');
-  const allowsRoot = g.allow.includes('/');
-  if (blocksAll && !allowsRoot) return { status: 'blocked', reason: 'Disallow: /', matchedBy };
-  const somePaths = g.disallow.filter(d => d && d !== '/').length;
-  return { status: 'allowed', reason: somePaths ? 'allowed (some paths blocked)' : 'allowed', matchedBy };
-}
-async function runCrawlerAudit() {
-  const base = siteDomain();
-  const url = base + '/robots.txt';
-  let robotsText = '', hadRobots = false, status = 0, fetchError = '';
-  try {
-    const resp = await providerRuntime.fetch('web-audit', url, { headers: { 'User-Agent': 'SEO-Buddy-AI-Readiness/1.0' } }, {
-      throwOnHttpError: false,
-      retries: 1,
-      policy: { timeoutMs: 15000 },
-    });
-    status = resp.status;
-    if (resp.ok) { robotsText = await resp.text(); hadRobots = true; }
-  } catch (error) {
-    const failure = publicProviderError(error, {
-      provider: 'The website',
-      operation: 'The AI crawler check',
-    });
-    fetchError = failure.error;
-  }
-  const groups = parseRobots(robotsText);
-  const bots = AI_CRAWLERS.map(b => {
-    const v = hadRobots ? crawlerVerdict(groups, b.ua) : { status: 'allowed', reason: 'no robots.txt found (site is open to all)', matchedBy: 'none' };
-    return { ...b, ...v };
-  });
-  const blocked = bots.filter(b => b.status === 'blocked').length;
-  const snapshot = { ranAt: new Date().toISOString(), site: base, robotsUrl: url, hadRobots, status, fetchError, blocked, total: bots.length, bots, robotsSnippet: robotsText.slice(0, 1500) };
-  crawlersDb.latest = snapshot; crawlersDb.updatedAt = snapshot.ranAt; saveCrawlers();
-  return { snapshot };
-}
+const aiCrawlerService = createAiCrawlerService({
+  state: crawlersDb,
+  save: saveCrawlers,
+  getSiteDomain: siteDomain,
+  providerRuntime,
+});
+const runCrawlerAudit = aiCrawlerService.run;
 // ============================================================
 // P4c — REDDIT VISIBILITY ENGINE
 // AI answer engines cite Reddit heavily. This finds real, high-intent Reddit
