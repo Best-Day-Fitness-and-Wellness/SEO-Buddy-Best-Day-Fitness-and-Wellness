@@ -143,9 +143,17 @@
   function statusCard(feature) {
     const reason = feature.reason || 'Open the tool for details.';
     return `<article class="ws-automation"><details><summary><span class="ws-row-icon">${icon(feature.key)}</span><span class="ws-row-title">${esc(feature.title)}</span><span class="ws-status ${esc(feature.status)}">${esc(feature.label)}</span><span class="ws-chevron" aria-hidden="true">›</span></summary>
-      <div class="ws-evidence"><h3>Evidence &amp; controls</h3><p>${esc(reason)}</p><dl><dt>Last recorded activity</dt><dd>${esc(date(feature.lastRecordedAt))}</dd>
-      <dt>${feature.nextRunEstimated ? 'Next eligible check (estimated)' : 'Next scheduled check'}</dt><dd>${feature.nextRunAt ? esc(date(feature.nextRunAt)) : 'Not confirmed'}</dd></dl>
+      <div class="ws-evidence"><h3>Why this status</h3><p>${esc(reason)}</p><dl><dt>Last update</dt><dd>${esc(date(feature.lastRecordedAt))}</dd>
+      <dt>${feature.nextRunEstimated ? 'Earliest expected check' : 'Next planned check'}</dt><dd>${feature.nextRunAt ? esc(date(feature.nextRunAt)) : 'Not scheduled yet'}</dd></dl>
       <button type="button" class="btn btn-secondary" ${featureNavigation(feature)}>${feature.status === 'needs-setup' ? (needsConnections(feature) ? 'Review connections' : 'Review report setup') : 'View details'}</button></div></details></article>`;
+  }
+
+  function ownerInstruction(move) {
+    if (move.key === 'nap') return 'Open the guide, then update the listing with the correct business details.';
+    if (move.key === 'gbp') return 'Review the prepared post, copy it to Google, then record that you posted it.';
+    if (move.key === 'listed') return 'Review the outreach draft, then send it to the website owner.';
+    if (move.capability === 'approve') return 'Review the details and decide whether SEO Buddy may continue.';
+    return 'Open the details to see the owner step and supporting information.';
   }
 
   async function loadToday() {
@@ -194,9 +202,9 @@
       const draft = pendingDraft();
       $('ws-approval-count').textContent = (decisions.length + (draft ? 1 : 0)) || '';
       $('ws-approvals').innerHTML = `${draft ? `<article class="ws-decision"><span class="ws-status needs-approval">Needs approval</span><h2>${esc(draft.title)}</h2><p>Your current browser-tab draft is ready for review. This version has not been published.</p>${button('ai-tab', 'Review article')}</article>` : ''}
-        ${decisions.length ? decisions.map(move => `<article class="ws-decision"><span class="ws-status needs-approval">${move.capability === 'manual' ? 'Action needed' : 'Needs approval'}</span>
-          <h2>${esc(move.title)}</h2><p>${esc(move.why)}</p><p class="text-muted">${esc(move.realEffort || move.effort || '')}</p>
-          ${move.key === 'autopilot' ? '<button class="btn btn-primary" type="button" data-ws-enable-content>Review permission</button>' : button(move.tab, move.key === 'gbp' ? 'Review prepared Google post' : 'Review & continue')}</article>`).join('') : '<div class="ow-note"><b>No server-side decisions are waiting.</b><p>This is not a statement that all automations are healthy. Today shows their current status.</p></div>'}
+        ${decisions.length ? decisions.map(move => `<article class="ws-decision"><span class="ws-status needs-approval">${move.capability === 'manual' ? 'Your step' : 'Your approval needed'}</span>
+          <h2>${esc(move.ownerTitle || move.title)}</h2><p><strong>Why it matters:</strong> ${esc(move.ownerWhy || move.why)}</p><p><strong>What you need to do:</strong> ${esc(ownerInstruction(move))}</p><p class="text-muted">Estimated time: ${esc(move.realEffort || move.effort || 'not recorded')}</p>
+          ${move.key === 'autopilot' ? `<button class="btn btn-primary" type="button" data-ws-enable-content>${esc(move.ownerCta || 'Review permission')}</button>` : button(move.tab, move.key === 'gbp' ? 'Review prepared Google post' : (move.ownerCta || 'Review details'))}</article>`).join('') : '<div class="ow-note"><b>No decisions are waiting.</b><p>This does not confirm that every scheduled check succeeded. Today shows the latest status.</p></div>'}
         ${blockers.length ? '<h2>Setup needed</h2>' + blockers.map(move => `<article class="ws-decision"><h3>${esc(move.title)}</h3><p>${esc(move.why)}</p>${button(move.tab, 'Review setup')}</article>`).join('') : ''}`;
     } catch (_) {
       if (request !== approvalsRequest) return;
@@ -275,8 +283,40 @@
       text: 'This is the first service in your connection list. Each row shows its setup status and where to manage it.',
       takeaway: 'Configured is not a successful live test. Optional providers can stay disconnected. Finish returns you to your starting page.' },
   ]);
+  const WALKTHROUGH_STORAGE_KEY = 'seo_walkthrough_progress_v1';
   let walkthroughDialog, walkthroughStep = 0, walkthroughReturnFocus, releaseWalkthroughFocus;
   let walkthroughOrigin, walkthroughObserver, walkthroughResize, walkthroughTarget, walkthroughFrame = 0;
+  let walkthroughFinished = false;
+
+  function walkthroughProgress() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(WALKTHROUGH_STORAGE_KEY) || '{}');
+      const step = Number.isInteger(saved.step) && saved.step >= 0 && saved.step < WALKTHROUGH.length ? saved.step : 0;
+      return { step, completed: saved.completed === true };
+    } catch (_) { return { step: 0, completed: false }; }
+  }
+
+  function saveWalkthroughProgress(completed = false) {
+    try { localStorage.setItem(WALKTHROUGH_STORAGE_KEY, JSON.stringify({ step: completed ? 0 : walkthroughStep, completed })); }
+    catch (_) { /* The tour still works when browser storage is unavailable. */ }
+    updateWalkthroughEntry();
+  }
+
+  function updateWalkthroughEntry() {
+    const entry = $('ws-start-walkthrough'), note = $('ws-walkthrough-entry-note');
+    if (!entry || !note) return;
+    const saved = walkthroughProgress();
+    if (saved.completed) {
+      note.textContent = 'Need a refresher?';
+      entry.textContent = 'Take the walkthrough again';
+    } else if (saved.step > 0) {
+      note.textContent = 'Continue where you left off.';
+      entry.textContent = `Continue walkthrough — step ${saved.step + 1} of ${WALKTHROUGH.length}`;
+    } else {
+      note.textContent = 'New to SEO Buddy?';
+      entry.textContent = 'Start the walkthrough';
+    }
+  }
 
   function positionWalkthrough() {
     if (!walkthroughDialog?.open) return;
@@ -350,6 +390,7 @@
     $('ws-walkthrough-next').textContent = walkthroughStep === WALKTHROUGH.length - 1 ? 'Finish' : 'Next →';
     $('ws-walkthrough-title').focus({ preventScroll: true });
     $('ws-walkthrough-card').scrollTop = 0;
+    saveWalkthroughProgress(false);
     walkthroughObserver.observe($(step.tab), { childList: true, subtree: true, characterData: true });
     positionWalkthrough();
   }
@@ -362,7 +403,9 @@
       ? $('ws-help').querySelector('summary') : document.activeElement;
     $('ws-help').open = false;
     walkthroughOrigin = { tab: current, state: history.state, url: global.location.href, scroll: global.scrollY };
-    walkthroughStep = 0;
+    const saved = walkthroughProgress();
+    walkthroughStep = saved.completed ? 0 : saved.step;
+    walkthroughFinished = false;
     walkthroughDialog.showModal();
     document.body.classList.add('ws-walkthrough-open');
     releaseWalkthroughFocus = global.SeoBuddyCore.trapDialogFocus($('ws-walkthrough-card'), () => walkthroughDialog.close());
@@ -371,7 +414,7 @@
   }
 
   function setupWalkthrough() {
-    $('ws-orientation').insertAdjacentHTML('beforeend', `<details id="ws-help" class="ws-help"><summary>Help</summary><div class="ws-help-menu"><p>New to SEO Buddy?</p><button type="button" class="btn btn-secondary" id="ws-start-walkthrough">Walkthrough — start here</button></div></details>`);
+    $('ws-orientation').insertAdjacentHTML('beforeend', `<details id="ws-help" class="ws-help"><summary>Help</summary><div class="ws-help-menu"><p id="ws-walkthrough-entry-note">New to SEO Buddy?</p><button type="button" class="btn btn-secondary" id="ws-start-walkthrough">Start the walkthrough</button></div></details>`);
     walkthroughDialog = document.createElement('dialog');
     walkthroughDialog.id = 'ws-walkthrough';
     walkthroughDialog.className = 'ws-walkthrough';
@@ -393,7 +436,7 @@
     $('ws-walkthrough-skip').addEventListener('click', () => walkthroughDialog.close());
     $('ws-walkthrough-back').addEventListener('click', () => { if (walkthroughStep > 0) { walkthroughStep--; renderWalkthrough(); } });
     $('ws-walkthrough-next').addEventListener('click', () => {
-      if (walkthroughStep === WALKTHROUGH.length - 1) walkthroughDialog.close();
+      if (walkthroughStep === WALKTHROUGH.length - 1) { walkthroughFinished = true; saveWalkthroughProgress(true); walkthroughDialog.close(); }
       else { walkthroughStep++; renderWalkthrough(); }
     });
     // Native modal inertness blocks background interaction; the shared focus
@@ -405,6 +448,7 @@
       releaseWalkthroughFocus?.();
       releaseWalkthroughFocus = null;
       document.body.classList.remove('ws-walkthrough-open');
+      if (!walkthroughFinished) saveWalkthroughProgress(false);
       const origin = walkthroughOrigin;
       walkthroughOrigin = null;
       if (origin && current !== origin.tab) {
@@ -418,6 +462,7 @@
         ? walkthroughReturnFocus : $('ws-help').querySelector('summary');
       target.focus({ preventScroll: true });
     });
+    updateWalkthroughEntry();
   }
 
   function start(render) {
@@ -446,13 +491,13 @@
     const first = $('settings-gemini-key').closest('.form-group').previousElementSibling;
     const last = $('gsc-diag');
     const connectionDetails = document.createElement('details'); connectionDetails.className = 'ws-details'; connectionDetails.id = 'ws-connections';
-    const connectionSummary = document.createElement('summary'); connectionSummary.textContent = 'Connections, credentials and technical options';
+    const connectionSummary = document.createElement('summary'); connectionSummary.textContent = 'Connections, sign-in details and advanced settings';
     first.before(connectionDetails); connectionDetails.append(connectionSummary);
     let node = first;
     while (node) { const next = node.nextSibling; connectionDetails.append(node); if (node === last) break; node = next; }
     form.addEventListener('invalid', event => { if (connectionDetails.contains(event.target)) connectionDetails.open = true; }, true);
     form.closest('.content-card').querySelector('h2').textContent = 'Account and connections';
-    form.closest('.content-card').querySelector('h2 + p').textContent = 'Manage access and value assumptions. Open technical options when a connection needs attention.';
+    form.closest('.content-card').querySelector('h2 + p').textContent = 'Manage account access, connected services, and the estimates used in reports.';
     $('ws-back').addEventListener('click', () => depth > 0 ? history.back() : navigate('workspace-today-tab'));
     $('ws-tool-search').addEventListener('input', filterTools);
     $('ws-tool-clear').addEventListener('click', clearToolSearch);

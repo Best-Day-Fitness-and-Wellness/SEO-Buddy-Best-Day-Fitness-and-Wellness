@@ -514,10 +514,17 @@ document.addEventListener('DOMContentLoaded', () => {
     ['seo_admin_password', 'seo_gemini_key', 'seo_ghl_token', 'seo_gsc_json'].forEach(key => localStorage.removeItem(key));
   }
 
+  function friendlySiteLabel(siteUrl) {
+    const configured = String(siteUrl || '').trim();
+    if (!configured) return '';
+    if (configured.toLowerCase().startsWith('sc-domain:')) return configured.slice('sc-domain:'.length).replace(/\/$/, '');
+    try { return new URL(configured).hostname || configured; }
+    catch (_) { return configured.replace(/^https?:\/\//i, '').replace(/\/$/, ''); }
+  }
+
   function updateSiteUrlBadge(siteUrl) {
-    if (displaySiteUrlBadge && siteUrl) {
-      displaySiteUrlBadge.innerText = siteUrl.replace('https://', '').replace('http://', '');
-    }
+    const label = friendlySiteLabel(siteUrl);
+    if (displaySiteUrlBadge && label) displaySiteUrlBadge.innerText = label;
   }
   window.getStoredCredentials = getStoredCredentials;
   window.updateSiteUrlBadge = updateSiteUrlBadge;

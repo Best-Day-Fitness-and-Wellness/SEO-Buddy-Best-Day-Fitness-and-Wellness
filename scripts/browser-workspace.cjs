@@ -873,6 +873,9 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
 
   await journey(`${prefix}: visual walkthrough visits and highlights real pages then restores unsaved settings`, async () => {
     await load('settings');
+    await page.evaluate(() => localStorage.removeItem('seo_walkthrough_progress_v1'));
+    await page.evaluate(() => window.updateSiteUrlBadge('sc-domain:bestdayfitness.com'));
+    assert.equal(await page.locator('#display-site-url').innerText(), 'bestdayfitness.com');
     await page.locator('[data-connection-key="openai"]').click();
     const draft = page.locator('#settings-openai-key');
     await draft.fill('test-only-unsaved-walkthrough');
@@ -929,6 +932,9 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
     assert.equal(writes.length, before);
     assert.equal(await page.evaluate(() => history.length), historyLength, 'Tour must not add Back-button history entries');
     await page.waitForFunction(() => document.activeElement === document.querySelector('#ws-help summary'));
+    await page.locator('#ws-help summary').click();
+    assert.equal(await page.locator('#ws-start-walkthrough').innerText(), 'Take the walkthrough again');
+    await page.locator('#ws-help summary').click();
     // Restart begins at the beginning; Escape and Skip both restore focus.
     for (const escape of [true, false]) {
       await page.locator('#ws-help summary').click();
@@ -942,6 +948,18 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
       await page.waitForFunction(() => !document.getElementById('ws-walkthrough').open);
       await page.waitForFunction(() => document.activeElement === document.querySelector('#ws-help summary'));
     }
+    await page.locator('#ws-help summary').click();
+    await open('#ws-start-walkthrough');
+    await ready(0);
+    await open('#ws-walkthrough-next');
+    await ready(1);
+    await open('#ws-walkthrough-skip');
+    await page.locator('#ws-help summary').click();
+    assert.match(await page.locator('#ws-start-walkthrough').innerText(), /Continue walkthrough.*step 2 of 5/);
+    await open('#ws-start-walkthrough');
+    await ready(1);
+    await open('#ws-walkthrough-skip');
+    await page.evaluate(() => localStorage.removeItem('seo_walkthrough_progress_v1'));
     await draft.fill('');
   });
 
@@ -968,6 +986,7 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
   });
 
   await journey(`${prefix}: walkthrough explains missing sections and follows late content without blocking navigation`, async () => {
+    await page.evaluate(() => localStorage.removeItem('seo_walkthrough_progress_v1'));
     await load('today');
     await page.waitForSelector('#ws-today .ws-score');
     await page.evaluate(() => window.SeoBuddyWorkspace.openWalkthrough());
@@ -992,6 +1011,7 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
   });
 
   await journey(`${prefix}: assistant opens the real walkthrough locally and from an offered action`, async () => {
+    await page.evaluate(() => localStorage.removeItem('seo_walkthrough_progress_v1'));
     await load('today');
     const before = writes.length;
     await open('#asst-fab');

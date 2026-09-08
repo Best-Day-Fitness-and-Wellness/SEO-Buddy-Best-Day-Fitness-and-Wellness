@@ -1651,7 +1651,7 @@ test('dashboard routes preserve prioritized moves, weekly digest, readiness, and
     isGbpConfigured: () => { gbpChecks += 1; return false; },
   });
   assert.deepEqual(moves.map(move => move.key), ['nap', 'gsc', 'gbp', 'ai', 'autopilot', 'listed']);
-  assert.equal(moves[0].ownerTitle, 'Your phone number is wrong on other websites');
+  assert.equal(moves[0].ownerTitle, 'Your business details do not match on another website');
   assert.equal(moves[0].capability, 'manual');
   assert.equal(moves[1].capability, 'blocked');
   assert.equal(moves[2].cta, 'Review & post');
@@ -1942,7 +1942,7 @@ test('assistant routes preserve grounding, bounded context, and confirmation-onl
     monthlyReport: { ready: true, nextRunAt: '2026-10-01T13:00:00Z' },
   };
   const prompt = assistantSystemPrompt(context);
-  assert.match(prompt, /Help → Walkthrough/);
+  assert.match(prompt, /Help → Start the walkthrough/);
   assert.match(prompt, /call open_walkthrough/);
   assert.match(prompt, /visits the real Today, score, Approvals, Results, and Connections screens and spotlights/);
   assert.doesNotMatch(prompt, /without changing the current page/);
