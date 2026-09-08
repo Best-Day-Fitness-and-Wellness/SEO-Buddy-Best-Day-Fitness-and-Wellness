@@ -49,6 +49,7 @@ const { registerContentRoutes } = require('./lib/content-routes');
 const { registerAiVisibilityRoutes } = require('./lib/ai-visibility-routes');
 const { DEFAULT_AI_ENGINES, DEFAULT_VIS_PROMPTS, createAiVisibilityService } = require('./lib/ai-visibility-service');
 const { registerAiAuditRoutes } = require('./lib/ai-audit-routes');
+const { buildFactTruth, createAiFactCheckService } = require('./lib/ai-factcheck-service');
 const { registerScheduledFeatureRoutes } = require('./lib/scheduled-feature-routes');
 const { createGoogleDelivery } = require('./lib/google-delivery');
 const { registerDeliveryRoutes } = require('./lib/delivery-routes');
@@ -2006,70 +2007,20 @@ if (fs.existsSync(FACTCHECK_FILE)) {
 let factCheckRunning = false;
 function saveFactCheck() { saveJsonFileSync(FACTCHECK_FILE, factCheckDb, 'FactCheck'); }
 
-function factTruth() {
-  const kit = (typeof listingKit === 'function') ? listingKit() : {};
-  return {
-    name: BUSINESS.name,
-    city: BUSINESS.addressLocality || 'St. Petersburg',
-    region: BUSINESS.addressRegion || 'FL',
-    address: kit.addressOneLine || `${BUSINESS.streetAddress || ''}, ${BUSINESS.addressLocality || ''}, ${BUSINESS.addressRegion || ''} ${BUSINESS.postalCode || ''}`.trim(),
-    phone: kit.phone || BUSINESS.telephone,
-    website: kit.website || ('https://' + (typeof siteDomain === 'function' ? siteDomain() : 'bestdayfitness.com')),
-    services: Array.isArray(kit.categories) && kit.categories.length ? kit.categories.join(', ') : 'senior fitness, personal training, physical therapy, wellness for adults 50+'
-  };
-}
-
-async function analyzeFactAnswer(answerText, truth) {
-  const key = process.env.GEMINI_API_KEY;
-  if (!key || !answerText) return { issues: [], summary: key ? 'The engine gave no usable answer.' : 'Add a Gemini key to analyze answers.' };
-  try {
-    const p = `An AI assistant said the following about our business:
-"""
-${answerText.slice(0, 4000)}
-"""
-GROUND TRUTH about the business:
-${JSON.stringify(truth)}
-
-Compare the AI's factual claims to the ground truth. Focus on: location (city/state), street address, phone number, and business type/services. Ignore hedged or "I don't know" statements. Only list claims the AI actually asserted. Return ONLY raw JSON, no markdown:
-{"issues":[{"field":"location|address|phone|services|name|other","aiClaim":"what the AI asserted (short)","correct":true or false,"truth":"the correct value","note":"short note"}],"summary":"one sentence on overall accuracy"}`;
-    const r = await geminiGenerate({ model: GEMINI_MODEL, contents: p });
-    const parsed = parseGeminiJson(r.text) || {};
-    const issues = Array.isArray(parsed.issues) ? parsed.issues.filter(i => i && i.aiClaim).map(i => ({
-      field: String(i.field || 'other'), aiClaim: String(i.aiClaim), correct: i.correct !== false, truth: String(i.truth || ''), note: String(i.note || '')
-    })) : [];
-    return { issues, summary: String(parsed.summary || '') };
-  } catch (error) {
-    const failure = publicProviderError(error, {
-      provider: 'Gemini',
-      operation: 'The accuracy analysis',
-      setupPath: 'Settings → Your connections → Gemini',
-    });
-    return { issues: [], summary: failure.error, errorCode: failure.code };
-  }
-}
-
-async function runFactCheck() {
-  const enabled = AI_ENGINES.map(e => e.id).filter(engineConfigured);
-  if (!enabled.length) return { error: 'No AI engines are configured. Add GEMINI_API_KEY (and optionally OPENAI_API_KEY / PERPLEXITY_API_KEY).' };
-  const truth = factTruth();
-  const q = `Tell me what you know about the business "${truth.name}" in ${truth.city}, ${truth.region}. Include: what city and state it is in, its street address if you know it, its phone number, and its main services or business type. Only state facts you are confident about; if you don't know a detail, say you don't know.`;
-  const results = [];
-  for (const engine of enabled) {
-    const label = (AI_ENGINES.find(e => e.id === engine) || {}).label || engine;
-    const res = await askEngine(engine, q);
-    if (!res.ok) { results.push({ engine, label, error: res.error || 'failed', accuracy: null, wrong: 0, totalClaims: 0, issues: [], summary: '' }); continue; }
-    if (engine !== 'google') meterUsage(engine);
-    const analysis = await analyzeFactAnswer(res.answer, truth);
-    const totalClaims = analysis.issues.length;
-    const wrong = analysis.issues.filter(i => !i.correct).length;
-    const accuracy = totalClaims ? Math.round((totalClaims - wrong) / totalClaims * 100) : null;
-    results.push({ engine, label, accuracy, wrong, totalClaims, issues: analysis.issues, summary: analysis.summary, snippet: res.answer.length > 400 ? res.answer.slice(0, 397) + '…' : res.answer, sources: (res.sources || []).slice(0, 5) });
-  }
-  const totalWrong = results.reduce((s, r) => s + (r.wrong || 0), 0);
-  const snapshot = { ranAt: new Date().toISOString(), truth, engines: enabled, results, totalWrong };
-  factCheckDb.latest = snapshot; factCheckDb.updatedAt = snapshot.ranAt; saveFactCheck();
-  return { snapshot };
-}
+const aiFactCheckService = createAiFactCheckService({
+  state: factCheckDb,
+  save: saveFactCheck,
+  engines: AI_ENGINES,
+  engineConfigured,
+  askEngine,
+  meterUsage,
+  getTruth: () => buildFactTruth({ business: BUSINESS, listingKit, siteDomain }),
+  geminiGenerate,
+  geminiModel: GEMINI_MODEL,
+  parseJson: parseGeminiJson,
+  env: process.env,
+});
+const runFactCheck = aiFactCheckService.run;
 
 // ============================================================
 // P4b — AI CRAWLER ACCESS AUDIT

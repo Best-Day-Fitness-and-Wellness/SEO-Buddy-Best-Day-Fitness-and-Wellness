@@ -253,6 +253,7 @@ so one production replica remains the supported topology.
 | `lib/content-routes.js` | Manual article generation, publishing, indexing, and history HTTP contracts |
 | `lib/ai-visibility-routes.js` | AI Visibility status, tracked prompts, schedule, and manual-run HTTP contracts |
 | `lib/ai-visibility-service.js` | Multi-engine provider adapters, answer analysis, visibility scoring, snapshot retention, and trend projection |
+| `lib/ai-factcheck-service.js` | Canonical business truth, answer comparison, per-engine accuracy scoring, and FactCheck persistence orchestration |
 | `lib/ai-audit-routes.js` | Shared FactCheck, crawler-access, and Reddit status/run HTTP orchestration |
 | `lib/aio-core-routes.js` | Grounded AIO audit, bounded audit history, and schema HTTP contracts |
 | `lib/assistant-routes.js` | Grounded assistant prompt, bounded conversation, safe provider errors, and confirmation-only action proposal contracts |
@@ -303,6 +304,11 @@ so one production replica remains the supported topology.
    The composition root injects provider policy, Gemini parsing, metering,
    mutable state, and persistence; FactCheck reuses the same engine adapter.
    Focused tests lock the existing provider payloads and score semantics.
+
+   FactCheck truth construction, Gemini-based claim comparison, engine scoring,
+   metering, and snapshot persistence now live in
+   `lib/ai-factcheck-service.js`. The existing shared AI-audit route and
+   multi-engine adapter remain its HTTP and provider boundaries.
 2. **Feature state is still process-local during a run.** PostgreSQL mode makes
    the database the startup recovery authority, but one production replica is
    still the supported topology. Move mutations to transactional repository
