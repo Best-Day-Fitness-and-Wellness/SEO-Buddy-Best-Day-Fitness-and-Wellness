@@ -64,7 +64,7 @@ behavior-preserving refactoring sequence, see
 
 ### Explore → Setup & help
 
-**Setup & business info** (business identity + a readiness board), the **Quick Guide** tour, **Ask SEO Buddy** (the assistant), and **Settings** (API keys, admin password, usage budget, business‑value assumptions).
+**Setup & business info** (business identity + a readiness board), the **Quick Guide** tour, **Ask SEO Buddy** (grounded in the current score, System health, report, and alert status), and **Settings** (API keys, admin password, usage budget, business‑value assumptions). Assistant provider failures use short, actionable guidance instead of exposing raw upstream error responses.
 
 ---
 

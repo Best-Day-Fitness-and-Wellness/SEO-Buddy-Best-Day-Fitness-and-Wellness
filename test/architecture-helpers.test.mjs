@@ -56,6 +56,7 @@ const {
 const { buildAioSchemas, registerAioCoreRoutes } = require('../lib/aio-core-routes.js');
 const {
   ASSISTANT_TOOLS,
+  assistantPublicError,
   assistantSystemPrompt,
   readAssistantModelResponse,
   registerAssistantRoutes,
@@ -1980,6 +1981,8 @@ test('assistant routes preserve grounding, bounded context, and confirmation-onl
     googlePost: { status: 'owner-marked' },
     connections: { googleBusinessProfilePublishing: false },
     monthlyReport: { ready: true, nextRunAt: '2026-10-01T13:00:00Z' },
+    failureAlerts: { enabled: true, ready: true, recipientMasked: 'o****@example.com' },
+    systemHealth: { status: 'available', overall: 'attention', alerts: [{ key: 'backups', label: 'Daily backup', message: 'The backup is overdue.' }] },
   };
   const prompt = assistantSystemPrompt(context);
   assert.match(prompt, /Help → Start the walkthrough/);
@@ -2077,6 +2080,9 @@ test('assistant routes preserve grounding, bounded context, and confirmation-onl
   assert.match(requests[0][0].config.systemInstruction, /"googleBusinessProfilePublishing":false/);
   assert.match(requests[0][0].config.systemInstruction, /"status":"owner-marked"/);
   assert.match(requests[0][0].config.systemInstruction, /"nextRunAt":"2026-10-01T13:00:00Z"/);
+  assert.match(requests[0][0].config.systemInstruction, /"failureAlerts":\{"enabled":true/);
+  assert.match(requests[0][0].config.systemInstruction, /"systemHealth":\{"status":"available","overall":"attention"/);
+  assert.match(requests[0][0].config.systemInstruction, /Settings → Your connections → System health/);
   assert.deepEqual(requests[0][1], { usageKind: 'assistant' });
 
   geminiResult = { candidates: [{ content: { parts: [{ functionCall: {
@@ -2089,11 +2095,23 @@ test('assistant routes preserve grounding, bounded context, and confirmation-onl
   assert.equal(proposed.body.action.confirmLabel, 'Run it');
   assert.match(proposed.body.reply, /Tap \*\*Run it\*\*/);
 
-  geminiError = new Error('assistant unavailable');
+  geminiError = new Error('private upstream response');
   const failed = response();
   await handler({ body: { messages: [{ role: 'user', content: 'Help' }] } }, failed);
-  assert.deepEqual([failed.statusCode, failed.body], [502, { success: false, error: 'assistant unavailable' }]);
-  assert.deepEqual(errors.at(-1), ['[Assistant] failed:', 'assistant unavailable']);
+  assert.deepEqual([failed.statusCode, failed.body], [502, {
+    success: false,
+    code: 'ASSISTANT_UNAVAILABLE',
+    error: 'The SEO Buddy Assistant is temporarily unavailable. Your data was not changed; please try again in a moment.',
+  }]);
+  assert.equal(JSON.stringify(failed.body).includes('private upstream response'), false);
+  assert.deepEqual(errors.at(-1), ['[Assistant] failed:', 'ASSISTANT_UNAVAILABLE']);
+
+  assert.deepEqual(assistantPublicError(Object.assign(new Error('ACCESS_TOKEN_TYPE_UNSUPPORTED: private body'), { status: 401 })), {
+    code: 'ASSISTANT_AUTHENTICATION_FAILED',
+    error: 'SEO Buddy could not authenticate with Gemini. Open Settings → Your connections → Gemini, replace the API key, save it, and try again.',
+  });
+  assert.equal(assistantPublicError(Object.assign(new Error('RESOURCE_EXHAUSTED quota'), { status: 429 })).code, 'ASSISTANT_USAGE_LIMIT_REACHED');
+  assert.equal(assistantPublicError(Object.assign(new Error('provider timed out'), { code: 'PROVIDER_TIMEOUT' })).code, 'ASSISTANT_PROVIDER_TIMEOUT');
 });
 
 test('core AIO routes preserve grounded citations, best-effort extraction, history, and schema contracts', async () => {

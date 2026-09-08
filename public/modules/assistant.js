@@ -123,13 +123,21 @@ document.addEventListener('DOMContentLoaded', () => {
         const r = await authFetch('/api/assistant', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messages: history.slice(-12) }) });
         const d = await r.json();
         hideTyping();
-        if (!r.ok || !d.success) throw new Error(d.error || 'Something went wrong.');
+        if (!r.ok || !d.success) {
+          const failure = new Error('Assistant request failed.');
+          failure.status = r.status;
+          failure.publicMessage = d.error || '';
+          throw failure;
+        }
         const reply = d.reply || "I'm not sure how to answer that.";
         addBot(fmt(reply), null, d.action);
         history.push({ role: 'assistant', content: reply });
       } catch (e) {
         hideTyping();
-        addBot(esc('Sorry — I hit a snag: ' + e.message + ' (If the app is password-protected, enter it in Settings.)'));
+        const message = e.status === 401
+          ? 'Enter the owner or operator password in Settings, then try again.'
+          : e.publicMessage || 'The SEO Buddy Assistant could not be reached. Your data was not changed; please try again.';
+        addBot(esc(message));
       } finally { busy = false; sendBtn.disabled = false; textEl.focus(); }
     }
     function open() { panel.classList.add('open'); document.body.classList.add('asst-open'); fab.style.display = 'none'; greet(); setTimeout(() => textEl.focus(), 50); }

@@ -303,6 +303,26 @@ async function exercise(base, viewport) {
     assert.match(await page.locator('#settings-failure-alert-note').innerText(), /does not send an email/);
   });
 
+  await journey(`${prefix}: assistant provider failures stay actionable and never show raw upstream details`, async () => {
+    responses.set('/api/assistant', { status: 502, json: {
+      success: false,
+      code: 'ASSISTANT_AUTHENTICATION_FAILED',
+      error: 'SEO Buddy could not authenticate with Gemini. Open Settings → Your connections → Gemini, replace the API key, save it, and try again.',
+    } });
+    try {
+      await page.locator('#asst-fab').click();
+      await page.locator('#asst-text').fill('How am I doing?');
+      await page.locator('#asst-send').click();
+      await page.getByText(/could not authenticate with Gemini/).waitFor();
+      const transcript = await page.locator('#asst-msgs').innerText();
+      assert.doesNotMatch(transcript, /ACCESS_TOKEN_TYPE_UNSUPPORTED|invalid authentication credentials|password-protected/);
+      await page.locator('#asst-close').click();
+    } finally {
+      responses.delete('/api/assistant');
+      if (await page.locator('#asst-panel.open').isVisible().catch(() => false)) await page.locator('#asst-close').click();
+    }
+  });
+
   await journey(`${prefix}: carousel stays compact and advances`, async () => {
     await nav('#nav-explore');
     const carousel = page.locator('.sb-explore-step').first();

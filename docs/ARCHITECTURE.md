@@ -249,7 +249,7 @@ so one production replica remains the supported topology.
 | `lib/ai-visibility-routes.js` | AI Visibility status, tracked prompts, schedule, and manual-run HTTP contracts |
 | `lib/ai-audit-routes.js` | Shared FactCheck, crawler-access, and Reddit status/run HTTP orchestration |
 | `lib/aio-core-routes.js` | Grounded AIO audit, bounded audit history, and schema HTTP contracts |
-| `lib/assistant-routes.js` | Grounded assistant prompt, bounded conversation, and confirmation-only action proposal contracts |
+| `lib/assistant-routes.js` | Grounded assistant prompt, bounded conversation, safe provider errors, and confirmation-only action proposal contracts |
 | `lib/recorded-content-routes.js` | Recording validation, Gemini transcription, and bounded social-pack generation contracts |
 | `lib/dashboard-routes.js` | Score delivery, prioritized next moves, automation digest, and deployment-readiness projections |
 | `lib/reviews-routes.js` | Reviews-site auditing, Trustpilot integration, snapshots, caching, and HTTP contracts |

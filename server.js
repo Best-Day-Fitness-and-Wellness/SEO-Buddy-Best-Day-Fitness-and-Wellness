@@ -2455,6 +2455,18 @@ async function assistantContext() {
   let cites = null;
   try { const w = worklistPayload(); const ts = w.targets || []; cites = { total: ts.length, listedOn: ts.filter(t => t.listed === true).length, stillToDo: ts.filter(t => (t.status || 'todo') === 'todo').length }; } catch (e) {}
   const aioRec = (aioAuditsDb && aioAuditsDb.length) ? { checks: aioAuditsDb.length, recommendedIn: aioAuditsDb.filter(a => a.recommended).length } : null;
+  let systemHealth = null;
+  try {
+    const overview = await currentOperationalHealth();
+    systemHealth = {
+      status: 'available',
+      checkedAt: overview.checkedAt,
+      overall: overview.overall,
+      alerts: overview.alerts.map(item => ({ key: item.key, label: item.label, message: item.message })),
+    };
+  } catch (_) {
+    systemHealth = { status: 'unavailable', checkedAt: null, overall: null, alerts: [] };
+  }
   return {
     business: { name: prof.name || BUSINESS.name, city: BUSINESS.addressLocality, region: BUSINESS.addressRegion, phone: prof.phone || BUSINESS.telephone, website: prof.website || ('https://' + siteDomain().replace(/^https?:\/\//, '')) },
     optimizationScore: lastScore, scoreChangeLast28Days: scoreDelta,
@@ -2463,6 +2475,8 @@ async function assistantContext() {
     connections: { googleBusinessProfilePublishing: gbpConfigured(), googleBusinessProfile: gbpReadiness(), gmail: !!gmailClient(), websitePublishing: !!process.env.GHL_ACCESS_TOKEN && !!process.env.GHL_LOCATION_ID, searchConsole: !!(process.env.GSC_SITE_URL && getGoogleAuth()) },
     googlePost: { status: gbpPublicationStatus(localDb.gbpDraft), recordedAt: localDb.gbpDraft?.postedAt || localDb.gbpDraft?.createdAt || null },
     monthlyReport: monthlyReportService ? monthlyReportService.status() : { ready: false },
+    failureAlerts: reliabilityAlertService ? reliabilityAlertService.status() : { enabled: false, ready: false },
+    systemHealth,
     contentSchedule: { enabled: autopilotEnabled, nextRunAt: autopilotEnabled ? nextRunTime : null, lastSuccessfulRunAt: lastAutopilotRun },
     aiVisibility: vis ? { visibilityScorePct: vis.visibilityScore, shareOfVoicePct: vis.shareOfVoice, sentimentScore: vis.sentimentScore, enginesRun: vis.engines, leaderboard: (vis.leaderboard || []).slice(0, 6).map(l => ({ name: l.name, scorePct: l.score, isYou: !!l.isBrand })), byEngine: vis.perEngine } : null,
     factCheck: fc ? { totalWrongClaims: fc.totalWrong, byEngine: (fc.results || []).map(r => ({ engine: r.label, accuracyPct: r.accuracy, wrongClaims: (r.issues || []).filter(i => !i.correct).map(i => ({ aiSaid: i.aiClaim, actualTruth: i.truth })) })) } : null,

@@ -141,8 +141,11 @@ Google posts are only labelled Google-confirmed when the posting API returns a
 successful receipt with a post resource name. Legacy and manually marked posts
 remain owner-marked, not verified by Google. Existing post text is unchanged.
 The assistant uses the dashboard's current score calculation and current connection,
-monthly-report delivery and content-schedule metadata. Configured credentials do
-not prove a working connection; a scheduled or sent report does not prove receipt.
+monthly-report delivery, content-schedule, System health, and failure-alert metadata.
+Configured credentials do not prove a working connection; a scheduled or sent
+report does not prove receipt. Provider authentication, quota, timeout, and generic
+assistant failures return stable owner-facing guidance; raw upstream response bodies
+are never rendered in the assistant panel.
 
 ## Backup and restore
 
