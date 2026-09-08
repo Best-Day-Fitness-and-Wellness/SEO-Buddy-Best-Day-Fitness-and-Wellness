@@ -252,6 +252,7 @@ so one production replica remains the supported topology.
 | `lib/autopilot-routes.js` | Content autopilot schedule, queue, target, and manual-run HTTP contracts |
 | `lib/content-routes.js` | Manual article generation, publishing, indexing, and history HTTP contracts |
 | `lib/ai-visibility-routes.js` | AI Visibility status, tracked prompts, schedule, and manual-run HTTP contracts |
+| `lib/ai-visibility-service.js` | Multi-engine provider adapters, answer analysis, visibility scoring, snapshot retention, and trend projection |
 | `lib/ai-audit-routes.js` | Shared FactCheck, crawler-access, and Reddit status/run HTTP orchestration |
 | `lib/aio-core-routes.js` | Grounded AIO audit, bounded audit history, and schema HTTP contracts |
 | `lib/assistant-routes.js` | Grounded assistant prompt, bounded conversation, safe provider errors, and confirmation-only action proposal contracts |
@@ -291,11 +292,17 @@ so one production replica remains the supported topology.
 ## Remaining constraints and next refactors
 
 1. **`server.js` is still the main composition monolith.** Operations, configuration, profile, usage,
-   Search Console, content autopilot, manual article lifecycle, AI Visibility,
+   Search Console, content autopilot, manual article lifecycle, AI Visibility HTTP and scoring orchestration,
    AI audits, core AIO auditing, AI Assistant, recorded content, dashboard projections, reviews analytics, scheduled feature controls, Google delivery, Citation,
    Local SEO, Performance, and On-Site SEO are extracted; continue one route family at a time into services, integrations,
    and repository interfaces. Keep contract tests around the existing HTTP boundary
    before every extraction.
+
+   AI Visibility provider requests, answer normalization, scoring, snapshot
+   retention, and trend projection now live in `lib/ai-visibility-service.js`.
+   The composition root injects provider policy, Gemini parsing, metering,
+   mutable state, and persistence; FactCheck reuses the same engine adapter.
+   Focused tests lock the existing provider payloads and score semantics.
 2. **Feature state is still process-local during a run.** PostgreSQL mode makes
    the database the startup recovery authority, but one production replica is
    still the supported topology. Move mutations to transactional repository
