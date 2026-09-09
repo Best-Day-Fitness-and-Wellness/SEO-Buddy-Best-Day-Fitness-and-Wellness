@@ -275,6 +275,7 @@ so one production replica remains the supported topology.
 | `lib/scheduled-feature-routes.js` | Shared state, toggle, run, and seen controls for scheduled dashboard features |
 | `lib/google-delivery.js` | Gmail and Google Business Profile OAuth and provider adapters |
 | `lib/delivery-routes.js` | Pitch, GBP post, and performance-digest delivery HTTP contracts |
+| `lib/monthly-report-data-service.js` | Fault-isolated score, search, review, automation, identity, and history assembly for monthly reports |
 | `lib/citation-routes.js` | Citation discovery, Listing Kit, scanning, tracking, and outreach HTTP contracts |
 | `lib/citation-eligibility.js` | Shared competitor-domain exclusion, eligible worklist counts, and retained discovery evidence |
 | `lib/citation-scan-service.js` | Grounded discovery, source classification, competitor memory, status retention, new-source projection, and weekly run guard |
@@ -437,6 +438,13 @@ so one production replica remains the supported topology.
    live in `lib/listing-kit-service.js`. Citation routes, discovery, outreach,
    FactCheck, and assistant context continue to consume the same kit shape while
    HTTP and provider calls remain at their existing boundaries.
+
+   Monthly report source orchestration now lives in
+   `lib/monthly-report-data-service.js`. Score, performance, search, reviews,
+   and queue reads retain independent best-effort failure handling; business,
+   history, AI, digest, automation, and readiness projections retain the same
+   report schema and fail-fast behavior. Rendering and Gmail delivery remain
+   separate existing services.
 2. **Feature state is still process-local during a run.** PostgreSQL mode makes
    the database the startup recovery authority, but one production replica is
    still the supported topology. Move mutations to transactional repository

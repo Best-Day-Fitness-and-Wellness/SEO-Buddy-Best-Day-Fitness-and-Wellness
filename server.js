@@ -60,6 +60,7 @@ const { registerScheduledFeatureRoutes } = require('./lib/scheduled-feature-rout
 const { createGoogleDelivery } = require('./lib/google-delivery');
 const { registerDeliveryRoutes } = require('./lib/delivery-routes');
 const { createMonthlyReportService, registerMonthlyReportRoutes } = require('./lib/monthly-report');
+const { createMonthlyReportDataService } = require('./lib/monthly-report-data-service');
 const { createServerPdfReport } = require('./lib/server-pdf-report');
 const { registerCitationRoutes } = require('./lib/citation-routes');
 const { eligibleCitationState, buildCitationWorklist } = require('./lib/citation-eligibility');
@@ -1830,34 +1831,24 @@ const reviewsService = createReviewsService({
 registerReviewsRoutes(app, { service: reviewsService, logger: console });
 
 const serverPdfReport = createServerPdfReport({ publicDir: PUBLIC_DIR, appOrigin: siteDomain() });
-async function buildMonthlyReportData() {
-  const safe = async operation => {
-    try { return await operation(); } catch (error) {
-      logger.warn('monthly_report.source_unavailable', { error });
-      return null;
-    }
-  };
-  const [score, performance, search, reviews, queue] = await Promise.all([
-    safe(async () => ({ success: true, ...(await buildHealthScoreResponse()) })),
-    safe(() => computePerformance()),
-    safe(() => getGscDashboardData()),
-    safe(async () => ({ success: true, ...(await reviewsService.getStats()) })),
-    safe(() => durableJobQueue.snapshot(100)),
-  ]);
-  return {
-    score,
-    performance,
-    moves: { success: true, moves: buildNextMoves(getNextMovesContext()) },
-    profile: { success: true, profile: businessProfile() },
-    search,
-    history: historyDb,
-    ai: { latest: aiVisDb.snapshots.at(-1) || null, lastRun: aiVisDb.lastRun },
-    digest: performanceDigestService.status(),
-    automation: queue ? { success: true, checkedAt: new Date().toISOString(), features: buildAutomationStatus(getAutomationFeatures(), queue, jobWorker.status().running) } : null,
-    reviews,
-    readiness: buildDeployReadiness(getReadinessContext()),
-  };
-}
+const monthlyReportDataService = createMonthlyReportDataService({
+  buildScore: buildHealthScoreResponse,
+  getPerformance: computePerformance,
+  getSearch: getGscDashboardData,
+  getReviews: reviewsService.getStats,
+  getQueue: () => durableJobQueue.snapshot(100),
+  buildMoves: () => buildNextMoves(getNextMovesContext()),
+  getProfile: businessProfile,
+  getHistory: () => historyDb,
+  getAiState: () => aiVisDb,
+  getDigest: performanceDigestService.status,
+  buildAutomation: buildAutomationStatus,
+  getAutomationFeatures,
+  getWorkerRunning: () => jobWorker.status().running,
+  buildReadiness: () => buildDeployReadiness(getReadinessContext()),
+  logger,
+});
+const buildMonthlyReportData = monthlyReportDataService.build;
 monthlyReportService = createMonthlyReportService({
   state: monthlyReportDb,
   saveState: saveMonthlyReport,
