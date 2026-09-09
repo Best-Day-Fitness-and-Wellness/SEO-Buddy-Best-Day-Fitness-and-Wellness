@@ -60,8 +60,9 @@ const { createServerPdfReport } = require('./lib/server-pdf-report');
 const { registerCitationRoutes } = require('./lib/citation-routes');
 const { eligibleCitationState, buildCitationWorklist } = require('./lib/citation-eligibility');
 const { createCitationScanService } = require('./lib/citation-scan-service');
-const { buildCanonicalNap, mapNapListings, registerLocalSeoRoutes } = require('./lib/local-seo-routes');
+const { registerLocalSeoRoutes } = require('./lib/local-seo-routes');
 const { effectiveNap, registerLocalListingRoutes } = require('./lib/local-listing-preferences');
+const { createLocalAutopilotService } = require('./lib/local-autopilot-service');
 const { createPerformanceService, registerPerformanceRoutes } = require('./lib/performance-routes');
 const { registerOnsiteRoutes } = require('./lib/onsite-routes');
 const { registerAioCoreRoutes } = require('./lib/aio-core-routes');
@@ -2426,115 +2427,23 @@ function saveLocal() {
   return saveJsonFileSync(LOCAL_FILE, localDb, 'Local Autopilot');
 }
 
-async function localNapScan() {
-  const geminiKey = process.env.GEMINI_API_KEY;
-  const canonical = buildCanonicalNap(BUSINESS);
-  if (!geminiKey) return null;
-  const prompt = `Find the current online business listings for "${BUSINESS.name}" located in ${BUSINESS.addressLocality}, ${BUSINESS.addressRegion}. For each major platform (Google Business Profile, Yelp, Facebook, Apple Maps, Bing Places, BBB, local fitness directories), report the EXACT business name, full street address, and phone number shown there, based on current web information. Reply with ONLY raw JSON, no markdown fences: {"listings":[{"platform":"","name":"","address":"","phone":""}]}. Empty string if a field isn't shown.`;
-  const r = await geminiGenerate({ model: GEMINI_MODEL, contents: prompt, config: { tools: [{ googleSearch: {} }] } });
-  const parsed = parseGeminiJson(r.text) || { listings: [] };
-  const listings = mapNapListings(parsed.listings, BUSINESS, canonical);
-  const mismatchCount = listings.filter(l => l.phoneMatch === false || l.addrMatch === false || l.nameMatch === false).length;
-  return { canonical, listings, mismatchCount, checkedAt: new Date().toISOString() };
-}
-function napSignatureOf(nap) {
-  if (!nap || !nap.listings) return '';
-  return nap.listings
-    .filter(l => l.phoneMatch === false || l.addrMatch === false || l.nameMatch === false)
-    .map(l => `${l.platform}:${l.phoneMatch}${l.addrMatch}${l.nameMatch}`).sort().join('|');
-}
-
-const GBP_TOPIC_SEED = [
-  'a simple fall-prevention and balance tip for active adults 50+',
-  'the benefits of strength training for seniors and injury recovery',
-  'how mobility work helps you stay independent as you age',
-  'why small-group coaching beats crowded gyms for adults 50+',
-  'a posture and core tip for everyday movement',
-  'staying active and strong in St. Petersburg this season',
-  'what to expect at a first longevity assessment with us'
-];
-async function localGbpDraft() {
-  const geminiKey = process.env.GEMINI_API_KEY;
-  if (!geminiKey) return null;
-  let topic, topicLabel;
-  if (historyDb && historyDb.length) {
-    topicLabel = historyDb[0].title;
-    topic = `our recent article "${historyDb[0].title}" (topic: ${historyDb[0].keyword})`;
-  } else {
-    const idx = (localDb.gbpHistory.length) % GBP_TOPIC_SEED.length;
-    topic = GBP_TOPIC_SEED[idx];
-    topicLabel = topic;
-  }
-  const brand = brandPrompt(true);
-  const prompt = `${brand}\nWrite a Google Business Profile post about: ${topic}. Under 1500 characters, engaging and locally relevant to St. Petersburg, with a clear call to action at the end (book a consultation / call us / visit). Return only the post text.`;
-  const r = await geminiGenerate({ model: GEMINI_MODEL, contents: prompt });
-  return { text: (r.text || '').trim(), topic: topicLabel, postType: 'update', createdAt: new Date().toISOString() };
-}
-
 function daysSince(iso) { if (!iso) return Infinity; return (Date.now() - new Date(iso).getTime()) / (1000 * 60 * 60 * 24); }
 
-let localRunning = false;
-async function maybeRunLocalAutopilot(force) {
-  if (localRunning) return;
-  if (!force && !localDb.enabled) return;
-  if (!process.env.GEMINI_API_KEY) return;
-  const napDue = force || daysSince(localDb.lastNapRun) >= (localDb.napIntervalDays || 7);
-  const gbpDue = force || daysSince(localDb.lastGbpRun) >= (localDb.gbpIntervalDays || 7);
-  if (!napDue && !gbpDue) return;
-  localRunning = true;
-  try {
-    if (napDue) {
-      try {
-        const nap = await localNapScan();
-        if (nap) {
-          const activeNap = effectiveNap(nap, localDb.napExclusions);
-          const sig = napSignatureOf(activeNap);
-          localDb.napNewMismatch = !!(sig && sig !== (localDb.napSignature || '') && activeNap.mismatchCount > 0);
-          localDb.napSignature = sig;
-          localDb.nap = nap;
-          localDb.lastNapRun = new Date().toISOString();
-        }
-      } catch (e) { console.error('[Local Autopilot] NAP scan failed:', e.message); }
-    }
-    if (gbpDue) {
-      try {
-        const draft = await localGbpDraft();
-        if (draft) {
-          if (localDb.gbpDraft) { localDb.gbpHistory.unshift({ ...localDb.gbpDraft, isNew: false }); localDb.gbpHistory = localDb.gbpHistory.slice(0, 8); }
-          localDb.gbpDraft = { ...draft, isNew: true };
-          localDb.lastGbpRun = new Date().toISOString();
-          // If GBP posting is connected, publish it automatically; otherwise it stays a ready-to-paste draft.
-          try {
-            if (typeof gbpConfigured === 'function' && gbpConfigured()) {
-              const receipt = await postGbpLocalPost(draft.text);
-              recordGbpPublication(localDb.gbpDraft, receipt);
-            }
-          } catch (gbpErr) { localDb.gbpDraft.postError = gbpErr.message; console.error('[Local Autopilot] GBP auto-post failed:', gbpErr.message); }
-        }
-      } catch (e) { console.error('[Local Autopilot] GBP draft failed:', e.message); }
-    }
-    saveLocal();
-  } finally { localRunning = false; }
-}
-
-function localState() {
-  return {
-    success: true,
-    enabled: localDb.enabled,
-    busy: localRunning,
-    napIntervalDays: localDb.napIntervalDays,
-    gbpIntervalDays: localDb.gbpIntervalDays,
-    lastNapRun: localDb.lastNapRun,
-    lastGbpRun: localDb.lastGbpRun,
-    nap: effectiveNap(localDb.nap, localDb.napExclusions),
-    napExclusions: localDb.napExclusions || [],
-    napNewMismatch: localDb.napNewMismatch && effectiveNap(localDb.nap, localDb.napExclusions)?.mismatchCount > 0,
-    gbpDraft: localDb.gbpDraft,
-    gbpHistory: localDb.gbpHistory,
-    replyHistory: localDb.replyHistory,
-    hasKey: !!process.env.GEMINI_API_KEY
-  };
-}
+const localAutopilotService = createLocalAutopilotService({
+  state: localDb,
+  save: saveLocal,
+  business: BUSINESS,
+  getHistory: () => historyDb,
+  brandPrompt,
+  geminiGenerate,
+  model: GEMINI_MODEL,
+  parseJson: parseGeminiJson,
+  daysSince,
+  isGbpConfigured: () => typeof gbpConfigured === 'function' && gbpConfigured(),
+  publishGbp: (...args) => postGbpLocalPost(...args),
+  env: process.env,
+  logger: console,
+});
 
 registerLocalSeoRoutes(app, {
   requireAuth,
@@ -2820,7 +2729,7 @@ registerScheduledFeatureRoutes(app, {
   features: [
     {
       path: '/api/local-autopilot',
-      status: localState,
+      status: localAutopilotService.status,
       nudge: () => enqueueDurableJob('local.autopilot', {}, {
         idempotencyKey: durableJobKey('local.autopilot', 12 * 60 * 60 * 1000),
         maxAttempts: 5,
@@ -2835,7 +2744,7 @@ registerScheduledFeatureRoutes(app, {
         unavailable: true,
         message: 'Add your Gemini API key in Settings to run the Local SEO Autopilot.',
       }),
-      start: () => maybeRunLocalAutopilot(true).catch(() => {}),
+      start: () => localAutopilotService.maybeRun(true).catch(() => {}),
       markSeen: () => {
         localDb.napNewMismatch = false;
         if (localDb.gbpDraft) localDb.gbpDraft.isNew = false;
@@ -3063,7 +2972,7 @@ function getAutomationFeatures() {
       configured: aiReady, enabled: aiVisDb.autoEnabled, running: aiVisRunning,
       lastRun: aiVisDb.lastRun, intervalMs: (aiVisDb.intervalDays || 7) * 86400000 },
     { key: 'local', title: 'Local listings and Google posts', tab: 'local-tab', jobType: 'local.autopilot',
-      configured: aiReady, enabled: localDb.enabled, running: localRunning,
+      configured: aiReady, enabled: localDb.enabled, running: localAutopilotService.running,
       lastRun: localDb.lastNapRun || localDb.lastGbpRun, intervalMs: week,
       needsApproval: !!localDb.gbpDraft && !localDb.gbpDraft.posted, failed: !!localDb.gbpDraft?.postError },
     { key: 'citations', title: 'Directory discovery', tab: 'citations-tab', jobType: 'citation.scan',
@@ -3273,7 +3182,7 @@ function registerDurableJobHandlers() {
   });
   jobHandlers.set('ai.visibility', async () => { await maybeRunAiVisibility(false); return { checked: true }; });
   jobHandlers.set('citation.scan', async () => { await citationScanService.maybeRun(false); return { checked: true }; });
-  jobHandlers.set('local.autopilot', async () => { await maybeRunLocalAutopilot(false); return { checked: true }; });
+  jobHandlers.set('local.autopilot', async () => { await localAutopilotService.maybeRun(false); return { checked: true }; });
   jobHandlers.set('onsite.autopilot', async () => { await maybeRunOnsiteAutopilot(false); return { checked: true }; });
   jobHandlers.set('performance.digest', async () => { await maybeRunPerfDigest(false); return { checked: true }; });
   jobHandlers.set('report.monthly-email', async () => monthlyReportService.runScheduled());

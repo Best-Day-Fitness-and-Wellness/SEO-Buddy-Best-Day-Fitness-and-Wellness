@@ -270,6 +270,7 @@ so one production replica remains the supported topology.
 | `lib/citation-eligibility.js` | Shared competitor-domain exclusion, eligible worklist counts, and retained discovery evidence |
 | `lib/citation-scan-service.js` | Grounded discovery, source classification, competitor memory, status retention, new-source projection, and weekly run guard |
 | `lib/local-seo-routes.js` | NAP auditing, local-copy generation, and review-reply HTTP contracts |
+| `lib/local-autopilot-service.js` | NAP scan orchestration, active mismatch detection, Google-post drafting, optional verified publishing, and weekly run guard |
 | `lib/performance-routes.js` | Search performance, branded-search trends, snapshots, and lead-attribution contracts |
 | `lib/onsite-routes.js` | On-site generation, SSRF-safe AEO page auditing, and schema HTTP contracts |
 | `public/modules/*` | Browser cross-cutting feature modules |
@@ -335,6 +336,12 @@ so one production replica remains the supported topology.
    `lib/citation-scan-service.js`. The service retains grounded provider calls,
    remembered competitor domains, active statuses, new-source rules, and the
    weekly overlap guard while HTTP and durable scheduling remain separate.
+
+   Local Presence automation now lives in `lib/local-autopilot-service.js`.
+   Grounded NAP checks, exclusion-aware mismatch signatures, rotating Google
+   post drafts, optional verified publishing, history retention, status
+   projection, and overlap guards remain behavior-compatible and independently
+   testable.
 2. **Feature state is still process-local during a run.** PostgreSQL mode makes
    the database the startup recovery authority, but one production replica is
    still the supported topology. Move mutations to transactional repository
