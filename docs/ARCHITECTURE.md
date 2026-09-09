@@ -247,6 +247,7 @@ so one production replica remains the supported topology.
 | `lib/performance-history.js` / `performance-history-repository.js` | Daily performance timeline and the existing tenant-file/outbox persistence boundary |
 | `lib/attribution.js` | Deterministic contact source classification |
 | `lib/content-quality.js` | Deterministic article quality and automatic-publish gate |
+| `lib/article-generation-service.js` | Long-form AEO prompt, Gemini normalization, claim extraction, brand checks, quality projection, and explicit mock boundary |
 | `lib/profile-routes.js` | Brand and business profile HTTP contracts |
 | `lib/usage-routes.js` | AI usage reporting and owner budget HTTP contracts |
 | `lib/gsc-routes.js` | Search Console queries, caching, page opportunities, and safe diagnostics |
@@ -366,6 +367,14 @@ so one production replica remains the supported topology.
    composition root injects current feature state and live Search Console
    measurement; `lib/health-score.js` remains the pure versioned scoring model
    and `lib/score-history.js` remains the stabilization and snapshot boundary.
+
+   Article generation now lives in `lib/article-generation-service.js`. The
+   existing AEO prompt, optional owner-transcript grounding, Gemini request,
+   fenced-output cleanup, title and claim extraction, HTML sanitation, brand
+   enforcement, deterministic quality assessment, and explicit development
+   fallback retain their response and failure contracts. HTTP validation,
+   automatic-publish gating, publishing, and indexing remain separate existing
+   boundaries.
 2. **Feature state is still process-local during a run.** PostgreSQL mode makes
    the database the startup recovery authority, but one production replica is
    still the supported topology. Move mutations to transactional repository
