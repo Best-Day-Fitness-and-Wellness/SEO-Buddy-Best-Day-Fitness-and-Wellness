@@ -278,6 +278,7 @@ so one production replica remains the supported topology.
 | `lib/citation-routes.js` | Citation discovery, Listing Kit, scanning, tracking, and outreach HTTP contracts |
 | `lib/citation-eligibility.js` | Shared competitor-domain exclusion, eligible worklist counts, and retained discovery evidence |
 | `lib/citation-scan-service.js` | Grounded discovery, source classification, competitor memory, status retention, new-source projection, and weekly run guard |
+| `lib/listing-kit-service.js` | Canonical directory identity, brand-derived copy, saved overrides, and generated Listing Kit persistence |
 | `lib/local-seo-routes.js` | NAP auditing, local-copy generation, and review-reply HTTP contracts |
 | `lib/local-autopilot-service.js` | NAP scan orchestration, active mismatch detection, Google-post drafting, optional verified publishing, and weekly run guard |
 | `lib/performance-routes.js` | Search performance, branded-search trends, snapshots, and lead-attribution contracts |
@@ -430,6 +431,12 @@ so one production replica remains the supported topology.
    content routes receive the same functions from the composition root, preserving
    accepted formatting and rejection behavior while making the policy directly
    testable and preventing feature-specific copies from drifting.
+
+   Listing Kit identity projection, brand-derived directory copy, saved
+   generated overrides, category bounds, photo guidance, and persistence now
+   live in `lib/listing-kit-service.js`. Citation routes, discovery, outreach,
+   FactCheck, and assistant context continue to consume the same kit shape while
+   HTTP and provider calls remain at their existing boundaries.
 2. **Feature state is still process-local during a run.** PostgreSQL mode makes
    the database the startup recovery authority, but one production replica is
    still the supported topology. Move mutations to transactional repository

@@ -64,6 +64,7 @@ const { createServerPdfReport } = require('./lib/server-pdf-report');
 const { registerCitationRoutes } = require('./lib/citation-routes');
 const { eligibleCitationState, buildCitationWorklist } = require('./lib/citation-eligibility');
 const { createCitationScanService } = require('./lib/citation-scan-service');
+const { createListingKitService } = require('./lib/listing-kit-service');
 const { registerLocalSeoRoutes } = require('./lib/local-seo-routes');
 const { effectiveNap, registerLocalListingRoutes } = require('./lib/local-listing-preferences');
 const { createLocalAutopilotService } = require('./lib/local-autopilot-service');
@@ -1342,33 +1343,18 @@ function siteDomain() {
   if (domain.startsWith('sc-domain:')) domain = 'https://' + domain.substring(10);
   return domain.replace(/\/$/, '');
 }
-// Fallback directory copy, derived from the brand profile rather than frozen in
-// code — edit the voice in Settings and these follow. This is the text the owner
-// is told to paste onto every directory, so it must never drift from the brand.
-function kitStatic() {
-  const b = brandState.profile;
-  return {
-    tagline: b.tagline || 'Coach-led fitness in St. Petersburg for active adults 50+.',
-    shortDesc: `${b.name}. ${b.audienceDescription}`.slice(0, 160),
-    longDesc: [b.name + ' — ' + (b.supportingLine || ''), b.audienceDescription, b.philosophy]
-      .filter(Boolean).join(' ').trim(),
-  };
-}
+const listingKitService = createListingKitService({
+  business: BUSINESS,
+  getBrandProfile: () => brandState.profile,
+  getCitationState: () => citationsDb,
+  getSiteDomain: siteDomain,
+  phoneDisplay,
+  save: saveCitations,
+});
+// Kept as a declaration because AI audit services are composed earlier and
+// receive this lazy reader before citation state is initialized.
 function listingKit() {
-  const cached = citationsDb.kit || {};
-  return {
-    name: BUSINESS.name,
-    addressOneLine: `${BUSINESS.streetAddress}, ${BUSINESS.addressLocality}, ${BUSINESS.addressRegion} ${BUSINESS.postalCode}`,
-    phone: phoneDisplay(),
-    website: siteDomain(),
-    socials: BUSINESS.sameAs || [],
-    categories: cached.categories || ['Personal Trainer', 'Fitness Center', 'Physical Therapy', 'Senior Fitness'],
-    tagline: cached.tagline || kitStatic().tagline,
-    shortDesc: cached.shortDesc || kitStatic().shortDesc,
-    longDesc: cached.longDesc || kitStatic().longDesc,
-    photoChecklist: ['Square logo', 'Storefront / exterior', '3+ class or training shots', 'Trainer headshots', 'Interior of the studio'],
-    generatedAt: cached.generatedAt || null
-  };
+  return listingKitService.build();
 }
 
 // Merge cached targets with saved statuses + derive the action for each.
@@ -1418,18 +1404,7 @@ registerCitationRoutes(app, {
   discoverTargets: citationScanService.discoverTargets,
   filterTargets: citationScanService.filterTargets,
   isExcludedDomain: citationScanService.isExcludedDomain,
-  updateListingKit: parsed => {
-    citationsDb.kit = {
-      tagline: parsed.tagline || kitStatic().tagline,
-      shortDesc: parsed.shortDesc || kitStatic().shortDesc,
-      longDesc: parsed.longDesc || kitStatic().longDesc,
-      categories: Array.isArray(parsed.categories) && parsed.categories.length
-        ? parsed.categories.slice(0, 6)
-        : undefined,
-      generatedAt: new Date().toISOString(),
-    };
-    saveCitations();
-  },
+  updateListingKit: listingKitService.update,
   geminiGenerate,
   model: GEMINI_MODEL,
   parseGeminiJson,
