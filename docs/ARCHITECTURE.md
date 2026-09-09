@@ -247,6 +247,7 @@ so one production replica remains the supported topology.
 | `lib/performance-history.js` / `performance-history-repository.js` | Daily performance timeline and the existing tenant-file/outbox persistence boundary |
 | `lib/attribution.js` | Deterministic contact source classification |
 | `lib/content-quality.js` | Deterministic article quality and automatic-publish gate |
+| `lib/content-safety.js` | Shared HTML escaping, credential-free HTTP URL validation, and active-content sanitization |
 | `lib/article-generation-service.js` | Long-form AEO prompt, Gemini normalization, claim extraction, brand checks, quality projection, and explicit mock boundary |
 | `lib/brand-profile-service.js` | Approved brand defaults, restart-safe profile loading, review state, persistence, prompt projection, and prohibited-language enforcement |
 | `lib/business-profile-service.js` | Canonical location identity, saved NAP overrides, business profile persistence, LocalBusiness schema, and listing phone formatting |
@@ -423,6 +424,12 @@ so one production replica remains the supported topology.
    `lib/business-profile-service.js`. The composition root still passes the same
    mutable business object to feature services, preserving every NAP value,
    profile field, schema key, and existing one-location runtime contract.
+
+   Security-sensitive article escaping, HTTP URL validation, and active-content
+   sanitization now live in `lib/content-safety.js`. Generation, publishing, and
+   content routes receive the same functions from the composition root, preserving
+   accepted formatting and rejection behavior while making the policy directly
+   testable and preventing feature-specific copies from drifting.
 2. **Feature state is still process-local during a run.** PostgreSQL mode makes
    the database the startup recovery authority, but one production replica is
    still the supported topology. Move mutations to transactional repository

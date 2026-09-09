@@ -38,6 +38,7 @@ const { createArticleIndexingService } = require('./lib/article-indexing-service
 const { createGoogleApiClient } = require('./lib/google-api-client');
 const { createBrandProfileService } = require('./lib/brand-profile-service');
 const { createBusinessProfileService } = require('./lib/business-profile-service');
+const { escapeHtml, safeHttpUrl, sanitizeArticleHtml } = require('./lib/content-safety');
 const { registerOperationsRoutes } = require('./lib/operations-routes');
 const { registerProfileRoutes } = require('./lib/profile-routes');
 const { registerUsageRoutes } = require('./lib/usage-routes');
@@ -696,46 +697,6 @@ const MOCK_GSC_DATA = [
   { query: 'st petersburg senior personal trainer', impressions: 310, clicks: 0, ctr: 0, position: 11.9, leak: true },
   { query: 'co-op gym for wellness professionals st pete', impressions: 290, clicks: 0, ctr: 0, position: 16.5, leak: true }
 ];
-
-// ----------------------------------------------------
-// Reusable Core Service Helpers
-// ----------------------------------------------------
-
-function escapeHtml(value) {
-  return String(value == null ? '' : value).replace(/[&<>"']/g, ch => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-  }[ch]));
-}
-
-function safeHttpUrl(value, fallback = '') {
-  try {
-    const parsed = new URL(String(value || ''));
-    return ['http:', 'https:'].includes(parsed.protocol) && !parsed.username && !parsed.password ? parsed.toString() : fallback;
-  } catch (e) { return fallback; }
-}
-
-// The article editor intentionally accepts useful formatting, but scripts,
-// event handlers and active embedded content never belong in a blog post.
-function sanitizeArticleHtml(value) {
-  const safeActiveAttribute = (match, name, quote, quotedValue, bareValue) => {
-    const raw = String(quotedValue == null ? bareValue : quotedValue);
-    const decoded = raw
-      .replace(/&#x([0-9a-f]+);?/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
-      .replace(/&#(\d+);?/g, (_, dec) => String.fromCharCode(parseInt(dec, 10)))
-      .replace(/&colon;/gi, ':')
-      .replace(/[\u0000-\u0020]+/g, '')
-      .toLowerCase();
-    if (/^(?:javascript|vbscript|data):/.test(decoded)) return '';
-    return quotedValue == null ? ` ${name}=${bareValue}` : ` ${name}=${quote}${quotedValue}${quote}`;
-  };
-  return String(value || '')
-    .replace(/<(script|iframe|object|embed|form|style|svg|math)\b[\s\S]*?<\/\1\s*>/gi, '')
-    .replace(/<(script|iframe|object|embed|form|style|svg|math)\b[^>]*\/?\s*>/gi, '')
-    .replace(/\s(?:on[a-z]+|srcdoc)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
-    .replace(/\s(href|src|action|formaction)\s*=\s*(["'])([\s\S]*?)\2/gi, safeActiveAttribute)
-    .replace(/\s(href|src|action|formaction)\s*=\s*([^\s>]+)/gi, (match, name, bareValue) => safeActiveAttribute(match, name, '', null, bareValue))
-    .replace(/\sstyle\s*=\s*(["'])[^"']*(?:expression\s*\(|url\s*\(|@import|javascript:)[^"']*\1/gi, '');
-}
 
 // Article generation owns prompt construction, provider output normalization,
 // claim extraction, safety checks, quality scoring, and the explicit mock boundary.
