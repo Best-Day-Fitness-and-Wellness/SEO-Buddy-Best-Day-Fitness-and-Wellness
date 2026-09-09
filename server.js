@@ -66,6 +66,7 @@ const { createLocalAutopilotService } = require('./lib/local-autopilot-service')
 const { createPerformanceService, registerPerformanceRoutes } = require('./lib/performance-routes');
 const { registerOnsiteRoutes } = require('./lib/onsite-routes');
 const { createOnsiteAutopilotService } = require('./lib/onsite-autopilot-service');
+const { createPerformanceDigestService } = require('./lib/performance-digest-service');
 const { registerAioCoreRoutes } = require('./lib/aio-core-routes');
 const { registerAssistantRoutes } = require('./lib/assistant-routes');
 const { createAssistantContext } = require('./lib/assistant-context');
@@ -2560,76 +2561,18 @@ try {
 function savePerfDigest() {
   saveJsonFileSync(PERF_DIGEST_FILE, perfDigestDb, 'Perf Digest');
 }
-function perfPct(cur, prev) { if (prev == null || prev === 0) return null; return Math.round((cur - prev) / prev * 100); }
-function perfDigestText(d) {
-  const sign = n => (n >= 0 ? '+' : '') + n;
-  const lines = [`${BUSINESS.name} — Weekly SEO Performance`, ''];
-  if (d.score != null) lines.push(`Optimization Score: ${d.score}/100`, '');
-  if (d.clicks) lines.push(`Clicks: ${d.clicks.cur}${d.clicks.pct != null ? ` (${sign(d.clicks.pct)}% vs the previous 4 weeks)` : ''}`);
-  if (d.impressions) lines.push(`Impressions: ${d.impressions.cur}${d.impressions.pct != null ? ` (${sign(d.impressions.pct)}%)` : ''}`);
-  if (d.avgPosition) lines.push(`Average Google rank: ${d.avgPosition.cur}${d.avgPosition.prev != null ? ` (was ${d.avgPosition.prev})` : ''}`);
-  if (d.aiVisibility != null) lines.push(`AI visibility: ${d.aiVisibility}% of audits recommend you`);
-  if (d.leads) lines.push(`New leads: ${d.leads.current}${d.leads.previous != null ? ` (was ${d.leads.previous})` : ''}`);
-  if (d.gainers && d.gainers.length) { lines.push('', 'Top rising keywords:'); d.gainers.forEach(g => lines.push(`  • ${g.query} — up ${g.posChange} spots, now #${g.position}`)); }
-  if (d.losers && d.losers.length) { lines.push('', 'Slipping keywords (worth a look):'); d.losers.forEach(g => lines.push(`  • ${g.query} — down ${Math.abs(g.posChange)} spots, now #${g.position}`)); }
-  if (d.source !== 'live_gsc') lines.push('', '(Sample data — connect Search Console for live numbers.)');
-  lines.push('', '— SEO Buddy');
-  return lines.join('\n');
-}
-async function buildPerfDigest() {
-  const p = await computePerformance();
-  const cur = p.current, prev = p.previous;
-  let score = null;
-  try { const h = await buildHealthScoreResponse(); score = h.overall; } catch (e) { /* score optional */ }
-  const d = {
-    generatedAt: new Date().toISOString(),
-    source: p.source,
-    score,
-    clicks: cur ? { cur: cur.clicks, prev: prev ? prev.clicks : null, pct: prev ? perfPct(cur.clicks, prev.clicks) : null } : null,
-    impressions: cur ? { cur: cur.impressions, prev: prev ? prev.impressions : null, pct: prev ? perfPct(cur.impressions, prev.impressions) : null } : null,
-    avgPosition: cur ? { cur: cur.avgPosition, prev: prev ? prev.avgPosition : null } : null,
-    gainers: ((p.movers && p.movers.gainers) || []).slice(0, 3),
-    losers: ((p.movers && p.movers.losers) || []).slice(0, 3),
-    aiVisibility: (p.aioTrend && p.aioTrend.length) ? p.aioTrend[p.aioTrend.length - 1].rate : null,
-    leads: (p.leads && p.leads.available) ? { current: p.leads.current, previous: p.leads.previous } : null
-  };
-  d.text = perfDigestText(d);
-  return d;
-}
-let perfDigestRunning = false;
-async function maybeRunPerfDigest(force) {
-  if (perfDigestRunning) return;
-  if (!force && !perfDigestDb.enabled) return;
-  if (!force && daysSince(perfDigestDb.lastRun) < (perfDigestDb.intervalDays || 7)) return;
-  perfDigestRunning = true;
-  try {
-    const d = await buildPerfDigest();
-    perfDigestDb.digest = { ...d, isNew: true };
-    perfDigestDb.lastRun = new Date().toISOString();
-    savePerfDigest();
-    if (perfDigestDb.autoEmail) {
-      const to = process.env.DIGEST_EMAIL || process.env.GMAIL_SENDER;
-      if (to && gmailClient()) {
-        try { await sendGmail(to, 'Your weekly SEO performance — Best Day Fitness', d.text); perfDigestDb.digest.emailedAt = new Date().toISOString(); savePerfDigest(); }
-        catch (e) { console.error('[Perf Digest] auto-email failed:', e.message); }
-      }
-    }
-  } catch (e) { console.error('[Perf Digest] build failed:', e.message); }
-  finally { perfDigestRunning = false; }
-}
-function perfDigestState() {
-  return {
-    success: true,
-    enabled: perfDigestDb.enabled,
-    autoEmail: perfDigestDb.autoEmail,
-    intervalDays: perfDigestDb.intervalDays,
-    lastRun: perfDigestDb.lastRun,
-    digest: perfDigestDb.digest,
-    busy: perfDigestRunning,
-    gmailConfigured: !!gmailClient(),
-    emailTo: process.env.DIGEST_EMAIL || process.env.GMAIL_SENDER || ''
-  };
-}
+const performanceDigestService = createPerformanceDigestService({
+  state: perfDigestDb,
+  save: savePerfDigest,
+  getPerformance: computePerformance,
+  getHealthScore: () => buildHealthScoreResponse(),
+  businessName: BUSINESS.name,
+  gmailClient,
+  sendGmail,
+  daysSince,
+  env: process.env,
+  logger: console,
+});
 registerDeliveryRoutes(app, {
   requireAuth,
   gmailClient,
@@ -2643,14 +2586,10 @@ registerDeliveryRoutes(app, {
     recordGbpPublication(localDb.gbpDraft, result);
     saveLocal();
   },
-  defaultDigestRecipient: () => process.env.DIGEST_EMAIL || process.env.GMAIL_SENDER || '',
+  defaultDigestRecipient: performanceDigestService.deliveryRecipient,
   getDigest: () => perfDigestDb.digest,
-  saveNewDigest: digest => {
-    perfDigestDb.digest = { ...digest, isNew: true };
-    perfDigestDb.lastRun = new Date().toISOString();
-    savePerfDigest();
-  },
-  buildDigest: buildPerfDigest,
+  saveNewDigest: performanceDigestService.saveNewDigest,
+  buildDigest: performanceDigestService.build,
   logger: console,
 });
 
@@ -2702,22 +2641,14 @@ registerScheduledFeatureRoutes(app, {
     },
     {
       path: '/api/performance-digest',
-      status: perfDigestState,
+      status: performanceDigestService.status,
       nudge: () => enqueueDurableJob('performance.digest', {}, {
         idempotencyKey: durableJobKey('performance.digest', 12 * 60 * 60 * 1000),
         maxAttempts: 5,
       }),
-      toggle: body => {
-        if (typeof body.enabled === 'boolean') perfDigestDb.enabled = body.enabled;
-        if (typeof body.autoEmail === 'boolean') perfDigestDb.autoEmail = body.autoEmail;
-        savePerfDigest();
-        return { success: true, enabled: perfDigestDb.enabled, autoEmail: perfDigestDb.autoEmail };
-      },
-      start: () => maybeRunPerfDigest(true).catch(() => {}),
-      markSeen: () => {
-        if (perfDigestDb.digest) perfDigestDb.digest.isNew = false;
-        savePerfDigest();
-      },
+      toggle: performanceDigestService.setPreferences,
+      start: () => performanceDigestService.maybeRun(true).catch(() => {}),
+      markSeen: performanceDigestService.markSeen,
     },
   ],
 });
@@ -2906,7 +2837,7 @@ function getAutomationFeatures() {
       configured: aiReady, enabled: onsiteDb.enabled, running: onsiteAutopilotService.running,
       lastRun: onsiteDb.lastRun, intervalMs: (onsiteDb.intervalDays || 7) * 86400000 },
     { key: 'digest', title: 'Results summary', tab: 'performance-tab', jobType: 'performance.digest',
-      configured: aiReady, enabled: perfDigestDb.enabled, running: perfDigestRunning,
+      configured: aiReady, enabled: perfDigestDb.enabled, running: performanceDigestService.running,
       lastRun: perfDigestDb.lastRun, intervalMs: (perfDigestDb.intervalDays || 7) * 86400000 },
   ];
   if (monthlyReportService) {
@@ -3025,7 +2956,7 @@ async function buildMonthlyReportData() {
     search,
     history: historyDb,
     ai: { latest: aiVisDb.snapshots.at(-1) || null, lastRun: aiVisDb.lastRun },
-    digest: perfDigestState(),
+    digest: performanceDigestService.status(),
     automation: queue ? { success: true, checkedAt: new Date().toISOString(), features: buildAutomationStatus(getAutomationFeatures(), queue, jobWorker.status().running) } : null,
     reviews,
     readiness: buildDeployReadiness(getReadinessContext()),
@@ -3108,7 +3039,7 @@ function registerDurableJobHandlers() {
   jobHandlers.set('citation.scan', async () => { await citationScanService.maybeRun(false); return { checked: true }; });
   jobHandlers.set('local.autopilot', async () => { await localAutopilotService.maybeRun(false); return { checked: true }; });
   jobHandlers.set('onsite.autopilot', async () => { await onsiteAutopilotService.maybeRun(false); return { checked: true }; });
-  jobHandlers.set('performance.digest', async () => { await maybeRunPerfDigest(false); return { checked: true }; });
+  jobHandlers.set('performance.digest', async () => { await performanceDigestService.maybeRun(false); return { checked: true }; });
   jobHandlers.set('report.monthly-email', async () => monthlyReportService.runScheduled());
   jobHandlers.set('operations.alert-check', async () => reliabilityAlertService.check(await currentOperationalHealth()));
   jobHandlers.set('health.snapshot', async () => { await recordDailyHealthSnapshot(); return { recorded: true }; });

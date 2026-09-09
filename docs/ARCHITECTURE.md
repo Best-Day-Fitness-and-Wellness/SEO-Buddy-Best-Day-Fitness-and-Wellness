@@ -272,6 +272,7 @@ so one production replica remains the supported topology.
 | `lib/local-seo-routes.js` | NAP auditing, local-copy generation, and review-reply HTTP contracts |
 | `lib/local-autopilot-service.js` | NAP scan orchestration, active mismatch detection, Google-post drafting, optional verified publishing, and weekly run guard |
 | `lib/performance-routes.js` | Search performance, branded-search trends, snapshots, and lead-attribution contracts |
+| `lib/performance-digest-service.js` | Weekly performance digest projection, text rendering, optional Gmail delivery, state controls, and overlap guard |
 | `lib/onsite-routes.js` | On-site generation, SSRF-safe AEO page auditing, and schema HTTP contracts |
 | `lib/onsite-autopilot-service.js` | Weekly keyword-cluster, internal-link, and title/meta scan orchestration, rotation, state controls, and overlap guard |
 | `public/modules/*` | Browser cross-cutting feature modules |
@@ -350,6 +351,13 @@ so one production replica remains the supported topology.
    guard retain their existing prompts, schedule, persistence, and failure
    behavior. Manual on-site tools and SSRF-safe AEO audits remain at the
    existing HTTP boundary.
+
+   Weekly performance-digest orchestration now lives in
+   `lib/performance-digest-service.js`. Period comparisons, mover limits,
+   optional score evidence, owner-facing text, Gmail delivery, manual rebuilds,
+   state controls, due checks, and the overlapping-run guard keep the existing
+   contracts and persistence order. Search measurement remains in the shared
+   performance service, and email transport remains in Google delivery.
 2. **Feature state is still process-local during a run.** PostgreSQL mode makes
    the database the startup recovery authority, but one production replica is
    still the supported topology. Move mutations to transactional repository
