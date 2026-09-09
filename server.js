@@ -43,6 +43,7 @@ const { createUsageRepository } = require('./lib/usage-repository');
 const { registerGscRoutes } = require('./lib/gsc-routes');
 const { registerAutopilotRoutes } = require('./lib/autopilot-routes');
 const { createContentScheduler } = require('./lib/content-scheduler');
+const { createContentAutopilotService } = require('./lib/content-autopilot-service');
 const { recordGbpPublication, gbpPublicationStatus } = require('./lib/gbp-publication');
 const { registerContentRoutes } = require('./lib/content-routes');
 const { registerAiVisibilityRoutes } = require('./lib/ai-visibility-routes');
@@ -1289,169 +1290,33 @@ if (!autopilotTargets.length) {
   if (autopilotTargets.length) { try { saveAutopilotConfig(); } catch (e) {} }
 }
 
-// Case study text mapping for Autopilot
-const AUTOPILOT_CASE_STUDIES = {
-  'senior fitness st petersburg fl': "Our client Margaret (71) suffered from severe knee stiffness that prevented her from walking. Within 12 weeks of our trainer-led posture and barefoot balance mat exercises, she eliminated knee pain and walks 3 miles daily.",
-  'mobility training st pete': "We worked with Arthur (64) to resolve shoulder tightness. By combining manual massage therapy with customized range-of-motion routines, he returned to playing tennis within 6 weeks.",
-  'longevity fitness coach st petersburg': "David (82) joined Best Day Fitness to maintain his daily functional freedom. Focused exercises built foot stability and core strength, letting him comfortably carry his own groceries.",
-  'posture correction exercises senior': "Elena (69) improved her posture profile by 30% and eliminated lower back pain within 2 months through tailored core posture training and chest mobility patterns."
+const contentAutopilotState = {
+  get queue() { return autopilotQueue; },
+  set queue(value) { autopilotQueue = value; },
+  get targets() { return autopilotTargets; },
+  get targetIndex() { return autopilotTargetIndex; },
+  set targetIndex(value) { autopilotTargetIndex = value; },
+  get lastRun() { return lastAutopilotRun; },
+  set lastRun(value) { lastAutopilotRun = value; },
 };
-
-async function runAutopilotCycle() {
-  logAutopilotActivity('Looking for searches you appear in but get no clicks from...');
-  
-  // Get keywords
-  let keywords = ALLOW_MOCK_INTEGRATIONS ? MOCK_GSC_DATA : [];
-  const auth = getGoogleAuth();
-  const siteUrl = process.env.GSC_SITE_URL;
-
-  if (auth && siteUrl) {
-    try {
-      const webmasters = google.webmasters({ version: 'v3', auth: auth });
-      const today = new Date().toISOString().split('T')[0];
-      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-      const response = await searchConsoleQuery(webmasters, {
-        siteUrl,
-        requestBody: {
-          startDate: thirtyDaysAgo,
-          endDate: today,
-          dimensions: ['query'],
-          rowLimit: 100
-        }
-      });
-      if (response.data.rows) {
-        keywords = response.data.rows.map(r => ({
-          query: r.keys ? r.keys[0] : '',
-          impressions: r.impressions || 0,
-          clicks: r.clicks || 0,
-          leak: (r.clicks === 0 && r.impressions > 10)
-        }));
-      }
-    } catch (err) {
-      logAutopilotActivity(ALLOW_MOCK_INTEGRATIONS
-        ? `GSC API fetch failed; development demo searches will be used. Error: ${err.message}`
-        : `GSC API fetch failed; no fabricated search opportunities will be used. Error: ${err.message}`);
-    }
-  } else if (!ALLOW_MOCK_INTEGRATIONS) {
-    logAutopilotActivity('Search Console is not configured; continuing only with owner-queued or proactive target topics.');
-  }
-
-  // Pick the target, in priority order:
-  //   1) queued topics (owner-specified)  2) proactive target keywords (core
-  //   money terms, pursued even with 0 impressions)  3) an untargeted GSC leak.
-  let query = null;
-  let fromQueue = false, fromTarget = false;
-  while (autopilotQueue.length && !query) {
-    const cand = String(autopilotQueue[0].topic || '').trim();
-    if (cand && !historyDb.some(h => h.keyword.toLowerCase() === cand.toLowerCase())) { query = cand; fromQueue = true; }
-    else { autopilotQueue.shift(); saveAutopilotConfig(); } // drop blank or already-covered
-  }
-
-  // Proactive target keywords — rotate, skipping any already covered.
-  if (!query && autopilotTargets.length) {
-    for (let i = 0; i < autopilotTargets.length && !query; i++) {
-      const idx = (autopilotTargetIndex + i) % autopilotTargets.length;
-      const cand = String(autopilotTargets[idx] || '').trim();
-      if (cand && !historyDb.some(h => h.keyword.toLowerCase() === cand.toLowerCase())) {
-        query = cand; fromTarget = true;
-        autopilotTargetIndex = (idx + 1) % autopilotTargets.length;
-        saveAutopilotConfig();
-      }
-    }
-  }
-
-  if (!query) {
-    const leakKeywords = keywords.filter(k => k.leak);
-    const targetLeak = leakKeywords.find(k => !historyDb.some(h => h.keyword.toLowerCase() === k.query.toLowerCase()));
-    if (!targetLeak) {
-      logAutopilotActivity('Check complete. No queued topics, target keywords, or new content gaps left to cover.');
-      return null;
-    }
-    query = targetLeak.query;
-    logAutopilotActivity(`Targeting leak query: "${query}" (Impressions: ${targetLeak.impressions})`);
-  } else if (fromQueue) {
-    logAutopilotActivity(`Targeting queued topic: "${query}" (${autopilotQueue.length} in queue)`);
-  } else if (fromTarget) {
-    logAutopilotActivity(`Targeting core target keyword: "${query}"`);
-  }
-
-  try {
-    // 1. Generate Content
-    logAutopilotActivity('Generating structural SEO article via Gemini API...');
-    const caseStudy = AUTOPILOT_CASE_STUDIES[query.toLowerCase()] || 
-      "Our specialized mobility exercises help St. Pete seniors build posture, balance, and core strength, restoring independence.";
-    
-    const siteUrl = process.env.GSC_SITE_URL || 'https://bestdayfitness.com';
-    let baseDomain = siteUrl.trim();
-    if (baseDomain.startsWith('sc-domain:')) {
-      baseDomain = 'https://' + baseDomain.substring(10);
-    }
-    baseDomain = baseDomain.replace(/\/$/, '');
-    const ctaUrl = `${baseDomain}/consultation`;
-
-    const article = await generateArticleHelper(
-      query, 
-      caseStudy, 
-      'Claim Longevity Assessment', 
-      ctaUrl
-    );
-    if (!article.quality?.publishable) {
-      const reason = article.quality?.blockingIssues?.join(' ') || 'Generated article did not pass the content quality gate.';
-      const qualityError = new Error(`Content quality gate stopped automatic publishing. ${reason}`);
-      qualityError.code = 'CONTENT_QUALITY_FAILED';
-      qualityError.retryable = false;
-      throw qualityError;
-    }
-
-    // 2. Publish Content to GHL
-    logAutopilotActivity('Publishing article to GoHighLevel...');
-    const publish = await publishGhlHelper(article.title, article.content, 'published');
-
-    // 3. Request Google Indexing — NON-FATAL. The article is already published;
-    // an indexing permission error must not discard a successful publish or
-    // report the whole run as failed.
-    logAutopilotActivity(`Asking Google to list: ${publish.url}`);
-    let indexStatus = 'Indexing Requested';
-    try {
-      await indexUrlHelper(publish.url);
-    } catch (idxErr) {
-      indexStatus = 'Indexing Failed';
-      logAutopilotActivity(`⚠️ Article published, but Google Indexing was refused. ${explainIndexError(idxErr.message)}`);
-    }
-
-    // 4. Update History
-    const historyEntry = {
-      title: article.title,
-      keyword: query,
-      platform: publish.source === 'mock_ghl' ? 'GHL (Mock Autopilot)' : 'GoHighLevel (Published)',
-      date: new Date().toISOString().split('T')[0],
-      indexed: indexStatus,
-      url: publish.url,
-      qualityScore: article.quality.score,
-      qualityVersion: article.quality.version,
-    };
-
-    historyDb.unshift(historyEntry);
-    saveHistory();
-    lastAutopilotRun = new Date().toISOString();
-    saveAutopilotConfig();
-
-    // Remove the covered topic from the queue.
-    if (fromQueue) {
-      autopilotQueue = autopilotQueue.filter(q => String(q.topic || '').trim().toLowerCase() !== query.toLowerCase());
-      saveAutopilotConfig();
-    }
-
-    logAutopilotActivity(indexStatus === 'Indexing Failed'
-      ? `✅ Autopilot run complete — published "${article.title}" (indexing skipped; see warning above).`
-      : `✅ Autopilot run complete! Deployed and Indexed: "${article.title}"`);
-    return { ...historyEntry, indexWarning: indexStatus === 'Indexing Failed' };
-
-  } catch (err) {
-    logAutopilotActivity(`❌ Autopilot cycle failed: ${err.message}`);
-    throw err;
-  }
-}
+const contentAutopilotService = createContentAutopilotService({
+  state: contentAutopilotState,
+  getHistory: () => historyDb,
+  saveHistory,
+  saveConfig: saveAutopilotConfig,
+  logActivity: logAutopilotActivity,
+  getGoogleAuth,
+  getSiteUrl: () => process.env.GSC_SITE_URL,
+  createWebmasters: auth => google.webmasters({ version: 'v3', auth }),
+  searchConsoleQuery,
+  generateArticle: generateArticleHelper,
+  publishArticle: publishGhlHelper,
+  indexUrl: indexUrlHelper,
+  explainIndexError,
+  mockData: MOCK_GSC_DATA,
+  allowMockIntegrations: ALLOW_MOCK_INTEGRATIONS,
+});
+const runAutopilotCycle = contentAutopilotService.runCycle;
 
 function startAutopilotScheduler(options) {
   if (!contentScheduler) contentScheduler = createContentScheduler({

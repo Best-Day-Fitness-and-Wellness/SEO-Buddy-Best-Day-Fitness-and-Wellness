@@ -253,6 +253,7 @@ so one production replica remains the supported topology.
 | `lib/usage-routes.js` | AI usage reporting and owner budget HTTP contracts |
 | `lib/gsc-routes.js` | Search Console queries, caching, page opportunities, and safe diagnostics |
 | `lib/autopilot-routes.js` | Content autopilot schedule, queue, target, and manual-run HTTP contracts |
+| `lib/content-autopilot-service.js` | Content target selection, Search Console gap discovery, quality-gated generation, publication, indexing, and history orchestration |
 | `lib/content-routes.js` | Manual article generation, publishing, indexing, and history HTTP contracts |
 | `lib/ai-visibility-routes.js` | AI Visibility status, tracked prompts, schedule, and manual-run HTTP contracts |
 | `lib/ai-visibility-service.js` | Multi-engine provider adapters, answer analysis, visibility scoring, snapshot retention, and trend projection |
@@ -383,6 +384,15 @@ so one production replica remains the supported topology.
    backlink, provider payload, response fallbacks, server-side credentials,
    and explicit development mode keep their existing behavior. The HTTP layer
    still owns input validation and publication-history mutation.
+
+   Content autopilot orchestration now lives in
+   `lib/content-autopilot-service.js`. Owner-queued topics, rotating proactive
+   targets, Search Console gap discovery, the automatic quality gate,
+   GoHighLevel publication, non-fatal Google indexing, activity messages, and
+   publication-history updates retain their existing priority and side-effect
+   order. The composition root injects provider clients, article services,
+   mutable schedule state, and persistence; durable scheduling and HTTP
+   contracts remain separate boundaries.
 2. **Feature state is still process-local during a run.** PostgreSQL mode makes
    the database the startup recovery authority, but one production replica is
    still the supported topology. Move mutations to transactional repository
