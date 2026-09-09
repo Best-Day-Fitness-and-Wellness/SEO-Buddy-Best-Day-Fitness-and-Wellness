@@ -248,6 +248,7 @@ so one production replica remains the supported topology.
 | `lib/attribution.js` | Deterministic contact source classification |
 | `lib/content-quality.js` | Deterministic article quality and automatic-publish gate |
 | `lib/article-generation-service.js` | Long-form AEO prompt, Gemini normalization, claim extraction, brand checks, quality projection, and explicit mock boundary |
+| `lib/google-api-client.js` | Service-account parsing and diagnostics, Google auth creation, Search Console and Indexing client factories, and provider-runtime request policies |
 | `lib/article-publishing-service.js` | Article enrichment, internal links, structured data, trust signals, and GoHighLevel publication adapter |
 | `lib/article-indexing-service.js` | Google Indexing submission, permission guidance, legacy publication-URL migration, and boot-time repair recovery |
 | `lib/profile-routes.js` | Brand and business profile HTTP contracts |
@@ -402,6 +403,12 @@ so one production replica remains the supported topology.
    cleanup keep their existing contracts. Manual publishing, content autopilot,
    and boot recovery now share that single adapter without changing their HTTP
    or scheduling behavior.
+
+   Google service-account parsing, safe credential diagnostics, authentication,
+   Search Console client construction, Indexing client construction, and both
+   request policies now live in `lib/google-api-client.js`. Configuration,
+   performance, content autopilot, and article indexing consume the same injected
+   adapter, preserving credential repair, scopes, payloads, retries, and timeouts.
 2. **Feature state is still process-local during a run.** PostgreSQL mode makes
    the database the startup recovery authority, but one production replica is
    still the supported topology. Move mutations to transactional repository
