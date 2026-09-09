@@ -65,6 +65,7 @@ const { effectiveNap, registerLocalListingRoutes } = require('./lib/local-listin
 const { createLocalAutopilotService } = require('./lib/local-autopilot-service');
 const { createPerformanceService, registerPerformanceRoutes } = require('./lib/performance-routes');
 const { registerOnsiteRoutes } = require('./lib/onsite-routes');
+const { createOnsiteAutopilotService } = require('./lib/onsite-autopilot-service');
 const { registerAioCoreRoutes } = require('./lib/aio-core-routes');
 const { registerAssistantRoutes } = require('./lib/assistant-routes');
 const { createAssistantContext } = require('./lib/assistant-context');
@@ -2482,86 +2483,18 @@ function saveOnsite() {
   saveJsonFileSync(ONSITE_FILE, onsiteDb, 'On-Site Autopilot');
 }
 
-// A function, not a const: evaluated at load it would freeze the brand voice at
-// boot, so edits made in Settings would not reach the on-site tools until the
-// next restart — the exact drift this refactor exists to remove.
-const ONSITE_BRAND = () => brandPrompt(true);
-const ONSITE_SEEDS = [
-  'senior fitness st petersburg',
-  'personal trainer for seniors',
-  'balance and fall prevention exercises',
-  'strength training for adults over 50',
-  'physical therapy and mobility st petersburg',
-  'injury recovery exercise programs',
-  'functional fitness for older adults'
-];
-
-async function onsiteKeywordScan(seed) {
-  const geminiKey = process.env.GEMINI_API_KEY;
-  if (!geminiKey) return null;
-  const prompt = `${ONSITE_BRAND()}\nUsing current web information, expand the seed keyword "${seed}" into 4–5 topic clusters this business could realistically target. For each cluster give: a short theme, 4–6 specific keyword phrases people actually search (favor local and long‑tail), 2–3 real questions people ask, and one concrete blog/page content idea. Return ONLY raw JSON, no markdown: {"clusters":[{"theme":"","keywords":[],"questions":[],"contentIdea":""}]}`;
-  const r = await geminiGenerate({ model: GEMINI_MODEL, contents: prompt, config: { tools: [{ googleSearch: {} }] } });
-  const data = parseGeminiJson(r.text) || { clusters: [] };
-  return { seed, clusters: data.clusters || [], generatedAt: new Date().toISOString() };
-}
-async function onsiteLinkScan() {
-  const geminiKey = process.env.GEMINI_API_KEY;
-  if (!geminiKey) return null;
-  const pages = (historyDb || []).map(h => ({ title: h.title, keyword: h.keyword, url: h.url }));
-  if (pages.length < 2) return { suggestions: [], note: 'Publish at least two pages first — then this suggests internal links between them.', generatedAt: new Date().toISOString() };
-  const prompt = `${ONSITE_BRAND()}\nHere are the pages this website has published:\n${JSON.stringify(pages)}\nSuggest internal links between them to build topic authority (pillar/cluster style). For each suggestion give the source page title, the target page title, a natural anchor phrase, and a one‑line reason. Return ONLY raw JSON, no markdown: {"suggestions":[{"from":"","to":"","anchor":"","why":""}]}`;
-  const r = await geminiGenerate({ model: GEMINI_MODEL, contents: prompt });
-  const data = parseGeminiJson(r.text) || { suggestions: [] };
-  return { suggestions: data.suggestions || [], note: '', generatedAt: new Date().toISOString() };
-}
-async function onsiteTitleMetaScan(keyword, page) {
-  const geminiKey = process.env.GEMINI_API_KEY;
-  if (!geminiKey) return null;
-  const prompt = `${ONSITE_BRAND()}\nWrite SEO title tags and meta descriptions targeting the keyword "${keyword}". Provide 3 title options (each 60 characters or fewer, compelling, naturally including the keyword) and 2 meta descriptions (each 155 characters or fewer, with a clear call to action). Return ONLY raw JSON, no markdown: {"titles":[],"metas":[]}`;
-  const r = await geminiGenerate({ model: GEMINI_MODEL, contents: prompt });
-  const data = parseGeminiJson(r.text) || { titles: [], metas: [] };
-  return { page: page || keyword, keyword, titles: data.titles || [], metas: data.metas || [], generatedAt: new Date().toISOString() };
-}
-
-let onsiteRunning = false;
-async function maybeRunOnsiteAutopilot(force) {
-  if (onsiteRunning) return;
-  if (!force && !onsiteDb.enabled) return;
-  if (!process.env.GEMINI_API_KEY) return;
-  if (!force && daysSince(onsiteDb.lastRun) < (onsiteDb.intervalDays || 7)) return;
-  onsiteRunning = true;
-  try {
-    const seed = ONSITE_SEEDS[(onsiteDb.seedIndex || 0) % ONSITE_SEEDS.length];
-    onsiteDb.seedIndex = ((onsiteDb.seedIndex || 0) + 1) % ONSITE_SEEDS.length;
-    try { const ideas = await onsiteKeywordScan(seed); if (ideas) onsiteDb.ideas = { ...ideas, isNew: true }; }
-    catch (e) { console.error('[On-Site Autopilot] keywords failed:', e.message); }
-    try { const links = await onsiteLinkScan(); if (links) onsiteDb.links = { ...links, isNew: true }; }
-    catch (e) { console.error('[On-Site Autopilot] links failed:', e.message); }
-    try {
-      const latest = (historyDb && historyDb.length) ? historyDb[0] : null;
-      const kw = latest ? latest.keyword : seed;
-      const pg = latest ? latest.title : 'Your homepage';
-      const tm = await onsiteTitleMetaScan(kw, pg);
-      if (tm) onsiteDb.titlemeta = { ...tm, isNew: true };
-    } catch (e) { console.error('[On-Site Autopilot] titlemeta failed:', e.message); }
-    onsiteDb.lastRun = new Date().toISOString();
-    saveOnsite();
-  } finally { onsiteRunning = false; }
-}
-
-function onsiteState() {
-  return {
-    success: true,
-    enabled: onsiteDb.enabled,
-    busy: onsiteRunning,
-    intervalDays: onsiteDb.intervalDays,
-    lastRun: onsiteDb.lastRun,
-    ideas: onsiteDb.ideas,
-    links: onsiteDb.links,
-    titlemeta: onsiteDb.titlemeta,
-    hasKey: !!process.env.GEMINI_API_KEY
-  };
-}
+const onsiteAutopilotService = createOnsiteAutopilotService({
+  state: onsiteDb,
+  save: saveOnsite,
+  getHistory: () => historyDb,
+  brandPrompt,
+  geminiGenerate,
+  model: GEMINI_MODEL,
+  parseJson: parseGeminiJson,
+  daysSince,
+  env: process.env,
+  logger: console,
+});
 
 scheduleDurableCheck('onsite.autopilot', 45000, 12 * 60 * 60 * 1000);
 
@@ -2753,28 +2686,19 @@ registerScheduledFeatureRoutes(app, {
     },
     {
       path: '/api/onsite-autopilot',
-      status: onsiteState,
+      status: onsiteAutopilotService.status,
       nudge: () => enqueueDurableJob('onsite.autopilot', {}, {
         idempotencyKey: durableJobKey('onsite.autopilot', 12 * 60 * 60 * 1000),
         maxAttempts: 5,
       }),
-      toggle: body => {
-        onsiteDb.enabled = !!body.enabled;
-        saveOnsite();
-        return { success: true, enabled: onsiteDb.enabled };
-      },
+      toggle: body => onsiteAutopilotService.setEnabled(body.enabled),
       availability: () => process.env.GEMINI_API_KEY ? null : ({
         success: true,
         unavailable: true,
         message: 'Add your Gemini API key in Settings to run the On-Site SEO Autopilot.',
       }),
-      start: () => maybeRunOnsiteAutopilot(true).catch(() => {}),
-      markSeen: () => {
-        if (onsiteDb.ideas) onsiteDb.ideas.isNew = false;
-        if (onsiteDb.links) onsiteDb.links.isNew = false;
-        if (onsiteDb.titlemeta) onsiteDb.titlemeta.isNew = false;
-        saveOnsite();
-      },
+      start: () => onsiteAutopilotService.maybeRun(true).catch(() => {}),
+      markSeen: onsiteAutopilotService.markSeen,
     },
     {
       path: '/api/performance-digest',
@@ -2979,7 +2903,7 @@ function getAutomationFeatures() {
       configured: aiReady, enabled: citationsDb.autoEnabled, running: citationScanService.running,
       lastRun: citationsDb.lastScanned, intervalMs: (citationsDb.intervalDays || 7) * 86400000 },
     { key: 'onsite', title: 'Website improvement ideas', tab: 'onsite-tab', jobType: 'onsite.autopilot',
-      configured: aiReady, enabled: onsiteDb.enabled, running: onsiteRunning,
+      configured: aiReady, enabled: onsiteDb.enabled, running: onsiteAutopilotService.running,
       lastRun: onsiteDb.lastRun, intervalMs: (onsiteDb.intervalDays || 7) * 86400000 },
     { key: 'digest', title: 'Results summary', tab: 'performance-tab', jobType: 'performance.digest',
       configured: aiReady, enabled: perfDigestDb.enabled, running: perfDigestRunning,
@@ -3183,7 +3107,7 @@ function registerDurableJobHandlers() {
   jobHandlers.set('ai.visibility', async () => { await maybeRunAiVisibility(false); return { checked: true }; });
   jobHandlers.set('citation.scan', async () => { await citationScanService.maybeRun(false); return { checked: true }; });
   jobHandlers.set('local.autopilot', async () => { await localAutopilotService.maybeRun(false); return { checked: true }; });
-  jobHandlers.set('onsite.autopilot', async () => { await maybeRunOnsiteAutopilot(false); return { checked: true }; });
+  jobHandlers.set('onsite.autopilot', async () => { await onsiteAutopilotService.maybeRun(false); return { checked: true }; });
   jobHandlers.set('performance.digest', async () => { await maybeRunPerfDigest(false); return { checked: true }; });
   jobHandlers.set('report.monthly-email', async () => monthlyReportService.runScheduled());
   jobHandlers.set('operations.alert-check', async () => reliabilityAlertService.check(await currentOperationalHealth()));

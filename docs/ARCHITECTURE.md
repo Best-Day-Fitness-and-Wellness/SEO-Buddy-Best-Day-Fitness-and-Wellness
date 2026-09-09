@@ -273,6 +273,7 @@ so one production replica remains the supported topology.
 | `lib/local-autopilot-service.js` | NAP scan orchestration, active mismatch detection, Google-post drafting, optional verified publishing, and weekly run guard |
 | `lib/performance-routes.js` | Search performance, branded-search trends, snapshots, and lead-attribution contracts |
 | `lib/onsite-routes.js` | On-site generation, SSRF-safe AEO page auditing, and schema HTTP contracts |
+| `lib/onsite-autopilot-service.js` | Weekly keyword-cluster, internal-link, and title/meta scan orchestration, rotation, state controls, and overlap guard |
 | `public/modules/*` | Browser cross-cutting feature modules |
 | `scripts/*` | Smoke verification, backup, restore, database migration |
 
@@ -342,6 +343,13 @@ so one production replica remains the supported topology.
    post drafts, optional verified publishing, history retention, status
    projection, and overlap guards remain behavior-compatible and independently
    testable.
+
+   On-site automation now lives in `lib/onsite-autopilot-service.js`. Grounded
+   keyword clusters, published-page link suggestions, title/meta options,
+   weekly seed rotation, seen/toggle state changes, and the overlapping-run
+   guard retain their existing prompts, schedule, persistence, and failure
+   behavior. Manual on-site tools and SSRF-safe AEO audits remain at the
+   existing HTTP boundary.
 2. **Feature state is still process-local during a run.** PostgreSQL mode makes
    the database the startup recovery authority, but one production replica is
    still the supported topology. Move mutations to transactional repository
