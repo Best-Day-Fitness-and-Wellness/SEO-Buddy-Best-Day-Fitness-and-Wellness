@@ -144,3 +144,81 @@ test('AI visibility reports a controlled configuration error without calling pro
   assert.equal(fetchCalls.length, 0);
   assert.equal(saves(), 0);
 });
+
+test('scheduled visibility checks preserve enabled, configured, due, and force guards', async () => {
+  let providerCalls = 0;
+  const state = {
+    prompts: ['query one'], snapshots: [], updatedAt: null, lastRun: '2026-09-08T00:00:00.000Z',
+    autoEnabled: false, intervalDays: 7,
+  };
+  const { service } = serviceFixture({
+    state,
+    env: { GEMINI_API_KEY: 'gemini-secret' },
+    daysSince: () => 2,
+    geminiGenerate: async request => {
+      providerCalls += 1;
+      return request.config
+        ? { text: 'Best Day Fitness' }
+        : { text: '{"mentioned":true,"sentiment":"positive","competitors":[]}' };
+    },
+  });
+
+  await service.maybeRun(false);
+  assert.equal(providerCalls, 0, 'disabled schedules stay idle');
+  state.autoEnabled = true;
+  await service.maybeRun(false);
+  assert.equal(providerCalls, 0, 'not-due schedules stay idle');
+  await service.maybeRun(true);
+  assert.equal(providerCalls, 2, 'a forced run bypasses schedule guards but keeps the same provider workflow');
+  assert.equal(service.running, false);
+
+  const disconnected = serviceFixture({ state: { ...state, snapshots: [] }, env: {}, daysSince: () => Infinity });
+  await disconnected.service.maybeRun(true);
+  assert.equal(disconnected.fetchCalls.length, 0, 'force does not invent a configured provider');
+});
+
+test('scheduled and manual visibility work share one overlap guard and recover after failures', async () => {
+  let releaseProvider;
+  let announceStart;
+  const started = new Promise(resolve => { announceStart = resolve; });
+  let providerCalls = 0;
+  let blockFirstProviderCall = true;
+  const saves = [];
+  const errors = [];
+  const state = { prompts: ['query one'], snapshots: [], autoEnabled: true, intervalDays: 7, lastRun: null };
+  const { service } = serviceFixture({
+    state,
+    env: { GEMINI_API_KEY: 'gemini-secret' },
+    daysSince: () => Infinity,
+    save: () => {
+      saves.push('save');
+      if (saves.length === 1) throw new Error('storage unavailable');
+    },
+    logger: { error: (...args) => errors.push(args) },
+    geminiGenerate: async request => {
+      providerCalls += 1;
+      if (!request.config) return { text: '{"mentioned":true,"sentiment":"positive","competitors":[]}' };
+      if (blockFirstProviderCall) {
+        blockFirstProviderCall = false;
+        announceStart();
+        return new Promise(resolve => { releaseProvider = () => resolve({ text: 'Best Day Fitness' }); });
+      }
+      return { text: 'Best Day Fitness' };
+    },
+  });
+
+  const first = service.maybeRun(false);
+  await started;
+  assert.equal(service.running, true);
+  assert.deepEqual(await service.runVisibility(['google']), { busy: true }, 'a manual request shares the active service guard');
+  await service.maybeRun(true);
+  assert.equal(providerCalls, 1, 'an overlapping scheduled request does not start another provider call');
+  releaseProvider();
+  await first;
+  assert.equal(service.running, false, 'the guard always releases after a failed run');
+  assert.deepEqual(errors, [['[AI Visibility Autopilot] auto-run failed:', 'storage unavailable']]);
+
+  await service.maybeRun(false);
+  assert.equal(saves.length, 2, 'a later scheduled run can persist after recovery');
+  assert.equal(service.running, false);
+});

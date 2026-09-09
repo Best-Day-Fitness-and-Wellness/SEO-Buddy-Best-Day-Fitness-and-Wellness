@@ -664,7 +664,6 @@ if (fs.existsSync(AI_VIS_FILE)) {
 } else {
   try { writeJsonFileSync(AI_VIS_FILE, aiVisDb); } catch (e) {}
 }
-let aiVisRunning = false;   // guards against overlapping manual + scheduled runs
 function saveAiVis() {
   saveJsonFileSync(AI_VIS_FILE, aiVisDb, 'AI Visibility');
 }
@@ -991,6 +990,8 @@ const aiVisibilityService = createAiVisibilityService({
   brandName: visBrandName,
   meterUsage,
   env: process.env,
+  daysSince,
+  logger: console,
 });
 const {
   askEngine,
@@ -999,18 +1000,6 @@ const {
   runVisibility: runAiVisibility,
   trend: visTrend,
 } = aiVisibilityService;
-
-// Scheduled auto-run: fills the trend on a cadence without the user clicking.
-async function maybeRunAiVisibility(force) {
-  if (aiVisRunning) return;
-  if (!force && !aiVisDb.autoEnabled) return;
-  if (!AI_ENGINES.some(e => engineConfigured(e.id))) return;   // nothing to query
-  if (!force && daysSince(aiVisDb.lastRun) < (aiVisDb.intervalDays || 7)) return;
-  aiVisRunning = true;
-  try { await runAiVisibility(null); }
-  catch (e) { console.error('[AI Visibility Autopilot] auto-run failed:', e.message); }
-  finally { aiVisRunning = false; }
-}
 
 // AI Visibility HTTP contracts use a state adapter so provider orchestration
 // and persistence remain independently replaceable.
@@ -1023,8 +1012,7 @@ const aiVisibilityRouteState = {
   set autoEnabled(value) { aiVisDb.autoEnabled = value; },
   get intervalDays() { return aiVisDb.intervalDays; },
   get lastRun() { return aiVisDb.lastRun; },
-  get running() { return aiVisRunning; },
-  set running(value) { aiVisRunning = value; },
+  get running() { return aiVisibilityService.running; },
 };
 registerAiVisibilityRoutes(app, {
   requireAuth,
@@ -1742,7 +1730,7 @@ function getAutomationFeatures() {
       setupReason: 'Connect AI writing and website publishing in Settings.',
       enabled: autopilotEnabled, lastRun: lastAutopilotRun, nextRun: nextRunTime },
     { key: 'ai', title: 'AI visibility checks', tab: 'aio-tab', jobType: 'ai.visibility',
-      configured: aiReady, enabled: aiVisDb.autoEnabled, running: aiVisRunning,
+      configured: aiReady, enabled: aiVisDb.autoEnabled, running: aiVisibilityService.running,
       lastRun: aiVisDb.lastRun, intervalMs: (aiVisDb.intervalDays || 7) * 86400000 },
     { key: 'local', title: 'Local listings and Google posts', tab: 'local-tab', jobType: 'local.autopilot',
       configured: aiReady, enabled: localDb.enabled, running: localAutopilotService.running,
@@ -1922,7 +1910,7 @@ function registerDurableJobHandlers() {
     await runAutopilotCycle();
     return { completed: true };
   });
-  jobHandlers.set('ai.visibility', async () => { await maybeRunAiVisibility(false); return { checked: true }; });
+  jobHandlers.set('ai.visibility', async () => { await aiVisibilityService.maybeRun(false); return { checked: true }; });
   jobHandlers.set('citation.scan', async () => { await citationScanService.maybeRun(false); return { checked: true }; });
   jobHandlers.set('local.autopilot', async () => { await localAutopilotService.maybeRun(false); return { checked: true }; });
   jobHandlers.set('onsite.autopilot', async () => { await onsiteAutopilotService.maybeRun(false); return { checked: true }; });

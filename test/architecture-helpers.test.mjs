@@ -765,6 +765,7 @@ test('AI Visibility routes preserve status, prompt, schedule, and run contracts'
   };
   let nudges = 0;
   let saves = 0;
+  let visibilityOutput = { snapshot: { engines: ['google'], visibilityScore: 75 } };
   registerAiVisibilityRoutes(app, {
     requireAuth: () => {},
     state,
@@ -773,7 +774,9 @@ test('AI Visibility routes preserve status, prompt, schedule, and run contracts'
     enginesStatus: () => [{ id: 'google', configured: true, apiKey: 'must-not-leak' }],
     trend: () => ({ series: [], metricLines: {}, dates: ['2026-08-31'] }),
     anyConfigured: () => true,
-    runVisibility: async engines => ({ snapshot: { engines, visibilityScore: 75 } }),
+    runVisibility: async engines => visibilityOutput.snapshot
+      ? { snapshot: { ...visibilityOutput.snapshot, engines } }
+      : visibilityOutput,
     usageOverBudget: () => false,
     budgetBlock: res => res.json({ budgetReached: true }),
     save: () => { saves += 1; },
@@ -814,6 +817,11 @@ test('AI Visibility routes preserve status, prompt, schedule, and run contracts'
   await routes.get('POST /api/ai-visibility/run')({ body: { engines: ['google'] } }, run);
   assert.deepEqual(run.body, { success: true, snapshot: { engines: ['google'], visibilityScore: 75 } });
   assert.equal(state.running, false);
+
+  visibilityOutput = { busy: true };
+  const racedRun = response();
+  await routes.get('POST /api/ai-visibility/run')({ body: { engines: ['google'] } }, racedRun);
+  assert.deepEqual(racedRun.body, { success: true, busy: true, message: 'A visibility check is already running — hang tight.' });
   assert.equal(saves, 2);
 });
 

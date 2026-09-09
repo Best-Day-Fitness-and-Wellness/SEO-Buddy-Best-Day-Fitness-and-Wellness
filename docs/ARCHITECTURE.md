@@ -261,7 +261,7 @@ so one production replica remains the supported topology.
 | `lib/content-autopilot-service.js` | Content target selection, Search Console gap discovery, quality-gated generation, publication, indexing, and history orchestration |
 | `lib/content-routes.js` | Manual article generation, publishing, indexing, and history HTTP contracts |
 | `lib/ai-visibility-routes.js` | AI Visibility status, tracked prompts, schedule, and manual-run HTTP contracts |
-| `lib/ai-visibility-service.js` | Multi-engine provider adapters, answer analysis, visibility scoring, snapshot retention, and trend projection |
+| `lib/ai-visibility-service.js` | Multi-engine provider adapters, answer analysis, visibility scoring, snapshot retention, trend projection, and scheduled-run guard |
 | `lib/ai-factcheck-service.js` | Canonical business truth, answer comparison, per-engine accuracy scoring, and FactCheck persistence orchestration |
 | `lib/ai-crawler-service.js` | AI crawler catalog, robots.txt parsing, provider audit, verdict projection, and snapshot persistence |
 | `lib/reddit-discovery-service.js` | Grounded Reddit opportunity prompt, result normalization, deduplication, bounds, safe failures, and persistence |
@@ -318,7 +318,8 @@ so one production replica remains the supported topology.
    before every extraction.
 
    AI Visibility provider requests, answer normalization, scoring, snapshot
-   retention, and trend projection now live in `lib/ai-visibility-service.js`.
+   retention, trend projection, due checks, and the shared manual/scheduled
+   overlap guard now live in `lib/ai-visibility-service.js`.
    The composition root injects provider policy, Gemini parsing, metering,
    mutable state, and persistence; FactCheck reuses the same engine adapter.
    Focused tests lock the existing provider payloads and score semantics.
