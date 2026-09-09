@@ -32,6 +32,11 @@ jobs:
 
   browser:
     runs-on: ubuntu-latest
+    # Keep the browser binary and Linux dependencies in one version-matched,
+    # official runtime instead of relying on unrelated runner apt sources.
+    container:
+      image: mcr.microsoft.com/playwright@sha256:dcc5531e97840b9b5e794f2814476b21571c5124a3fca2267d73041f56e7580e # v1.62.1-noble
+      options: --ipc=host
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -42,7 +47,6 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
       - run: npm run test:browser
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()

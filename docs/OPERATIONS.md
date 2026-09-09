@@ -33,8 +33,11 @@ headers), and live Search Console when required. Compare the boot timestamp and
 deployed asset hashes to the release; healthy old code is not release evidence.
 
 GitHub Actions runs source/contract/security tests, a dependency advisory gate,
-and an isolated Chromium acceptance job. Browser reports and screenshots are
-retained as CI artifacts for 14 days. Locally, `BROWSER_EXECUTABLE` can point to
+and an isolated Chromium acceptance job. The browser job runs in the
+version-matched official Playwright image, keeping its browser binaries and
+Linux dependencies together without relying on unrelated package repositories
+configured on the hosted runner. Browser reports and screenshots are retained
+as CI artifacts for 14 days. Locally, `BROWSER_EXECUTABLE` can point to
 an installed Chrome executable. Acceptance uses a new temporary data directory,
 fake credentials, and intercepted writes; it cannot publish/send/index to a
 real provider. It does not use an existing personal browser session.
