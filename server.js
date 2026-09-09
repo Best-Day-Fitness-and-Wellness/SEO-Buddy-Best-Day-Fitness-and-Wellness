@@ -58,7 +58,8 @@ const { registerDeliveryRoutes } = require('./lib/delivery-routes');
 const { createMonthlyReportService, registerMonthlyReportRoutes } = require('./lib/monthly-report');
 const { createServerPdfReport } = require('./lib/server-pdf-report');
 const { registerCitationRoutes } = require('./lib/citation-routes');
-const { competitorDomains, isCompetitorDomain, eligibleCitationState, buildCitationWorklist } = require('./lib/citation-eligibility');
+const { eligibleCitationState, buildCitationWorklist } = require('./lib/citation-eligibility');
+const { createCitationScanService } = require('./lib/citation-scan-service');
 const { buildCanonicalNap, mapNapListings, registerLocalSeoRoutes } = require('./lib/local-seo-routes');
 const { effectiveNap, registerLocalListingRoutes } = require('./lib/local-listing-preferences');
 const { createPerformanceService, registerPerformanceRoutes } = require('./lib/performance-routes');
@@ -2325,91 +2326,22 @@ function listingKit() {
   };
 }
 
-// Shared finder: grounded discovery + classification of the sources AI cites.
-async function discoverCitationTargets(cleanQueries) {
-  const brandName = BUSINESS.name;
-  const brandRoot = 'bestdayfitness';
-  const domainInfo = {};
-  let brandCited = false;
-  await Promise.all(cleanQueries.map(async (q) => {
-    try {
-      const prompt = `A person searching online asks: "${q}". Acting as a helpful AI answer engine, recommend the best specific local businesses that fit this search in and around St. Petersburg, Florida, based on current web information.`;
-      const resp = await geminiGenerate({ model: GEMINI_MODEL, contents: prompt, config: { tools: [{ googleSearch: {} }] } });
-      const gm = (resp.candidates && resp.candidates[0] && resp.candidates[0].groundingMetadata) || {};
-      const chunks = gm.groundingChunks || [];
-      const seen = new Set();
-      for (const c of chunks) {
-        const dom = ((c.web && c.web.title) || '').trim().toLowerCase();
-        if (!dom || seen.has(dom)) continue;
-        seen.add(dom);
-        if (dom.includes(brandRoot) || dom.includes(brandName.toLowerCase())) { brandCited = true; continue; }
-        if (!domainInfo[dom]) domainInfo[dom] = { count: 0, queries: [] };
-        domainInfo[dom].count++;
-        if (!domainInfo[dom].queries.includes(q)) domainInfo[dom].queries.push(q);
-      }
-    } catch (e) { console.error(`[Citation Scan] query failed "${q}":`, e.message); }
-  }));
-  const rankedDomains = Object.keys(domainInfo).sort((a, b) => domainInfo[b].count - domainInfo[a].count).slice(0, 12);
-  const targets = await Promise.all(rankedDomains.map(async (dom) => {
-    const base = { domain: dom, citedFor: domainInfo[dom].count, queries: domainInfo[dom].queries };
-    if (isCompetitorDomain(dom, competitorDomains(citationsDb))) {
-      return { ...base, type: 'competitor', listed: null, note: 'Previously identified as a competitor-owned site.' };
-    }
-    try {
-      const p = `On the website "${dom}", is the St. Petersburg, Florida fitness studio "Best Day Fitness" listed or mentioned? Also classify what kind of site "${dom}" is. Use "competitor" for another fitness, training or wellness provider's own website, including its blog or best-of articles: those are not independent listing opportunities. Independent directories, review sites and publications covering multiple businesses are not competitors just because they mention competing businesses. Reply with ONLY raw JSON, no markdown fences: {"listed": true or false, "type": "directory" | "review" | "listicle" | "forum" | "competitor" | "news" | "other", "note": "one short line describing the site"}`;
-      const r = await geminiGenerate({ model: GEMINI_MODEL, contents: p, config: { tools: [{ googleSearch: {} }] } });
-      const parsed = parseGeminiJson(r.text) || {};
-      return { ...base, type: parsed.type || 'other', listed: (typeof parsed.listed === 'boolean' ? parsed.listed : null), note: parsed.note || '' };
-    } catch (e) { return { ...base, type: 'other', listed: null, note: '' }; }
-  }));
-  targets.sort((a, b) => b.citedFor - a.citedFor);
-  return { brandCited, sourcesFound: Object.keys(domainInfo).length, targets };
-}
-
 // Merge cached targets with saved statuses + derive the action for each.
 function worklistPayload() {
   return buildCitationWorklist(citationsDb, listingKit());
 }
 
-// Shared scan core — runs the grounded discovery, preserves statuses, and
-// flags which domains are NEW since the previous scan. Used by the manual
-// endpoint and the weekly auto-scan.
-async function performCitationScan(queries) {
-  const { brandCited, sourcesFound, targets } = await discoverCitationTargets(queries);
-  // Remember competitors even when they disappear from a later scan.
-  citationsDb.excludedCompetitorDomains = competitorDomains(citationsDb, targets);
-  const prevDomains = new Set((citationsDb.targets || []).map(t => t.domain));
-  const liveDomains = new Set(targets.map(t => t.domain));
-  const keptStatuses = {};
-  for (const d of Object.keys(citationsDb.statuses || {})) {
-    if (liveDomains.has(d)) keptStatuses[d] = citationsDb.statuses[d];
-  }
-  citationsDb.statuses = keptStatuses;
-  // Don't flag everything "new" on the very first scan.
-  citationsDb.newDomains = prevDomains.size ? eligibleCitationState({ ...citationsDb, targets }).targets.filter(t => !prevDomains.has(t.domain)).map(t => t.domain) : [];
-  citationsDb.targets = targets;
-  citationsDb.brandCited = brandCited;
-  citationsDb.sourcesFound = sourcesFound;
-  citationsDb.totalQueries = queries.length;
-  citationsDb.queries = queries;
-  citationsDb.lastScanned = new Date().toISOString();
-  saveCitations();
-}
-
-// Weekly auto-scan (same restart-safe pattern as the Local/On-Site autopilots).
-let citScanRunning = false;
-async function maybeRunCitationScan(force) {
-  if (citScanRunning) return;
-  if (!force && !citationsDb.autoEnabled) return;
-  if (!process.env.GEMINI_API_KEY) return;
-  const queries = (citationsDb.queries || []).map(q => String(q || '').trim()).filter(Boolean).slice(0, 8);
-  if (!queries.length) return; // nothing saved to scan yet — needs a first manual scan
-  if (!force && daysSince(citationsDb.lastScanned) < (citationsDb.intervalDays || 7)) return;
-  citScanRunning = true;
-  try { await performCitationScan(queries); }
-  catch (e) { console.error('[Citation Autopilot] auto-scan failed:', e.message); }
-  finally { citScanRunning = false; }
-}
+const citationScanService = createCitationScanService({
+  state: citationsDb,
+  save: saveCitations,
+  business: BUSINESS,
+  geminiGenerate,
+  model: GEMINI_MODEL,
+  parseJson: parseGeminiJson,
+  daysSince,
+  env: process.env,
+  logger: console,
+});
 
 registerCitationRoutes(app, {
   requireAuth,
@@ -2417,7 +2349,7 @@ registerCitationRoutes(app, {
   usageOverBudget,
   budgetBlock,
   getSavedQueries: () => citationsDb.queries || [],
-  performScan: performCitationScan,
+  performScan: citationScanService.performScan,
   worklist: worklistPayload,
   enqueueScanCheck: () => enqueueDurableJob('citation.scan', {}, {
     idempotencyKey: durableJobKey('citation.scan', 12 * 60 * 60 * 1000),
@@ -2438,9 +2370,9 @@ registerCitationRoutes(app, {
     saveCitations();
   },
   listingKit,
-  discoverTargets: discoverCitationTargets,
-  filterTargets: targets => eligibleCitationState({ ...citationsDb, targets, excludedCompetitorDomains: competitorDomains(citationsDb, targets) }).targets,
-  isExcludedDomain: domain => isCompetitorDomain(domain, competitorDomains(citationsDb)),
+  discoverTargets: citationScanService.discoverTargets,
+  filterTargets: citationScanService.filterTargets,
+  isExcludedDomain: citationScanService.isExcludedDomain,
   updateListingKit: parsed => {
     citationsDb.kit = {
       tagline: parsed.tagline || kitStatic().tagline,
@@ -3135,7 +3067,7 @@ function getAutomationFeatures() {
       lastRun: localDb.lastNapRun || localDb.lastGbpRun, intervalMs: week,
       needsApproval: !!localDb.gbpDraft && !localDb.gbpDraft.posted, failed: !!localDb.gbpDraft?.postError },
     { key: 'citations', title: 'Directory discovery', tab: 'citations-tab', jobType: 'citation.scan',
-      configured: aiReady, enabled: citationsDb.autoEnabled, running: citScanRunning,
+      configured: aiReady, enabled: citationsDb.autoEnabled, running: citationScanService.running,
       lastRun: citationsDb.lastScanned, intervalMs: (citationsDb.intervalDays || 7) * 86400000 },
     { key: 'onsite', title: 'Website improvement ideas', tab: 'onsite-tab', jobType: 'onsite.autopilot',
       configured: aiReady, enabled: onsiteDb.enabled, running: onsiteRunning,
@@ -3340,7 +3272,7 @@ function registerDurableJobHandlers() {
     return { completed: true };
   });
   jobHandlers.set('ai.visibility', async () => { await maybeRunAiVisibility(false); return { checked: true }; });
-  jobHandlers.set('citation.scan', async () => { await maybeRunCitationScan(false); return { checked: true }; });
+  jobHandlers.set('citation.scan', async () => { await citationScanService.maybeRun(false); return { checked: true }; });
   jobHandlers.set('local.autopilot', async () => { await maybeRunLocalAutopilot(false); return { checked: true }; });
   jobHandlers.set('onsite.autopilot', async () => { await maybeRunOnsiteAutopilot(false); return { checked: true }; });
   jobHandlers.set('performance.digest', async () => { await maybeRunPerfDigest(false); return { checked: true }; });

@@ -268,6 +268,7 @@ so one production replica remains the supported topology.
 | `lib/delivery-routes.js` | Pitch, GBP post, and performance-digest delivery HTTP contracts |
 | `lib/citation-routes.js` | Citation discovery, Listing Kit, scanning, tracking, and outreach HTTP contracts |
 | `lib/citation-eligibility.js` | Shared competitor-domain exclusion, eligible worklist counts, and retained discovery evidence |
+| `lib/citation-scan-service.js` | Grounded discovery, source classification, competitor memory, status retention, new-source projection, and weekly run guard |
 | `lib/local-seo-routes.js` | NAP auditing, local-copy generation, and review-reply HTTP contracts |
 | `lib/performance-routes.js` | Search performance, branded-search trends, snapshots, and lead-attribution contracts |
 | `lib/onsite-routes.js` | On-site generation, SSRF-safe AEO page auditing, and schema HTTP contracts |
@@ -329,6 +330,11 @@ so one production replica remains the supported topology.
    `lib/assistant-context.js`. It composes the current dashboard calculation and
    existing feature projections through injected reads, preserving unavailable
    states and keeping assistant grounding separate from HTTP and provider calls.
+
+   Citation discovery and scan-state mutation now live in
+   `lib/citation-scan-service.js`. The service retains grounded provider calls,
+   remembered competitor domains, active statuses, new-source rules, and the
+   weekly overlap guard while HTTP and durable scheduling remain separate.
 2. **Feature state is still process-local during a run.** PostgreSQL mode makes
    the database the startup recovery authority, but one production replica is
    still the supported topology. Move mutations to transactional repository
