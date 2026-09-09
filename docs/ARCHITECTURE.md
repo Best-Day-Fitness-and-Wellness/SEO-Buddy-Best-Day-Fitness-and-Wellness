@@ -259,6 +259,7 @@ so one production replica remains the supported topology.
 | `lib/ai-audit-routes.js` | Shared FactCheck, crawler-access, and Reddit status/run HTTP orchestration |
 | `lib/aio-core-routes.js` | Grounded AIO audit, bounded audit history, and schema HTTP contracts |
 | `lib/assistant-routes.js` | Grounded assistant prompt, bounded conversation, safe provider errors, and confirmation-only action proposal contracts |
+| `lib/assistant-context.js` | Current dashboard score, connections, delivery, schedule, AI audit, listing, citation, health, and usage projection for the assistant |
 | `lib/recorded-content-routes.js` | Recording validation, Gemini transcription, and bounded social-pack generation contracts |
 | `lib/dashboard-routes.js` | Score delivery, prioritized next moves, automation digest, and deployment-readiness projections |
 | `lib/reviews-routes.js` | Reviews-site auditing, Trustpilot integration, snapshots, caching, and HTTP contracts |
@@ -323,6 +324,11 @@ so one production replica remains the supported topology.
    `lib/reddit-discovery-service.js`. The shared AI-audit route retains budget,
    authentication, and overlapping-run controls without changing the response
    or stored snapshot.
+
+   The assistant's read-only live-data assembly now lives in
+   `lib/assistant-context.js`. It composes the current dashboard calculation and
+   existing feature projections through injected reads, preserving unavailable
+   states and keeping assistant grounding separate from HTTP and provider calls.
 2. **Feature state is still process-local during a run.** PostgreSQL mode makes
    the database the startup recovery authority, but one production replica is
    still the supported topology. Move mutations to transactional repository

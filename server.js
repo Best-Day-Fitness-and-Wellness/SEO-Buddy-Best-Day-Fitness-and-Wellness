@@ -65,6 +65,7 @@ const { createPerformanceService, registerPerformanceRoutes } = require('./lib/p
 const { registerOnsiteRoutes } = require('./lib/onsite-routes');
 const { registerAioCoreRoutes } = require('./lib/aio-core-routes');
 const { registerAssistantRoutes } = require('./lib/assistant-routes');
+const { createAssistantContext } = require('./lib/assistant-context');
 const { registerRecordedContentRoutes } = require('./lib/recorded-content-routes');
 const { buildDeployReadiness, buildNextMoves, registerDashboardRoutes } = require('./lib/dashboard-routes');
 const { createReviewsService, registerReviewsRoutes } = require('./lib/reviews-routes');
@@ -2138,62 +2139,43 @@ registerAiAuditRoutes(app, {
 // Reuses the dashboard score calculation and configured connection metadata.
 // External actions still require the owner's confirmation.
 // ============================================================
-async function assistantContext() {
-  let currentScore = null;
-  try { currentScore = await buildHealthScoreResponse(); } catch (_) { /* unavailable is not a stale score */ }
-  const prof = (businessProfile() && businessProfile().profile) || {};
-  const healthSnapshots = scoreHistory.snapshots;
-  const lastScore = currentScore?.overall ?? null;
-  let scoreDelta = null;
-  if (lastScore != null && healthSnapshots.length > 1) {
-    const target = Date.now() - 28 * 86400000; let best = null;
-    for (const s of healthSnapshots) { const t = new Date(s.date + 'T00:00:00Z').getTime(); if (t <= target && (!best || t > new Date(best.date + 'T00:00:00Z').getTime())) best = s; }
-    if (!best) best = healthSnapshots[0];
-    if (best && best.date !== healthSnapshots[healthSnapshots.length - 1].date) scoreDelta = lastScore - best.overall;
-  }
-  const vis = aiVisDb.snapshots[aiVisDb.snapshots.length - 1] || null;
-  const fc = factCheckDb.latest;
-  const cr = crawlersDb.latest;
-  const localNap = effectiveNap(localDb.nap, localDb.napExclusions);
-  const nap = localNap ? { mismatches: localNap.mismatchCount, checkedAt: localNap.checkedAt, listings: localNap.listings, excludedListings: localDb.napExclusions || [] } : null;
-  let cites = null;
-  try { const w = worklistPayload(); const ts = w.targets || []; cites = { total: ts.length, listedOn: ts.filter(t => t.listed === true).length, stillToDo: ts.filter(t => (t.status || 'todo') === 'todo').length }; } catch (e) {}
-  const aioRec = (aioAuditsDb && aioAuditsDb.length) ? { checks: aioAuditsDb.length, recommendedIn: aioAuditsDb.filter(a => a.recommended).length } : null;
-  let systemHealth = null;
-  try {
-    const overview = await currentOperationalHealth();
-    systemHealth = {
-      status: 'available',
-      checkedAt: overview.checkedAt,
-      overall: overview.overall,
-      alerts: overview.alerts.map(item => ({ key: item.key, label: item.label, message: item.message })),
-    };
-  } catch (_) {
-    systemHealth = { status: 'unavailable', checkedAt: null, overall: null, alerts: [] };
-  }
-  return {
-    business: { name: prof.name || BUSINESS.name, city: BUSINESS.addressLocality, region: BUSINESS.addressRegion, phone: prof.phone || BUSINESS.telephone, website: prof.website || ('https://' + siteDomain().replace(/^https?:\/\//, '')) },
-    optimizationScore: lastScore, scoreChangeLast28Days: scoreDelta,
-    scoreStatus: currentScore ? 'current-dashboard-calculation' : 'unavailable',
-    contextCheckedAt: new Date().toISOString(),
-    connections: { googleBusinessProfilePublishing: gbpConfigured(), googleBusinessProfile: gbpReadiness(), gmail: !!gmailClient(), websitePublishing: !!process.env.GHL_ACCESS_TOKEN && !!process.env.GHL_LOCATION_ID, searchConsole: !!(process.env.GSC_SITE_URL && getGoogleAuth()) },
-    googlePost: { status: gbpPublicationStatus(localDb.gbpDraft), recordedAt: localDb.gbpDraft?.postedAt || localDb.gbpDraft?.createdAt || null },
-    monthlyReport: monthlyReportService ? monthlyReportService.status() : { ready: false },
-    failureAlerts: reliabilityAlertService ? reliabilityAlertService.status() : { enabled: false, ready: false },
-    systemHealth,
-    contentSchedule: { enabled: autopilotEnabled, nextRunAt: autopilotEnabled ? nextRunTime : null, lastSuccessfulRunAt: lastAutopilotRun },
-    aiVisibility: vis ? { visibilityScorePct: vis.visibilityScore, shareOfVoicePct: vis.shareOfVoice, sentimentScore: vis.sentimentScore, enginesRun: vis.engines, leaderboard: (vis.leaderboard || []).slice(0, 6).map(l => ({ name: l.name, scorePct: l.score, isYou: !!l.isBrand })), byEngine: vis.perEngine } : null,
-    factCheck: fc ? { totalWrongClaims: fc.totalWrong, byEngine: (fc.results || []).map(r => ({ engine: r.label, accuracyPct: r.accuracy, wrongClaims: (r.issues || []).filter(i => !i.correct).map(i => ({ aiSaid: i.aiClaim, actualTruth: i.truth })) })) } : null,
-    aiCrawlerAccess: cr ? { blockedCount: cr.blocked, totalChecked: cr.total, blockedBots: (cr.bots || []).filter(b => b.status === 'blocked').map(b => b.label) } : null,
-    localListings: nap,
-    citations: cites,
-    singleSearchAudits: aioRec,
-    reddit: redditDb.latest ? { threadsFound: (redditDb.latest.threads || []).length } : null,
-    enginesConnected: enginesStatus().map(e => ({ engine: e.label, connected: e.configured })),
-    topCitationTargets: (() => { try { const w = worklistPayload(); return (w.targets || []).slice(0, 6).map(t => ({ site: t.domain, alreadyListed: t.listed === true, type: t.type })); } catch (e) { return null; } })(),
-    usageThisMonth: (() => { const u = currentUsage(); return { estimatedCostUSD: u.estCostUSD, assistantMessages: u.assistantMessages, aiChecksRun: (u.groundedCalls || 0) + (u.openaiCalls || 0) + (u.perplexityCalls || 0), articlesWritten: u.articles, monthlyBudgetUSD: usageMeter.budgetUSD }; })()
-  };
-}
+const assistantContext = createAssistantContext({
+  buildHealthScore: (...args) => buildHealthScoreResponse(...args),
+  getBusinessProfile: businessProfile,
+  business: BUSINESS,
+  getScoreSnapshots: () => scoreHistory.snapshots,
+  getAiVisibilitySnapshot: () => aiVisDb.snapshots[aiVisDb.snapshots.length - 1] || null,
+  getFactCheckSnapshot: () => factCheckDb.latest,
+  getCrawlerSnapshot: () => crawlersDb.latest,
+  getLocalNap: () => effectiveNap(localDb.nap, localDb.napExclusions),
+  getNapExclusions: () => localDb.napExclusions || [],
+  getCitationWorklist: worklistPayload,
+  getAioAudits: () => aioAuditsDb,
+  getConnections: () => ({
+    googleBusinessProfilePublishing: gbpConfigured(),
+    googleBusinessProfile: gbpReadiness(),
+    gmail: !!gmailClient(),
+    websitePublishing: !!process.env.GHL_ACCESS_TOKEN && !!process.env.GHL_LOCATION_ID,
+    searchConsole: !!(process.env.GSC_SITE_URL && getGoogleAuth()),
+  }),
+  getGooglePost: () => ({
+    status: gbpPublicationStatus(localDb.gbpDraft),
+    recordedAt: localDb.gbpDraft?.postedAt || localDb.gbpDraft?.createdAt || null,
+  }),
+  getMonthlyReport: () => monthlyReportService ? monthlyReportService.status() : { ready: false },
+  getFailureAlerts: () => reliabilityAlertService ? reliabilityAlertService.status() : { enabled: false, ready: false },
+  getOperationalHealth: currentOperationalHealth,
+  getContentSchedule: () => ({
+    enabled: autopilotEnabled,
+    nextRunAt: autopilotEnabled ? nextRunTime : null,
+    lastSuccessfulRunAt: lastAutopilotRun,
+  }),
+  getRedditSnapshot: () => redditDb.latest,
+  getEngines: enginesStatus,
+  getUsage: currentUsage,
+  getBudget: () => usageMeter.budgetUSD,
+  getSiteDomain: siteDomain,
+});
 // ============================================================
 // USAGE / COST METERING — single-process compatibility boundary.
 // Account/month accounting is separate from storage and HTTP. A transactional
