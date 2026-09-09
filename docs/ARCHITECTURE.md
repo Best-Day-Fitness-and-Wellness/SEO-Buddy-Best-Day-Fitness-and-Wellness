@@ -248,6 +248,7 @@ so one production replica remains the supported topology.
 | `lib/attribution.js` | Deterministic contact source classification |
 | `lib/content-quality.js` | Deterministic article quality and automatic-publish gate |
 | `lib/article-generation-service.js` | Long-form AEO prompt, Gemini normalization, claim extraction, brand checks, quality projection, and explicit mock boundary |
+| `lib/brand-profile-service.js` | Approved brand defaults, restart-safe profile loading, review state, persistence, prompt projection, and prohibited-language enforcement |
 | `lib/google-api-client.js` | Service-account parsing and diagnostics, Google auth creation, Search Console and Indexing client factories, and provider-runtime request policies |
 | `lib/article-publishing-service.js` | Article enrichment, internal links, structured data, trust signals, and GoHighLevel publication adapter |
 | `lib/article-indexing-service.js` | Google Indexing submission, permission guidance, legacy publication-URL migration, and boot-time repair recovery |
@@ -409,6 +410,12 @@ so one production replica remains the supported topology.
    request policies now live in `lib/google-api-client.js`. Configuration,
    performance, content autopilot, and article indexing consume the same injected
    adapter, preserving credential repair, scopes, payloads, retries, and timeouts.
+
+   The approved brand voice, saved-profile migration, review marker, prompt
+   projection, and prohibited-language enforcement now live in
+   `lib/brand-profile-service.js`. Every writing workflow still consumes the
+   same mutable profile through injected prompt and validation functions, while
+   the profile routes retain their existing merge, reset, and response contracts.
 2. **Feature state is still process-local during a run.** PostgreSQL mode makes
    the database the startup recovery authority, but one production replica is
    still the supported topology. Move mutations to transactional repository

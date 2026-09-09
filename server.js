@@ -36,6 +36,7 @@ const { createArticleGenerationService } = require('./lib/article-generation-ser
 const { createArticlePublishingService } = require('./lib/article-publishing-service');
 const { createArticleIndexingService } = require('./lib/article-indexing-service');
 const { createGoogleApiClient } = require('./lib/google-api-client');
+const { createBrandProfileService } = require('./lib/brand-profile-service');
 const { registerOperationsRoutes } = require('./lib/operations-routes');
 const { registerProfileRoutes } = require('./lib/profile-routes');
 const { registerUsageRoutes } = require('./lib/usage-routes');
@@ -317,147 +318,12 @@ const BUSINESS = {
 // ===========================================================================
 
 const BRAND_FILE = path.join(DATA_DIR, 'brand-profile.json');
-
-const BRAND_DEFAULT = {
-  name: 'Best Day Fitness',
-  tagline: 'Move Better. Feel Stronger. Live Longer.',
-  supportingLine: 'Personal Training, Physical Therapy, Massage, and Wellness — All under one roof. All working together.',
-  audienceDescription: 'Designed for adults 50+, seniors, and anyone recovering from injury who wants to stay active, independent, and strong.',
-  philosophy: 'Energy = Mobility + Posture + Strength. When mobility improves, posture improves. When posture improves, strength improves. When all three improve, energy comes back.',
-  tone: "Science-backed, credible, warm. Peter Attia's depth and evidence-based authority, delivered with the warmth of a trusted advisor who knows your name.",
-  voiceTraits: [
-    'Confident but not cocky — share expertise without bragging',
-    'Educational but not academic — make complex health topics accessible',
-    'Caring but not soft — genuine concern without patronizing',
-    'Direct but not salesy — state facts and let people decide',
-    'Intentional but not rigid — purposeful, adaptable to the person',
-  ],
-  writingStyle: [
-    'Use "we" for Best Day Fitness as a team; use "I" when Christopher shares a personal insight or story',
-    'Speak TO the audience, not AT them',
-    'Lead with empathy, follow with evidence',
-    'Short sentences for impact. Longer ones for explanation.',
-    'Never talk down to seniors or use infantilizing language',
-    'Treat aging as a natural process to optimize, not a disease to fight',
-  ],
-  usePhrases: [
-    'Move better. Feel stronger. Live longer.',
-    'Intentional movement',
-    'Smart, supervised training',
-    'The whole person, not just one problem',
-    'Your body is adaptable — at any age',
-    'Understanding your body first',
-    'Progress, not perfection',
-    'A clear, personalized path forward',
-    'Not intense — intentional',
-    'Results that go beyond the gym',
-  ],
-  // Scanned for in generated copy, not merely requested in the prompt.
-  neverUse: [
-    'anti-aging', 'elderly', 'quick fix', 'shred', 'tone up', 'no excuses',
-    'push through the pain', 'no pain no gain', 'crush it', 'beast mode',
-    'transform your body', 'beach body', 'melt fat', 'bikini body',
-  ],
-  values: ['Human-Centered', 'Collaborative', 'Intentional', 'Progressive'],
-  services: [
-    'Personal Training — private & semi-private (up to 8), trainer-led, scaled to each body and history',
-    'Physical Therapy — integrated with training, for injury recovery, post-surgical rehab, chronic pain, balance concerns',
-    'Massage Therapy — medical, deep tissue, recovery-focused; part of the plan, not just relaxation',
-    'Wellness & Coaching — fall prevention, lifestyle habits, nutrition guidance, long-term strategy',
-  ],
-  differentiators: [
-    'Integrated approach — training, PT, massage and wellness under one roof, all communicating',
-    'Not a regular gym — no open gym, no assembly lines, no one-size-fits-all',
-    'Whole person care — no conflicting advice, no bouncing between locations',
-    'Trust-based — listening before prescribing, assessing before training',
-    'Longevity focus — building for decades, not 6-week transformations',
-    '3D body scanning for precision assessment',
-  ],
-  audiencePainPoints: [
-    'You want to reduce pain, not ignore it',
-    'You care more about mobility, balance, posture and strength than quick fixes',
-    'You want to stay active with your kids, grandkids or hobbies',
-    "You've tried gyms, PT clinics or massage places — and felt like something was missing",
-  ],
-  notPositioning: ['a big-box gym', 'a CrossFit box', 'a standalone PT clinic', 'a spa or relaxation massage place', 'a weight loss center'],
-  localKeywords: [
-    'Older adult fitness St. Petersburg', 'Senior personal training Tampa Bay',
-    'Physical therapy St. Pete', 'Longevity fitness Florida', '50+ fitness St. Petersburg',
-    'Fall prevention training Tampa Bay', 'Post-rehab fitness St. Pete',
-    'Senior wellness St. Petersburg FL', 'Massage therapy St. Pete FL',
-  ],
-  ctaPrimaryLabel: 'Book a Consultation',
-  ctaPrimaryUrl: 'https://bestdayfitness.com/consult',
-};
-
-let brandDb = JSON.parse(JSON.stringify(BRAND_DEFAULT));
-let brandReviewedAt = null;
-try {
-  const loaded = JSON.parse(fs.readFileSync(BRAND_FILE, 'utf8'));
-  if (loaded && typeof loaded === 'object') {
-    const { _reviewedAt, ...loadedBrand } = loaded;
-    brandDb = { ...BRAND_DEFAULT, ...loadedBrand };
-    // Older profile files predate the explicit review marker. Such a file could
-    // only be created by Save or Reset, so preserve that completed owner action
-    // when upgrading instead of showing "Not reviewed yet" again.
-    brandReviewedAt = Object.prototype.hasOwnProperty.call(loaded, '_reviewedAt')
-      ? (typeof _reviewedAt === 'string' && _reviewedAt ? _reviewedAt : null)
-      : fs.statSync(BRAND_FILE).mtime.toISOString();
-  }
-} catch (e) { /* first run — defaults stand */ }
-
-// Returns whether the write actually reached disk. The caller reports that to
-// the owner: a confirmation that cannot be stored is a warning that comes back
-// after the next redeploy, and silently pretending otherwise is how a fixed
-// badge looks broken.
-function saveBrand() {
-  return saveJsonFileSync(BRAND_FILE, { ...brandDb, _reviewedAt: brandReviewedAt }, 'Brand');
-}
-
-const bList = (a) => (Array.isArray(a) ? a.filter(Boolean) : []);
-
-// Rendered into every AI prompt. `full` carries the whole guide for long-form
-// work; the short form keeps token cost sane on small generations like a
-// review reply, where the voice rules matter but the service list does not.
-function brandPrompt(full) {
-  const b = brandDb;
-  const lines = [
-    `${b.name} — ${b.audienceDescription}`,
-    b.tagline ? `Tagline: "${b.tagline}"` : '',
-    b.philosophy ? `Philosophy: ${b.philosophy}` : '',
-    b.tone ? `TONE: ${b.tone}` : '',
-    bList(b.voiceTraits).length ? `VOICE:\n- ${bList(b.voiceTraits).join('\n- ')}` : '',
-    bList(b.writingStyle).length ? `STYLE:\n- ${bList(b.writingStyle).join('\n- ')}` : '',
-    bList(b.usePhrases).length ? `PHRASES THAT ARE OURS (use naturally, do not force):\n- ${bList(b.usePhrases).join('\n- ')}` : '',
-    bList(b.neverUse).length ? `NEVER USE THESE WORDS OR PHRASES — this is a hard rule and the copy is checked for them afterwards:\n${bList(b.neverUse).map(w => `"${w}"`).join(', ')}` : '',
-  ];
-  if (full) {
-    lines.push(
-      bList(b.services).length ? `SERVICES:\n- ${bList(b.services).join('\n- ')}` : '',
-      bList(b.differentiators).length ? `WHAT MAKES US DIFFERENT:\n- ${bList(b.differentiators).join('\n- ')}` : '',
-      bList(b.audiencePainPoints).length ? `WHAT THE READER IS FEELING:\n- ${bList(b.audiencePainPoints).join('\n- ')}` : '',
-      bList(b.notPositioning).length ? `WE ARE NOT: ${bList(b.notPositioning).join(', ')}. Never imply otherwise.` : '',
-    );
-  }
-  return lines.filter(Boolean).join('\n');
-}
-
-// Models routinely ignore negative instructions, so the never-use list is
-// enforced after generation as well as requested before it. Word-boundary
-// matched so "shred" does not fire on "shredded lettuce" inside a longer word.
-function brandViolations(text) {
-  const t = String(text || '');
-  if (!t) return [];
-  const hits = [];
-  for (const phrase of bList(brandDb.neverUse)) {
-    const esc = String(phrase).trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    if (!esc) continue;
-    const re = new RegExp(`\\b${esc.replace(/\s+/g, '\\s+')}\\b`, 'i');
-    const m = t.match(re);
-    if (m) hits.push({ phrase, found: m[0] });
-  }
-  return hits;
-}
+const brandProfileService = createBrandProfileService({ filePath: BRAND_FILE, saveJsonFileSync });
+const BRAND_DEFAULT = brandProfileService.defaults;
+const brandState = brandProfileService.state;
+const saveBrand = brandProfileService.save;
+const brandPrompt = brandProfileService.prompt;
+const brandViolations = brandProfileService.violations;
 
 
 
@@ -688,12 +554,7 @@ app.use(express.static(PUBLIC_DIR, {
 registerProfileRoutes(app, {
   requireOwner,
   brandDefaults: BRAND_DEFAULT,
-  brandState: {
-    get profile() { return brandDb; },
-    set profile(value) { brandDb = value; },
-    get reviewedAt() { return brandReviewedAt; },
-    set reviewedAt(value) { brandReviewedAt = value; },
-  },
+  brandState,
   saveBrand,
   storageReadiness,
   businessProfile,
@@ -1617,7 +1478,7 @@ function phoneDisplay() {
 // code — edit the voice in Settings and these follow. This is the text the owner
 // is told to paste onto every directory, so it must never drift from the brand.
 function kitStatic() {
-  const b = brandDb;
+  const b = brandState.profile;
   return {
     tagline: b.tagline || 'Coach-led fitness in St. Petersburg for active adults 50+.',
     shortDesc: `${b.name}. ${b.audienceDescription}`.slice(0, 160),
@@ -2019,8 +1880,8 @@ function getReadinessContext() {
     ghlConfigured: !!(process.env.GHL_ACCESS_TOKEN && process.env.GHL_LOCATION_ID),
     adminConfigured: !!ADMIN_PASSWORD,
     businessProfileSaved: !!businessProfileSaved,
-    brandReviewed: !!brandReviewedAt,
-    brandReviewedAt,
+    brandReviewed: !!brandState.reviewedAt,
+    brandReviewedAt: brandState.reviewedAt,
     brandDurable: storageReadiness().persistent,
     stateBackendMode: STATE_BACKEND_MODE,
     appMode: APP_MODE,
