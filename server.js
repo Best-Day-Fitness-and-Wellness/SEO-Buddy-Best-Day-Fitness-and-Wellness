@@ -37,6 +37,7 @@ const { createArticlePublishingService } = require('./lib/article-publishing-ser
 const { createArticleIndexingService } = require('./lib/article-indexing-service');
 const { createGoogleApiClient } = require('./lib/google-api-client');
 const { createBrandProfileService } = require('./lib/brand-profile-service');
+const { createBusinessProfileService } = require('./lib/business-profile-service');
 const { registerOperationsRoutes } = require('./lib/operations-routes');
 const { registerProfileRoutes } = require('./lib/profile-routes');
 const { registerUsageRoutes } = require('./lib/usage-routes');
@@ -282,25 +283,6 @@ const auditLog = createAuditLog({
   signingKey: process.env.AUDIT_SIGNING_KEY || '',
 });
 
-// Real Best Day Fitness business info (NAP) for structured data / schema.
-// Single source of truth — used by both the publisher and the schema endpoint.
-const BUSINESS = {
-  name: 'Best Day Fitness',
-  telephone: '+1-727-334-1472',
-  streetAddress: '6619 1st Ave S',
-  addressLocality: 'St. Petersburg',
-  addressRegion: 'FL',
-  postalCode: '33707',
-  addressCountry: 'US',
-  latitude: 27.770167,
-  longitude: -82.7291718,
-  sameAs: [
-    'https://www.facebook.com/bestdayfitness',
-    'https://www.instagram.com/best_day_fitness/',
-    'https://www.youtube.com/c/Bestdayfitness'
-  ]
-};
-
 // ===========================================================================
 // BRAND PROFILE  —  the single source of truth for every AI feature
 // ---------------------------------------------------------------------------
@@ -335,46 +317,16 @@ const brandViolations = brandProfileService.violations;
 // BUSINESS.xxx reference automatically uses the saved values — no refactor.
 // ----------------------------------------------------
 const BUSINESS_PROFILE_FILE = path.join(DATA_DIR, 'business-profile.json');
-let businessProfileSaved = false;
-let businessLocationId = 'loc-bestday-stpete';
-let businessWebsite = 'https://bestdayfitness.com';
-(function loadBusinessProfile() {
-  try {
-    if (fs.existsSync(BUSINESS_PROFILE_FILE)) {
-      const s = JSON.parse(fs.readFileSync(BUSINESS_PROFILE_FILE, 'utf8'));
-      if (s.locationId) businessLocationId = s.locationId;
-      if (s.website) businessWebsite = s.website;
-      const map = { name: 'name', phone: 'telephone', streetAddress: 'streetAddress', addressLocality: 'addressLocality', addressRegion: 'addressRegion', postalCode: 'postalCode' };
-      Object.keys(map).forEach(k => { if (s[k]) BUSINESS[map[k]] = s[k]; });
-      if (Array.isArray(s.socials)) BUSINESS.sameAs = s.socials;
-      businessProfileSaved = true;
-    }
-  } catch (e) { console.error('[Business Profile] load failed:', e.message); }
-})();
-function businessProfile() {
-  return {
-    locationId: businessLocationId,
-    configured: businessProfileSaved,
-    name: BUSINESS.name,
-    phone: BUSINESS.telephone,
-    streetAddress: BUSINESS.streetAddress,
-    addressLocality: BUSINESS.addressLocality,
-    addressRegion: BUSINESS.addressRegion,
-    postalCode: BUSINESS.postalCode,
-    website: businessWebsite,
-    socials: BUSINESS.sameAs || []
-  };
-}
-function saveBusinessProfileFromBody(b) {
-  const set = (k, v) => { if (typeof v === 'string' && v.trim()) BUSINESS[k] = v.trim(); };
-  set('name', b.name); set('telephone', b.phone); set('streetAddress', b.streetAddress);
-  set('addressLocality', b.addressLocality); set('addressRegion', b.addressRegion); set('postalCode', b.postalCode);
-  if (typeof b.website === 'string' && b.website.trim()) businessWebsite = b.website.trim();
-  if (Array.isArray(b.socials)) BUSINESS.sameAs = b.socials.filter(s => typeof s === 'string' && s.trim());
-  if (typeof b.locationId === 'string' && b.locationId.trim()) businessLocationId = b.locationId.trim();
-  businessProfileSaved = true;
-  writeJsonFileSync(BUSINESS_PROFILE_FILE, businessProfile());
-}
+const businessProfileService = createBusinessProfileService({
+  filePath: BUSINESS_PROFILE_FILE,
+  writeJsonFileSync,
+  logger: console,
+});
+const BUSINESS = businessProfileService.business;
+const businessProfile = businessProfileService.profile;
+const saveBusinessProfileFromBody = businessProfileService.save;
+const buildLocalBusinessSchema = businessProfileService.buildLocalBusinessSchema;
+const phoneDisplay = businessProfileService.phoneDisplay;
 
 // CORS: default to same-origin only (the dashboard is served from this same
 // server, so no cross-origin headers are needed). Set ALLOWED_ORIGIN to a
@@ -567,47 +519,6 @@ registerProfileRoutes(app, {
 // logs a loud startup warning. Provide the password from the client as either
 // an "Authorization: Bearer <password>" header or an "x-admin-token" header.
 // ----------------------------------------------------
-// Shared LocalBusiness schema builder (real NAP, single source of truth).
-function buildLocalBusinessSchema(domain) {
-  return {
-    "@context": "https://schema.org",
-    "@type": "SportsClub",
-    "name": BUSINESS.name,
-    "image": `${domain}/assets/logo.png`,
-    "@id": `${domain}/#organization`,
-    "url": domain,
-    "telephone": BUSINESS.telephone,
-    "address": {
-      "@type": "PostalAddress",
-      "streetAddress": BUSINESS.streetAddress,
-      "addressLocality": BUSINESS.addressLocality,
-      "addressRegion": BUSINESS.addressRegion,
-      "postalCode": BUSINESS.postalCode,
-      "addressCountry": BUSINESS.addressCountry
-    },
-    "geo": {
-      "@type": "GeoCoordinates",
-      "latitude": BUSINESS.latitude,
-      "longitude": BUSINESS.longitude
-    },
-    "openingHoursSpecification": [
-      {
-        "@type": "OpeningHoursSpecification",
-        "dayOfWeek": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
-        "opens": "04:00",
-        "closes": "22:00"
-      },
-      {
-        "@type": "OpeningHoursSpecification",
-        "dayOfWeek": ["Sunday"],
-        "opens": "09:00",
-        "closes": "17:00"
-      }
-    ],
-    "sameAs": BUSINESS.sameAs
-  };
-}
-
 // Initialize Gemini Client if Key is present
 let ai = null;
 if (process.env.GEMINI_API_KEY) {
@@ -1363,7 +1274,7 @@ const usageRepository = createUsageRepository(stateRepository);
 const usageMeter = createUsageMeter({
   initialState: usageRepository.load(),
   saveState: usageRepository.save,
-  getAccountKey: () => businessLocationId,
+  getAccountKey: () => businessProfileService.locationId,
 });
 // Hoisted callbacks preserve earlier route registrations without moving boot
 // initialization ahead of tenant hydration, write observers, or business setup.
@@ -1469,10 +1380,6 @@ function siteDomain() {
   let domain = (process.env.GSC_SITE_URL || 'https://bestdayfitness.com').trim();
   if (domain.startsWith('sc-domain:')) domain = 'https://' + domain.substring(10);
   return domain.replace(/\/$/, '');
-}
-function phoneDisplay() {
-  const d = (BUSINESS.telephone || '').replace(/[^0-9]/g, '').replace(/^1/, '');
-  return d.length === 10 ? `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}` : BUSINESS.telephone;
 }
 // Fallback directory copy, derived from the brand profile rather than frozen in
 // code — edit the voice in Settings and these follow. This is the text the owner
@@ -1879,7 +1786,7 @@ function getReadinessContext() {
     gscConfigured: !!(process.env.GSC_SITE_URL && getGoogleAuth()),
     ghlConfigured: !!(process.env.GHL_ACCESS_TOKEN && process.env.GHL_LOCATION_ID),
     adminConfigured: !!ADMIN_PASSWORD,
-    businessProfileSaved: !!businessProfileSaved,
+    businessProfileSaved: businessProfileService.configured,
     brandReviewed: !!brandState.reviewedAt,
     brandReviewedAt: brandState.reviewedAt,
     brandDurable: storageReadiness().persistent,

@@ -249,6 +249,7 @@ so one production replica remains the supported topology.
 | `lib/content-quality.js` | Deterministic article quality and automatic-publish gate |
 | `lib/article-generation-service.js` | Long-form AEO prompt, Gemini normalization, claim extraction, brand checks, quality projection, and explicit mock boundary |
 | `lib/brand-profile-service.js` | Approved brand defaults, restart-safe profile loading, review state, persistence, prompt projection, and prohibited-language enforcement |
+| `lib/business-profile-service.js` | Canonical location identity, saved NAP overrides, business profile persistence, LocalBusiness schema, and listing phone formatting |
 | `lib/google-api-client.js` | Service-account parsing and diagnostics, Google auth creation, Search Console and Indexing client factories, and provider-runtime request policies |
 | `lib/article-publishing-service.js` | Article enrichment, internal links, structured data, trust signals, and GoHighLevel publication adapter |
 | `lib/article-indexing-service.js` | Google Indexing submission, permission guidance, legacy publication-URL migration, and boot-time repair recovery |
@@ -416,6 +417,12 @@ so one production replica remains the supported topology.
    `lib/brand-profile-service.js`. Every writing workflow still consumes the
    same mutable profile through injected prompt and validation functions, while
    the profile routes retain their existing merge, reset, and response contracts.
+
+   Canonical location identity, saved business-profile overrides, persistence,
+   LocalBusiness schema projection, and listing phone formatting now live in
+   `lib/business-profile-service.js`. The composition root still passes the same
+   mutable business object to feature services, preserving every NAP value,
+   profile field, schema key, and existing one-location runtime contract.
 2. **Feature state is still process-local during a run.** PostgreSQL mode makes
    the database the startup recovery authority, but one production replica is
    still the supported topology. Move mutations to transactional repository
