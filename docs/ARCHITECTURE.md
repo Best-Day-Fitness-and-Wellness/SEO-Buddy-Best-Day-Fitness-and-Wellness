@@ -249,6 +249,7 @@ so one production replica remains the supported topology.
 | `lib/content-quality.js` | Deterministic article quality and automatic-publish gate |
 | `lib/article-generation-service.js` | Long-form AEO prompt, Gemini normalization, claim extraction, brand checks, quality projection, and explicit mock boundary |
 | `lib/article-publishing-service.js` | Article enrichment, internal links, structured data, trust signals, and GoHighLevel publication adapter |
+| `lib/article-indexing-service.js` | Google Indexing submission, permission guidance, legacy publication-URL migration, and boot-time repair recovery |
 | `lib/profile-routes.js` | Brand and business profile HTTP contracts |
 | `lib/usage-routes.js` | AI usage reporting and owner budget HTTP contracts |
 | `lib/gsc-routes.js` | Search Console queries, caching, page opportunities, and safe diagnostics |
@@ -393,6 +394,14 @@ so one production replica remains the supported topology.
    order. The composition root injects provider clients, article services,
    mutable schedule state, and persistence; durable scheduling and HTTP
    contracts remain separate boundaries.
+
+   Google article indexing and publication-URL repair now live in
+   `lib/article-indexing-service.js`. Live and explicit mock submission,
+   owner-facing Search Console permission guidance, the idempotent legacy path
+   rewrite, published-only recovery, best-effort failure handling, and flag
+   cleanup keep their existing contracts. Manual publishing, content autopilot,
+   and boot recovery now share that single adapter without changing their HTTP
+   or scheduling behavior.
 2. **Feature state is still process-local during a run.** PostgreSQL mode makes
    the database the startup recovery authority, but one production replica is
    still the supported topology. Move mutations to transactional repository

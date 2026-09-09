@@ -35,6 +35,7 @@ const { ProviderRuntimeError, createProviderRuntime } = require('./lib/provider-
 const { assessArticleQuality } = require('./lib/content-quality');
 const { createArticleGenerationService } = require('./lib/article-generation-service');
 const { createArticlePublishingService } = require('./lib/article-publishing-service');
+const { createArticleIndexingService } = require('./lib/article-indexing-service');
 const { registerOperationsRoutes } = require('./lib/operations-routes');
 const { registerProfileRoutes } = require('./lib/profile-routes');
 const { registerUsageRoutes } = require('./lib/usage-routes');
@@ -77,7 +78,6 @@ const { registerConfigurationRoutes } = require('./lib/configuration-routes');
 const { buildOperationalHealth } = require('./lib/operational-health');
 const { createCredentialMetadata } = require('./lib/credential-metadata');
 const { createReliabilityAlertService, registerReliabilityAlertRoutes } = require('./lib/reliability-alerts');
-const { publicProviderError } = require('./lib/public-provider-error');
 
 // Load UI-saved secrets from the durable storage root. Tenant state is isolated
 // below this root after configuration is loaded; host-provided variables still
@@ -904,33 +904,6 @@ function saveHistory() {
   historyRepository.save(historyDb);
 }
 
-// One-time repair (idempotent, runs every boot): older builds stored blog URLs
-// with a hard-coded "/blog/posts" prefix that does NOT resolve on GoHighLevel-
-// hosted sites — those posts live at "/post/<slug>". A stale URL silently
-// redirects visitors to the homepage AND is the URL we hand to Google's Indexing
-// API, so the article never gets indexed. Rewrite any stale stored URLs to the
-// currently-configured prefix and flag them so they can be re-submitted.
-function migrateStalePostUrls() {
-  let prefix = (process.env.GHL_BLOG_PATH_PREFIX || '/post').trim();
-  if (!prefix.startsWith('/')) prefix = '/' + prefix;
-  prefix = prefix.replace(/\/+$/, '');
-  const OLD = '/blog/posts';
-  if (prefix === OLD) return; // still configured to the old path — nothing to do
-  let changed = 0;
-  historyDb.forEach(h => {
-    if (h && typeof h.url === 'string' && h.url.includes(OLD + '/')) {
-      h.url = h.url.replace(OLD + '/', prefix + '/');
-      h.needsReindex = true;
-      changed++;
-    }
-  });
-  if (changed) {
-    saveHistory();
-    console.log(`[URL Migration] Rewrote ${changed} stale blog URL(s): ${OLD}/ -> ${prefix}/`);
-  }
-}
-migrateStalePostUrls();
-
 // ----------------------------------------------------
 // Mock Data for GSC (Best Day Fitness Search Console leaks)
 // ----------------------------------------------------
@@ -1185,56 +1158,23 @@ const articlePublishingService = createArticlePublishingService({
   integrationUnavailable,
 });
 const publishGhlHelper = articlePublishingService.publish;
-// Translate Google's terse Indexing API errors into an actionable message.
-function explainIndexError(message) {
-  const m = String(message || '');
-  if (/ownership|Permission denied|Failed to verify|does not have .*permission/i.test(m)) {
-    return `Google refused the indexing request: the service account is not a verified OWNER of the site in Search Console. `
-      + `Fix: Search Console → Settings → Users and permissions → add the service-account email (the "client_email" in your Google service-account JSON) with permission = Owner. `
-      + `Note: "Full" access — which is enough for the GSC data tabs — is NOT enough for the Indexing API. `
-      + `Also confirm the published URL is on the same verified domain (${process.env.GSC_SITE_URL || 'your property'}).`;
-  }
-  return publicProviderError({ message: m }, {
-    provider: 'Google Indexing',
-    operation: 'The indexing request',
-    setupPath: 'Settings → Your connections → Google Search Console',
-  }).error;
-}
-
-// 3. Indexing Helper
-async function indexUrlHelper(url) {
-  const auth = getGoogleAuth();
-
-  if (auth) {
-    const indexing = google.indexing({ version: 'v3', auth: auth });
-    const response = await publishIndexNotification(indexing, {
-      requestBody: {
-        url: url,
-        type: 'URL_UPDATED'
-      }
-    });
-
-    return {
-      success: true,
-      source: 'live_indexing',
-      message: 'URL submitted to Google Indexing API successfully!',
-      data: response.data
-    };
-  }
-
-  if (!ALLOW_MOCK_INTEGRATIONS) {
-    throw integrationUnavailable(
-      'google_indexing',
-      'Google Indexing is not configured. Add valid service-account credentials before requesting production indexing.'
-    );
-  }
-
-  return {
-    success: true,
-    source: 'mock_indexing',
-    message: 'Submission simulated in Mock Mode.'
-  };
-}
+// Google Indexing submission, owner-facing permission guidance, legacy URL
+// migration, and boot-time re-index recovery share one article lifecycle boundary.
+const articleIndexingService = createArticleIndexingService({
+  getGoogleAuth,
+  createIndexingClient: auth => google.indexing({ version: 'v3', auth }),
+  publishIndexNotification,
+  getSearchConsoleProperty: () => process.env.GSC_SITE_URL,
+  getBlogPathPrefix: () => process.env.GHL_BLOG_PATH_PREFIX,
+  getHistory: () => historyDb,
+  saveHistory,
+  allowMockIntegrations: ALLOW_MOCK_INTEGRATIONS,
+  integrationUnavailable,
+  logger: console,
+});
+const indexUrlHelper = articleIndexingService.submit;
+const explainIndexError = articleIndexingService.explainError;
+articleIndexingService.migrateStalePostUrls();
 
 // ----------------------------------------------------
 // Autopilot Agent Logic
@@ -2309,27 +2249,6 @@ if (autopilotEnabled) {
 // The persisted content deadline also handles one bounded overdue catch-up.
 
 // Start the Express Server
-// After boot: re-submit any posts whose URL was just repaired by the migration
-// so Google re-crawls them at the corrected /post path. Runs once per post
-// (clears the flag afterward), skips drafts/seed rows, and never crashes the
-// server on failure — a Google permission error is logged, not thrown.
-async function reindexRepairedPosts() {
-  const targets = historyDb.filter(h => h && h.needsReindex && /published/i.test(h.platform || ''));
-  if (!targets.length) return;
-  console.log(`[URL Migration] Re-submitting ${targets.length} repaired URL(s) to Google indexing...`);
-  for (const h of targets) {
-    try {
-      await indexUrlHelper(h.url);
-      h.indexed = 'Indexing Requested';
-      console.log(`[URL Migration] Re-indexed: ${h.url}`);
-    } catch (e) {
-      console.error(`[URL Migration] Re-index failed for ${h.url}: ${explainIndexError(e.message)}`);
-    } finally {
-      delete h.needsReindex;
-    }
-  }
-  saveHistory();
-}
 
 // ===========================================================================
 // REVIEWS SITE STATS  —  bestdayfitnessreviews.com
@@ -2526,7 +2445,7 @@ const server = app.listen(PORT, () => {
     startBackgroundWork();
   }
   // Fire-and-forget: repair-triggered re-indexing (safe, self-clearing).
-  reindexRepairedPosts().catch(e => console.error('[URL Migration] reindex batch error:', e.message));
+  articleIndexingService.reindexRepairedPosts().catch(e => console.error('[URL Migration] reindex batch error:', e.message));
 });
 
 function gracefulShutdown(signal) {
