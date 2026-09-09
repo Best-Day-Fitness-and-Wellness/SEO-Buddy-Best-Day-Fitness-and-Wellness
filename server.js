@@ -9,10 +9,7 @@ const crypto = require('node:crypto');
 const { google } = require('googleapis');
 const { GoogleGenAI } = require('@google/genai');
 const { saveJsonFileSync, setJsonWriteObserver, writeJsonFileSync } = require('./lib/json-file-store');
-const {
-  clamp: hClamp,
-  scorePillars,
-} = require('./lib/health-score');
+const { createHealthScoreService } = require('./lib/health-score-service');
 const { createScoreHistory } = require('./lib/score-history');
 const { createScoreHistoryRepository } = require('./lib/score-history-repository');
 const { createPublicationHistoryRepository } = require('./lib/publication-history-repository');
@@ -2661,123 +2658,23 @@ scheduleDurableCheck('performance.digest', 75000, 12 * 60 * 60 * 1000);
 // account never sees a scary low number. Snapshotted daily for trend.
 // ============================================================
 const scoreHistoryRepository = createScoreHistoryRepository(stateRepository);
+const healthScoreService = createHealthScoreService({
+  getPerformance: computePerformance,
+  getLocalState: () => localDb,
+  effectiveNap,
+  getAiAudits: () => aioAuditsDb,
+  getCitationState: () => citationsDb,
+  eligibleCitationState,
+  getPublicationHistory: () => historyDb,
+  isAutopilotEnabled: () => autopilotEnabled,
+});
 const scoreHistory = createScoreHistory({
   initialSnapshots: scoreHistoryRepository.load(),
-  computeScore: computeHealthScore,
+  computeScore: healthScoreService.compute,
   saveSnapshots: scoreHistoryRepository.save,
   getRuntime: () => ({ mode: APP_MODE, mockIntegrationsAllowed: ALLOW_MOCK_INTEGRATIONS }),
 });
 const { buildResponse: buildHealthScoreResponse, recordDaily: recordDailyHealthSnapshot } = scoreHistory;
-
-async function computeHealthScore() {
-  const pillars = [];
-
-  // 1. Found on Google (25%) — GSC leaks + rank
-  try {
-    const p = await computePerformance();
-    if (p.source === 'live_gsc' && p.current) {
-      const snap = (p.snapshots && p.snapshots.length) ? p.snapshots[p.snapshots.length - 1] : null;
-      const leaks = (snap && typeof snap.leaks === 'number') ? snap.leaks : 0;
-      const pos = p.current.avgPosition || 30;
-      const leakScore = 100 - Math.min(leaks * 5, 40);
-      const rankScore = hClamp(100 - (pos - 3) * (100 / 27), 0, 100);
-      pillars.push({
-        key: 'found', label: 'Found on Google', weight: 25, measured: true,
-        score: 0.6 * leakScore + 0.4 * rankScore,
-        detail: `${leaks} search${leaks === 1 ? '' : 'es'} with no clicks · avg rank ${pos}`,
-        inputs: { leaks, averagePosition: pos },
-        factors: [
-          { key: 'clickGaps', label: 'Searches with impressions but no clicks', share: 60, score: Math.round(leakScore) },
-          { key: 'averageRank', label: 'Average Google position', share: 40, score: Math.round(rankScore) },
-        ],
-        sourceUpdatedAt: snap && snap.date ? `${snap.date}T00:00:00.000Z` : null,
-      });
-    } else {
-      pillars.push({ key: 'found', label: 'Found on Google', weight: 25, measured: false, score: null, detail: 'Connect Search Console to measure' });
-    }
-  } catch (e) {
-    pillars.push({ key: 'found', label: 'Found on Google', weight: 25, measured: false, score: null, detail: 'Not measured yet' });
-  }
-
-  // 2. Local listings (20%) — NAP mismatches (+ GBP activity)
-  if (localDb && localDb.nap) {
-    const activeNap = effectiveNap(localDb.nap, localDb.napExclusions);
-    const mm = activeNap.mismatchCount || 0;
-    let score = hClamp(100 - mm * 15, 0, 100);
-    if (localDb.gbpDraft && localDb.gbpDraft.posted) score = hClamp(score + 8, 0, 100);
-    pillars.push({
-      key: 'local', label: 'Local listings', weight: 20, measured: true, score,
-      detail: mm ? `${mm} listing${mm > 1 ? 's' : ''} to fix` : 'No mismatches in monitored listings',
-      inputs: { mismatches: mm, excludedListings: activeNap.excludedListings?.length || 0, unverifiedListings: activeNap.unverifiedCount || 0, gbpPosted: !!(localDb.gbpDraft && localDb.gbpDraft.posted) },
-      factors: [
-        { key: 'napConsistency', label: 'Name, address, and phone consistency', value: mm, effect: `${mm * 15}-point mismatch penalty` },
-        { key: 'gbpActivity', label: 'Current Google Business Profile activity', value: !!(localDb.gbpDraft && localDb.gbpDraft.posted), effect: 'Up to 8 bonus points' },
-      ],
-      sourceUpdatedAt: localDb.lastNapRun || (localDb.gbpDraft && (localDb.gbpDraft.postedAt || localDb.gbpDraft.createdAt)) || null,
-    });
-  } else {
-    pillars.push({ key: 'local', label: 'Local listings', weight: 20, measured: false, score: null, detail: 'Run a listings check to measure' });
-  }
-
-  // 3. AI recommends you (20%) — audit recommend rate
-  if (aioAuditsDb && aioAuditsDb.length) {
-    const rec = aioAuditsDb.filter(a => a.recommended).length;
-    const latestAudit = aioAuditsDb[0] || {};
-    pillars.push({
-      key: 'ai', label: 'AI recommends you', weight: 20, measured: true,
-      score: rec / aioAuditsDb.length * 100,
-      detail: `Recommended in ${rec} of ${aioAuditsDb.length} check${aioAuditsDb.length > 1 ? 's' : ''}`,
-      inputs: { recommended: rec, checks: aioAuditsDb.length },
-      factors: [{ key: 'recommendationRate', label: 'Observed AI recommendation rate', numerator: rec, denominator: aioAuditsDb.length }],
-      sourceUpdatedAt: latestAudit.timestamp || latestAudit.createdAt || latestAudit.date || null,
-    });
-  } else {
-    pillars.push({ key: 'ai', label: 'AI recommends you', weight: 20, measured: false, score: null, detail: 'Run an AI visibility check to measure' });
-  }
-
-  // 4. Get listed (20%) — coverage of the sources AI cites
-  const eligibleCitations = eligibleCitationState(citationsDb);
-  if (eligibleCitations.targets.length) {
-    const st = citationsDb.statuses || {};
-    const total = eligibleCitations.targets.length;
-    const done = eligibleCitations.targets.filter(t => t.listed === true || (st[t.domain] && st[t.domain].status === 'live')).length;
-    pillars.push({
-      key: 'listed', label: 'Get listed', weight: 20, measured: true,
-      score: done / total * 100,
-      detail: `On ${done} of ${total} eligible source${total > 1 ? 's' : ''} AI cites`,
-      inputs: { listed: done, total, excludedCompetitors: eligibleCitations.excludedCompetitorCount },
-      factors: [{ key: 'citationCoverage', label: 'Confirmed live on AI-cited sources', numerator: done, denominator: total }],
-      sourceUpdatedAt: citationsDb.lastScanned || citationsDb.lastRun || null,
-    });
-  } else {
-    pillars.push({ key: 'listed', label: 'Get listed', weight: 20, measured: false, score: null, detail: citationsDb.lastScanned ? 'No eligible listing sources in the latest scan' : 'Scan the sites AI cites to measure' });
-  }
-
-  // 5. Fresh content (15%) — recency + autopilot
-  {
-    const posts = (historyDb || []).filter(h => h.date);
-    if (!posts.length && !autopilotEnabled) {
-      pillars.push({ key: 'fresh', label: 'Fresh content', weight: 15, measured: false, score: null, detail: 'Publish your first post to measure' });
-    } else {
-      let days = Infinity;
-      if (posts.length) days = (Date.now() - new Date(posts[0].date + 'T00:00:00Z').getTime()) / 86400000;
-      let score = posts.length ? hClamp(100 - Math.max(0, days - 7) * (100 / 38), 0, 100) : 20;
-      if (autopilotEnabled) score = hClamp(score + 10, 0, 100);
-      pillars.push({
-        key: 'fresh', label: 'Fresh content', weight: 15, measured: true, score,
-        detail: posts.length ? `Last post ${Math.round(days)}d ago${autopilotEnabled ? ' · autopilot on' : ''}` : 'Autopilot on, no posts yet',
-        inputs: { daysSincePost: Number.isFinite(days) ? Math.round(days * 100) / 100 : null, autopilotEnabled, postCount: posts.length },
-        factors: [
-          { key: 'recency', label: 'Days since latest published post', value: Number.isFinite(days) ? Math.round(days * 100) / 100 : null },
-          { key: 'automation', label: 'Content autopilot enabled', value: autopilotEnabled, effect: 'Up to 10 bonus points' },
-        ],
-        sourceUpdatedAt: posts.length ? (posts[0].publishedAt || `${posts[0].date}T00:00:00.000Z`) : null,
-      });
-    }
-  }
-
-  return scorePillars(pillars);
-}
 
 function scheduleDailyHealthSnapshots() {
   jobDispatcher.scheduleDaily('health.snapshot', 60000, 5);

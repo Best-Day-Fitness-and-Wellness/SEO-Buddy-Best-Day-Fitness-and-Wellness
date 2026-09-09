@@ -243,6 +243,7 @@ so one production replica remains the supported topology.
 | `lib/access-control.js` / `audit-log.js` | Roles, authorization, tamper-evident mutation trail |
 | `lib/configuration-routes.js` | Owner-only settings validation, secret persistence, activation, and storage status |
 | `lib/health-score.js` | Pure, versioned scoring and stabilization |
+| `lib/health-score-service.js` | Five-source score composition for Search Console, local presence, AI recommendations, citations, and content freshness |
 | `lib/performance-history.js` / `performance-history-repository.js` | Daily performance timeline and the existing tenant-file/outbox persistence boundary |
 | `lib/attribution.js` | Deterministic contact source classification |
 | `lib/content-quality.js` | Deterministic article quality and automatic-publish gate |
@@ -358,6 +359,13 @@ so one production replica remains the supported topology.
    state controls, due checks, and the overlapping-run guard keep the existing
    contracts and persistence order. Search measurement remains in the shared
    performance service, and email transport remains in Google delivery.
+
+   Health-score composition now lives in `lib/health-score-service.js`. The
+   five existing measurement pillars, evidence details, data freshness,
+   missing-source behavior, weights, and score bounds are unchanged. The
+   composition root injects current feature state and live Search Console
+   measurement; `lib/health-score.js` remains the pure versioned scoring model
+   and `lib/score-history.js` remains the stabilization and snapshot boundary.
 2. **Feature state is still process-local during a run.** PostgreSQL mode makes
    the database the startup recovery authority, but one production replica is
    still the supported topology. Move mutations to transactional repository
