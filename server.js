@@ -34,6 +34,7 @@ const { buildAutomationStatus, registerAutomationStatusRoute } = require('./lib/
 const { ProviderRuntimeError, createProviderRuntime } = require('./lib/provider-runtime');
 const { assessArticleQuality } = require('./lib/content-quality');
 const { createArticleGenerationService } = require('./lib/article-generation-service');
+const { createArticlePublishingService } = require('./lib/article-publishing-service');
 const { registerOperationsRoutes } = require('./lib/operations-routes');
 const { registerProfileRoutes } = require('./lib/profile-routes');
 const { registerUsageRoutes } = require('./lib/usage-routes');
@@ -1151,10 +1152,6 @@ function sanitizeArticleHtml(value) {
     .replace(/\sstyle\s*=\s*(["'])[^"']*(?:expression\s*\(|url\s*\(|@import|javascript:)[^"']*\1/gi, '');
 }
 
-function jsonForHtml(value) {
-  return JSON.stringify(value, null, 2).replace(/</g, '\\u003c');
-}
-
 // Article generation owns prompt construction, provider output normalization,
 // claim extraction, safety checks, quality scoring, and the explicit mock boundary.
 const articleGenerationService = createArticleGenerationService({
@@ -1172,192 +1169,21 @@ const articleGenerationService = createArticleGenerationService({
   logger: console,
 });
 const generateArticleHelper = articleGenerationService.generate;
-// 2. GoHighLevel Publishing Helper
-async function publishGhlHelper(title, content, status, config = {}) {
-  const locationId = config.locationId || process.env.GHL_LOCATION_ID;
-  const accessToken = config.accessToken || process.env.GHL_ACCESS_TOKEN;
-  const blogId = config.blogId || process.env.GHL_BLOG_ID;
-  const author = config.authorId || process.env.GHL_AUTHOR_ID || 'default-author';
-  const siteUrl = config.siteUrl || process.env.GSC_SITE_URL || 'https://bestdayfitness.com';
-  const blogPrefix = config.blogPrefix || process.env.GHL_BLOG_PATH_PREFIX || '/post';
-  const authorName = config.authorName || process.env.GHL_AUTHOR_NAME || '';
-  const authorUrl = config.authorUrl || process.env.GHL_AUTHOR_URL || '';
-
-  let baseDomain = String(siteUrl || '').trim();
-  if (baseDomain.startsWith('sc-domain:')) {
-    baseDomain = 'https://' + baseDomain.substring(10);
-  }
-  baseDomain = (safeHttpUrl(baseDomain, 'https://bestdayfitness.com') || 'https://bestdayfitness.com').replace(/\/$/, '');
-  
-  const cleanPrefix = blogPrefix.startsWith('/') ? blogPrefix : `/${blogPrefix}`;
-  const formattedPrefix = cleanPrefix.endsWith('/') ? cleanPrefix.slice(0, -1) : cleanPrefix;
-
-  const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
-
-  // 1. Resolve Internal Links
-  let resolvedContent = sanitizeArticleHtml(content);
-  const linkRegex = /\[Link:\s*([^\]]+)\]/gi;
-  resolvedContent = resolvedContent.replace(linkRegex, (match, p1) => {
-    const term = p1.trim().toLowerCase();
-    // Search historyDb
-    const matchedPost = historyDb.find(h => 
-      h.keyword.toLowerCase().includes(term) || 
-      h.title.toLowerCase().includes(term) || 
-      term.includes(h.keyword.toLowerCase())
-    );
-    if (matchedPost) {
-      return `<a href="${escapeHtml(safeHttpUrl(matchedPost.url, `${baseDomain}${formattedPrefix}`))}" class="internal-link" style="color: #1a73e8; text-decoration: underline;">${escapeHtml(p1.trim())}</a>`;
-    }
-    return `<a href="${escapeHtml(baseDomain + formattedPrefix)}" class="internal-link" style="color: #1a73e8; text-decoration: underline;">${escapeHtml(p1.trim())}</a>`;
-  });
-
-  // 2. Extract and Build FAQ Page Schema
-  const faqItems = [];
-  const faqBlockRegex = /(?:<strong>|<b>)Q:\s*([\s\S]*?)(?:<\/strong>|<\/b>)[\s\S]*?<p>(?:A:\s*)?([\s\S]*?)<\/p>/gi;
-  let faqMatch;
-  while ((faqMatch = faqBlockRegex.exec(resolvedContent)) !== null) {
-    if (faqMatch[1] && faqMatch[2]) {
-      faqItems.push({
-        question: faqMatch[1].replace(/<[^>]*>/g, '').trim(),
-        answer: faqMatch[2].replace(/<[^>]*>/g, '').trim()
-      });
-    }
-  }
-
-  let schemaScripts = '';
-  if (faqItems.length > 0) {
-    const faqSchema = {
-      "@context": "https://schema.org",
-      "@type": "FAQPage",
-      "mainEntity": faqItems.map(item => ({
-        "@type": "Question",
-        "name": item.question,
-        "acceptedAnswer": {
-          "@type": "Answer",
-          "text": item.answer
-        }
-      }))
-    };
-    schemaScripts += `\n<script type="application/ld+json">\n${jsonForHtml(faqSchema)}\n</script>`;
-  }
-
-  // 3. Build LocalBusiness Schema (shared builder — real NAP)
-  const localBusinessSchema = buildLocalBusinessSchema(baseDomain);
-  schemaScripts += `\n<script type="application/ld+json">\n${jsonForHtml(localBusinessSchema)}\n</script>`;
-
-  // 4. Build Author Schema and visual box
-  if (authorName) {
-    const authorSchema = {
-      "@context": "https://schema.org",
-      "@type": "BlogPosting",
-      "headline": title,
-      "url": `${baseDomain}${formattedPrefix}/${slug}`,
-      "datePublished": new Date().toISOString(),
-      "author": {
-        "@type": "Person",
-        "name": authorName,
-        "url": authorUrl || undefined
-      },
-      "publisher": {
-        "@type": "Organization",
-        "name": "Best Day Fitness",
-        "logo": {
-          "@type": "ImageObject",
-          "url": `${baseDomain}/assets/logo.png`
-        }
-      }
-    };
-    schemaScripts += `\n<script type="application/ld+json">\n${jsonForHtml(authorSchema)}\n</script>`;
-
-    // Add E-E-A-T trust bio block
-    let authorHtml = `\n<div class="article-author-card" style="margin-top: 40px; padding: 20px; border-top: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.01); border-radius: 8px; display: flex; align-items: center; gap: 15px;">`;
-    authorHtml += `<div class="author-info">`;
-    authorHtml += `<span style="font-size: 11px; text-transform: uppercase; color: #888; letter-spacing: 0.5px; display: block; margin-bottom: 4px;">Published By Expert Coach</span>`;
-    if (authorUrl) {
-      authorHtml += `<a href="${escapeHtml(safeHttpUrl(authorUrl, baseDomain))}" target="_blank" rel="noopener noreferrer" style="font-size: 16px; font-weight: bold; color: #1a73e8; text-decoration: none;">${escapeHtml(authorName)}</a>`;
-    } else {
-      authorHtml += `<strong style="font-size: 16px; font-weight: bold; color: #fff;">${escapeHtml(authorName)}</strong>`;
-    }
-    authorHtml += `<p style="font-size: 13px; color: #aaa; margin: 6px 0 0 0; line-height: 1.4;">Certified longevity, mobility, and functional movement specialist at Best Day Fitness.</p>`;
-    authorHtml += `</div></div>`;
-    resolvedContent += authorHtml;
-  }
-
-  // Reviews backlink — every published article links to the brand's reviews hub
-  // so Google discovers/indexes it (and AI due-diligence can find it). This is
-  // the "link to your reviews site from your own website" step. Configurable per
-  // location via REVIEWS_URL; defaults to Best Day's reviews site.
-  const reviewsUrl = safeHttpUrl(process.env.REVIEWS_URL || 'https://bestdayfitnessreviews.com');
-  if (reviewsUrl) {
-    resolvedContent += `\n<p style="margin-top: 28px; font-size: 15px;">Curious what our clients say? <a href="${escapeHtml(reviewsUrl)}" style="color: #1a73e8; text-decoration: underline;">Read ${escapeHtml(BUSINESS.name)} reviews</a>.</p>`;
-  }
-
-  // Append schemas
-  resolvedContent += schemaScripts;
-
-  if (!accessToken || !locationId || !blogId) {
-    if (!ALLOW_MOCK_INTEGRATIONS) {
-      throw integrationUnavailable(
-        'gohighlevel',
-        'GoHighLevel publishing is not fully configured. GHL_ACCESS_TOKEN, GHL_LOCATION_ID, and GHL_BLOG_ID are required.'
-      );
-    }
-    return {
-      success: true,
-      source: 'mock_ghl',
-      postId: `mock-post-${Date.now()}`,
-      url: `${baseDomain}${formattedPrefix}/${slug}`,
-      content: resolvedContent,
-      message: 'Article saved in mock mode. Setup GHL keys to go live!'
-    };
-  }
-
-  const description = content.replace(/<[^>]*>/g, '').substring(0, 150).trim() + '...';
-
-  const payload = {
-    locationId,
-    blogId,
-    title,
-    description,
-    rawHTML: resolvedContent,
-    status: (status || 'draft').toUpperCase(),
-    categories: [],
-    imageUrl: "",
-    imageAltText: "",
-    urlSlug: slug,
-    publishedAt: new Date().toISOString()
-  };
-
-  if (author && author !== 'default-author') {
-    payload.author = author;
-  }
-
-  const response = await providerRuntime.fetch('gohighlevel', 'https://services.leadconnectorhq.com/blogs/posts', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-      'Version': '2021-04-15',
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(payload)
-  }, { retries: 0 });
-
-  const data = await response.json();
-
-  if (!response.ok) {
-    throw new Error(data.message || `GHL HTTP error! status: ${response.status}`);
-  }
-
-  return {
-    success: true,
-    source: 'live_ghl',
-    postId: data.id || data.postId,
-    url: data.url || `${baseDomain}${formattedPrefix}/${slug}`,
-    content: resolvedContent,
-    message: 'Article successfully published to GoHighLevel!'
-  };
-}
-
+// Publishing enrichment and the GoHighLevel provider request share one service;
+// HTTP validation and publication-history mutation remain in content routes.
+const articlePublishingService = createArticlePublishingService({
+  getHistory: () => historyDb,
+  sanitizeArticleHtml,
+  safeHttpUrl,
+  escapeHtml,
+  buildLocalBusinessSchema,
+  getBusinessName: () => BUSINESS.name,
+  providerRuntime,
+  env: process.env,
+  allowMockIntegrations: ALLOW_MOCK_INTEGRATIONS,
+  integrationUnavailable,
+});
+const publishGhlHelper = articlePublishingService.publish;
 // Translate Google's terse Indexing API errors into an actionable message.
 function explainIndexError(message) {
   const m = String(message || '');

@@ -248,6 +248,7 @@ so one production replica remains the supported topology.
 | `lib/attribution.js` | Deterministic contact source classification |
 | `lib/content-quality.js` | Deterministic article quality and automatic-publish gate |
 | `lib/article-generation-service.js` | Long-form AEO prompt, Gemini normalization, claim extraction, brand checks, quality projection, and explicit mock boundary |
+| `lib/article-publishing-service.js` | Article enrichment, internal links, structured data, trust signals, and GoHighLevel publication adapter |
 | `lib/profile-routes.js` | Brand and business profile HTTP contracts |
 | `lib/usage-routes.js` | AI usage reporting and owner budget HTTP contracts |
 | `lib/gsc-routes.js` | Search Console queries, caching, page opportunities, and safe diagnostics |
@@ -375,6 +376,13 @@ so one production replica remains the supported topology.
    fallback retain their response and failure contracts. HTTP validation,
    automatic-publish gating, publishing, and indexing remain separate existing
    boundaries.
+
+   GoHighLevel article publishing now lives in
+   `lib/article-publishing-service.js`. Internal-link resolution, FAQ,
+   LocalBusiness and author structured data, the author trust card, reviews
+   backlink, provider payload, response fallbacks, server-side credentials,
+   and explicit development mode keep their existing behavior. The HTTP layer
+   still owns input validation and publication-history mutation.
 2. **Feature state is still process-local during a run.** PostgreSQL mode makes
    the database the startup recovery authority, but one production replica is
    still the supported topology. Move mutations to transactional repository
