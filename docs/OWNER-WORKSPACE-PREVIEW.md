@@ -65,7 +65,7 @@ width, row height, primary-action visibility, and keyboard disclosure controls
 in addition to the regular desktop/mobile and dark-mode coverage.
 
 Every destination owns its subtitle and page guidance, so detail pages never
-inherit an explanation from the previously visited page. **Page guide** gives a
+inherit an explanation from the previously visited page. **Help** gives a
 short, page-specific explanation and an entry to a seven-stop visual walkthrough.
 The walkthrough visits and highlights Today, the score, Approvals, tool search,
 Results, Business facts, and connection status on the real pages. It remains

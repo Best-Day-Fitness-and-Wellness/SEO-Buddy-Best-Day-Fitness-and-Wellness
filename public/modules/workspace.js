@@ -450,7 +450,7 @@
   }
 
   function setupWalkthrough() {
-    $('ws-orientation').insertAdjacentHTML('beforeend', `<details id="ws-help" class="ws-help"><summary>Page guide</summary><div class="ws-help-menu"><span class="ws-help-kicker">On this page</span><h2 id="ws-help-title"></h2><p id="ws-help-text"></p><div class="ws-help-tour"><p id="ws-walkthrough-entry-note">New to SEO Buddy?</p><button type="button" class="btn btn-secondary" id="ws-start-walkthrough">Start the walkthrough</button></div><p class="ws-help-safe">Guidance is view-only. Nothing runs until you choose an action.</p></div></details>`);
+    $('ws-orientation').insertAdjacentHTML('beforeend', `<details id="ws-help" class="ws-help"><summary>Help</summary><div class="ws-help-menu"><span class="ws-help-kicker">On this page</span><h2 id="ws-help-title"></h2><p id="ws-help-text"></p><div class="ws-help-tour"><p id="ws-walkthrough-entry-note">New to SEO Buddy?</p><button type="button" class="btn btn-secondary" id="ws-start-walkthrough">Start the walkthrough</button></div><p class="ws-help-safe">Guidance is view-only. Nothing runs until you choose an action.</p></div></details>`);
     walkthroughDialog = document.createElement('dialog');
     walkthroughDialog.id = 'ws-walkthrough';
     walkthroughDialog.className = 'ws-walkthrough';

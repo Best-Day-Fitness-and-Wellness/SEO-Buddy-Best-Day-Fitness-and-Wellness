@@ -662,6 +662,7 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
       assert.equal(await page.locator('#ws-help-title').textContent(), guide);
       assert.ok((await page.locator('#ws-help-text').textContent()).length > 35);
     }
+    assert.equal((await page.locator('#ws-help summary').textContent()).trim(), 'Help');
     await page.locator('#ws-help summary').click();
     assert.equal(await page.locator('.ws-help-menu').count(), 1);
     assert.match(await page.locator('.ws-help-menu').innerText(), /Guidance is view-only/);
