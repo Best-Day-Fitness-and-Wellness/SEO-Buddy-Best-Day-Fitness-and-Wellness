@@ -831,12 +831,14 @@ test('AI audit routes preserve status, concurrency, budget, and error contracts'
     get(path, ...handlers) { routes.set(`GET ${path}`, handlers.at(-1)); },
     post(path, ...handlers) { routes.set(`POST ${path}`, handlers.at(-1)); },
   };
-  const factState = { running: false };
-  const crawlerState = { running: false };
   let overBudget = false;
   let factResult = { snapshot: { claims: 3 } };
   let factSawRunning = false;
   let crawlerSawRunning = false;
+  let holdFact = false;
+  let releaseFact;
+  let announceFactStart;
+  const factStarted = new Promise(resolve => { announceFactStart = resolve; });
   const errors = [];
 
   registerAiAuditRoutes(app, {
@@ -847,10 +849,15 @@ test('AI audit routes preserve status, concurrency, budget, and error contracts'
     audits: [
       {
         path: '/api/ai-factcheck',
-        state: factState,
-        status: () => ({ latest: { claims: 2 }, running: factState.running, engines: ['gemini'] }),
+        status: () => ({ latest: { claims: 2 }, engines: ['gemini'] }),
         run: async () => {
-          factSawRunning = factState.running;
+          const inFlight = response();
+          routes.get('GET /api/ai-factcheck')({}, inFlight);
+          factSawRunning = inFlight.body.running;
+          if (holdFact) {
+            announceFactStart();
+            return new Promise(resolve => { releaseFact = () => resolve(factResult); });
+          }
           if (factResult instanceof Error) throw factResult;
           return factResult;
         },
@@ -860,10 +867,11 @@ test('AI audit routes preserve status, concurrency, budget, and error contracts'
       },
       {
         path: '/api/ai-crawlers',
-        state: crawlerState,
-        status: () => ({ latest: null, running: crawlerState.running, site: 'example.com' }),
+        status: () => ({ latest: null, site: 'example.com' }),
         run: async () => {
-          crawlerSawRunning = crawlerState.running;
+          const inFlight = response();
+          routes.get('GET /api/ai-crawlers')({}, inFlight);
+          crawlerSawRunning = inFlight.body.running;
           return { snapshot: { allowed: true } };
         },
         logLabel: 'AI Crawlers',
@@ -884,11 +892,17 @@ test('AI audit routes preserve status, concurrency, budget, and error contracts'
   routes.get('GET /api/ai-factcheck')({}, status);
   assert.deepEqual(status.body, { latest: { claims: 2 }, running: false, engines: ['gemini'] });
 
-  factState.running = true;
+  holdFact = true;
+  const firstResponse = response();
+  const firstRun = routes.get('POST /api/ai-factcheck/run')({}, firstResponse);
+  await factStarted;
   const busy = response();
   await routes.get('POST /api/ai-factcheck/run')({}, busy);
   assert.deepEqual(busy.body, { success: true, busy: true });
-  factState.running = false;
+  releaseFact();
+  await firstRun;
+  holdFact = false;
+  assert.deepEqual(firstResponse.body, { success: true, snapshot: { claims: 3 } });
 
   overBudget = true;
   const blocked = response();
@@ -900,21 +914,25 @@ test('AI audit routes preserve status, concurrency, budget, and error contracts'
   await routes.get('POST /api/ai-crawlers/run')({}, crawler);
   assert.deepEqual(crawler.body, { success: true, snapshot: { allowed: true } });
   assert.equal(crawlerSawRunning, true);
-  assert.equal(crawlerState.running, false);
+  const crawlerStatus = response();
+  routes.get('GET /api/ai-crawlers')({}, crawlerStatus);
+  assert.equal(crawlerStatus.body.running, false);
 
   overBudget = false;
   const succeeded = response();
   await routes.get('POST /api/ai-factcheck/run')({}, succeeded);
   assert.deepEqual(succeeded.body, { success: true, snapshot: { claims: 3 } });
   assert.equal(factSawRunning, true);
-  assert.equal(factState.running, false);
+  routes.get('GET /api/ai-factcheck')({}, status);
+  assert.equal(status.body.running, false);
 
   factResult = { error: 'provider rejected request' };
   const rejected = response();
   await routes.get('POST /api/ai-factcheck/run')({}, rejected);
   assert.equal(rejected.statusCode, 400);
   assert.deepEqual(rejected.body, { success: false, error: 'provider rejected request' });
-  assert.equal(factState.running, false);
+  routes.get('GET /api/ai-factcheck')({}, status);
+  assert.equal(status.body.running, false);
 
   factResult = new Error('provider unavailable');
   const failed = response();
@@ -925,7 +943,8 @@ test('AI audit routes preserve status, concurrency, budget, and error contracts'
     error: 'FactCheck could not be completed because Gemini is temporarily unavailable. Your saved data was not changed; try again.',
   });
   assert.deepEqual(errors, [['[FactCheck run] failed:', 'PROVIDER_UNAVAILABLE']]);
-  assert.equal(factState.running, false);
+  routes.get('GET /api/ai-factcheck')({}, status);
+  assert.equal(status.body.running, false);
 });
 
 test('scheduled feature routes preserve nudge, toggle, availability, run, and seen contracts', () => {

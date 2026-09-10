@@ -338,8 +338,9 @@ so one production replica remains the supported topology.
    Grounded Reddit opportunity discovery, result shaping, exact-URL
    deduplication, bounds, and persistence now live in
    `lib/reddit-discovery-service.js`. The shared AI-audit route retains budget,
-   authentication, and overlapping-run controls without changing the response
-   or stored snapshot.
+   authentication, independently scoped overlapping-run controls, and truthful
+   running-status projection without composition-root flags or changes to the
+   response and stored snapshot contracts.
 
    The assistant's read-only live-data assembly now lives in
    `lib/assistant-context.js`. It composes the current dashboard calculation and

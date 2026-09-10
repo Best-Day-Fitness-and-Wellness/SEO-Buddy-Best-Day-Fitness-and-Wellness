@@ -1047,7 +1047,6 @@ if (fs.existsSync(FACTCHECK_FILE)) {
   try { const l = JSON.parse(fs.readFileSync(FACTCHECK_FILE, 'utf8')); if (l && typeof l === 'object') factCheckDb = { latest: l.latest || null, updatedAt: l.updatedAt || null }; }
   catch (e) { /* keep default */ }
 } else { try { writeJsonFileSync(FACTCHECK_FILE, factCheckDb); } catch (e) {} }
-let factCheckRunning = false;
 function saveFactCheck() { saveJsonFileSync(FACTCHECK_FILE, factCheckDb, 'FactCheck'); }
 
 const aiFactCheckService = createAiFactCheckService({
@@ -1077,7 +1076,6 @@ let crawlersDb = { latest: null, updatedAt: null };
 if (fs.existsSync(AI_CRAWLERS_FILE)) {
   try { const l = JSON.parse(fs.readFileSync(AI_CRAWLERS_FILE, 'utf8')); if (l && typeof l === 'object') crawlersDb = { latest: l.latest || null, updatedAt: l.updatedAt || null }; } catch (e) {}
 } else { try { writeJsonFileSync(AI_CRAWLERS_FILE, crawlersDb); } catch (e) {} }
-let crawlersRunning = false;
 function saveCrawlers() { saveJsonFileSync(AI_CRAWLERS_FILE, crawlersDb, 'AI Crawlers'); }
 
 const aiCrawlerService = createAiCrawlerService({
@@ -1098,7 +1096,6 @@ let redditDb = { latest: null, updatedAt: null };
 if (fs.existsSync(REDDIT_FILE)) {
   try { const l = JSON.parse(fs.readFileSync(REDDIT_FILE, 'utf8')); if (l && typeof l === 'object') redditDb = { latest: l.latest || null, updatedAt: l.updatedAt || null }; } catch (e) {}
 } else { try { writeJsonFileSync(REDDIT_FILE, redditDb); } catch (e) {} }
-let redditRunning = false;
 function saveReddit() { saveJsonFileSync(REDDIT_FILE, redditDb, 'Reddit'); }
 
 const redditDiscoveryService = createRedditDiscoveryService({
@@ -1122,16 +1119,11 @@ registerAiAuditRoutes(app, {
   audits: [
     {
       path: '/api/ai-factcheck',
-      state: {
-        get running() { return factCheckRunning; },
-        set running(value) { factCheckRunning = value; },
-      },
       status: () => ({
         latest: factCheckDb.latest,
         updatedAt: factCheckDb.updatedAt,
         engines: enginesStatus(),
         anyConfigured: AI_ENGINES.some(engine => engineConfigured(engine.id)),
-        running: factCheckRunning,
       }),
       run: runFactCheck,
       useBudget: true,
@@ -1140,14 +1132,9 @@ registerAiAuditRoutes(app, {
     },
     {
       path: '/api/ai-crawlers',
-      state: {
-        get running() { return crawlersRunning; },
-        set running(value) { crawlersRunning = value; },
-      },
       status: () => ({
         latest: crawlersDb.latest,
         updatedAt: crawlersDb.updatedAt,
-        running: crawlersRunning,
         site: siteDomain(),
       }),
       run: runCrawlerAudit,
@@ -1155,14 +1142,9 @@ registerAiAuditRoutes(app, {
     },
     {
       path: '/api/reddit-threads',
-      state: {
-        get running() { return redditRunning; },
-        set running(value) { redditRunning = value; },
-      },
       status: () => ({
         latest: redditDb.latest,
         updatedAt: redditDb.updatedAt,
-        running: redditRunning,
         anyConfigured: !!process.env.GEMINI_API_KEY,
       }),
       run: runRedditScan,
