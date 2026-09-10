@@ -436,6 +436,22 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
     assert.deepEqual(writes.slice(before).filter(write => write.path !== '/api/performance-digest/seen'), []);
   });
 
+  await journey(`${prefix}: long owner pages provide safe in-page navigation`, async () => {
+    const before = writes.length;
+    await load('settings', '?section-navigation=1');
+    const nav = page.locator('#ws-section-nav');
+    await nav.waitFor();
+    assert.equal(await nav.isVisible(), true);
+    assert.equal(await nav.getByRole('button').count(), 5);
+    assert.match(await nav.innerText(), /Connection status/);
+    assert.match(await nav.innerText(), /Credentials and APIs/);
+    await nav.getByRole('button', { name: 'Credentials and APIs' }).click();
+    await page.waitForFunction(() => document.getElementById('ws-connections').open && document.activeElement?.id === 'settings-connections-heading');
+    assert.equal(await page.locator('#settings-connections-heading').isVisible(), true);
+    assert.equal(await nav.getByRole('button', { name: 'Credentials and APIs' }).getAttribute('aria-current'), 'location');
+    assert.deepEqual(writes.slice(before).filter(write => write.path !== '/api/performance-digest/seen'), []);
+  });
+
   await journey(`${prefix}: Tools remembers the last three destinations in this browser`, async () => {
     const before = writes.length;
     await load('tools/local', '?recent-tools=1');

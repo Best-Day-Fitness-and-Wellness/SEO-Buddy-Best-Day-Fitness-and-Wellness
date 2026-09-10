@@ -112,6 +112,33 @@
       $('ws-advanced-label').hidden = !meta.advanced;
       $('ws-advanced-label').textContent = meta.advanced ? 'Advanced · optional' : '';
     }
+    updateSectionNav(tab);
+  }
+
+  function updateSectionNav(tab) {
+    const host = $('ws-section-nav');
+    const page = $(tab);
+    if (!host || !page) return;
+    const sections = [...page.querySelectorAll('[data-ws-section]')]
+      .filter(section => section.id && section.dataset.wsSection)
+      .slice(0, 6);
+    host.hidden = sections.length < 2;
+    host.innerHTML = sections.length < 2 ? '' : `<span>On this page</span><div>${sections.map(section => `<button type="button" data-ws-section-target="${esc(section.id)}">${esc(section.dataset.wsSection)}</button>`).join('')}</div>`;
+  }
+
+  function goToSection(id, button) {
+    const target = $(id);
+    if (!target || !target.closest('.tab-content.active')) return;
+    const disclosure = target.matches('details') ? target : target.closest('details');
+    if (disclosure) disclosure.open = true;
+    document.querySelectorAll('#ws-section-nav button').forEach(item => item.removeAttribute('aria-current'));
+    button?.setAttribute('aria-current', 'location');
+    const heading = target.matches('h1,h2,h3,[role="heading"],summary')
+      ? target : target.querySelector('h1,h2,h3,[role="heading"],summary');
+    const focusTarget = heading || target;
+    if (!focusTarget.hasAttribute('tabindex')) focusTarget.setAttribute('tabindex', '-1');
+    target.scrollIntoView({ behavior: global.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
+    global.setTimeout(() => focusTarget.focus({ preventScroll: true }), 200);
   }
 
   function recentTools() {
@@ -601,7 +628,7 @@
     const bar = $('ws-orientation');
     bar.insertAdjacentHTML('afterbegin', '<button type="button" id="ws-back" class="btn btn-secondary">← Back</button><nav id="ws-location" aria-label="Your location"></nav><span id="ws-advanced-label" class="ws-advanced-label" hidden></span>');
     const journey = document.createElement('section'); journey.id = 'ws-journey'; journey.className = 'ws-journey'; journey.setAttribute('aria-label', 'Content workspace'); bar.after(journey);
-    journey.insertAdjacentHTML('afterend', `<section id="ws-page-trust" class="ws-page-trust" aria-label="How to read this page" hidden><div><span>What SEO Buddy checks</span><strong id="ws-trust-check"></strong></div><div><span>When it was checked</span><strong>Dates appear wherever a check or saved record exists.</strong></div><div><span>What it found</span><strong>The measured result, draft state, or unavailable status stays visible below.</strong></div><div><span>What to do next</span><strong id="ws-trust-next"></strong></div></section>`);
+    journey.insertAdjacentHTML('afterend', `<section id="ws-page-trust" class="ws-page-trust" aria-label="How to read this page" hidden><div><span>What SEO Buddy checks</span><strong id="ws-trust-check"></strong></div><div><span>When it was checked</span><strong>Dates appear wherever a check or saved record exists.</strong></div><div><span>What it found</span><strong>The measured result, draft state, or unavailable status stays visible below.</strong></div><div><span>What to do next</span><strong id="ws-trust-next"></strong></div></section><nav id="ws-section-nav" class="ws-section-nav" aria-label="On this page" hidden></nav>`);
     document.querySelectorAll('.tab-content').forEach(tab => tab.classList.add('ws-normalized-page'));
     // Keep the same form and controls; tuck occasional technical settings
     // behind a native, keyboard-accessible disclosure without changing saves.
@@ -620,6 +647,10 @@
     $('ws-tool-search').addEventListener('input', filterTools);
     $('ws-tool-clear').addEventListener('click', clearToolSearch);
     $('ws-tool-empty-clear')?.addEventListener('click', clearToolSearch);
+    $('ws-section-nav').addEventListener('click', event => {
+      const target = event.target.closest('[data-ws-section-target]');
+      if (target) goToSection(target.dataset.wsSectionTarget, target);
+    });
     $('ws-tool-search').addEventListener('keydown', event => {
       if (event.key !== 'Escape' || !$('ws-tool-search').value) return;
       event.preventDefault();
@@ -650,7 +681,7 @@
       } catch (error) { showToast(error.message); target.disabled = false; }
     });
     // Summary-level destinations link to detail without changing the navigation.
-    $('owner-results-tab').insertAdjacentHTML('afterbegin', `<section class="ws-report-entry" aria-label="Reports and email delivery"><div><h2>Reports &amp; email delivery</h2><p>Download your progress report or manage the monthly owner email.</p></div>${button('performance-tab', 'Open reports & email')}</section>`);
+    $('owner-results-tab').insertAdjacentHTML('afterbegin', `<section class="ws-report-entry" id="ow-reports-entry" aria-label="Reports and email delivery"><div><h2>Reports &amp; email delivery</h2><p>Download your progress report or manage the monthly owner email.</p></div>${button('performance-tab', 'Open reports & email')}</section>`);
     $('owner-results-tab').insertAdjacentHTML('beforeend', `<div class="ws-result-links">${button('summary-tab', 'Advanced dashboard')}</div>`);
     $('owner-business-tab').insertAdjacentHTML('afterbegin', `<div class="ws-result-links"><button class="btn btn-secondary" type="button" id="ws-edit-business">Edit business details</button>${button('brand-tab', 'Edit brand voice')}<button class="btn btn-secondary" type="button" data-settings-section="connections">Manage connections</button></div>`);
     $('ws-edit-business').addEventListener('click', () => global.openSetupWizard());

@@ -3415,6 +3415,41 @@ body.dark.workspace-preview .ws-report-entry { border-color: var(--line); border
 }
 .ws-page-trust strong { color: var(--text-main); font-size: 11px; font-weight: 600; line-height: 1.45; }
 
+.ws-section-nav {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: -10px 0 24px;
+  padding: 10px 0 0;
+}
+.ws-section-nav[hidden] { display: none; }
+.ws-section-nav > span {
+  flex: none;
+  color: var(--text-muted);
+  font-size: 9px;
+  font-weight: 750;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+}
+.ws-section-nav > div { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.ws-section-nav button {
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 650;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ws-section-nav button:hover,
+.ws-section-nav button[aria-current="location"] { border-color: var(--line); background: var(--surface); color: var(--text-main); }
+.ws-section-nav button:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
+[data-ws-section] { scroll-margin-top: 20px; }
+
 .ws-recent-tools { margin: 0 0 24px; padding: 18px 20px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
 .ws-recent-tools[hidden] { display: none; }
 .ws-recent-head { display: flex; align-items: end; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
@@ -3470,6 +3505,10 @@ body.dark.workspace-preview .ws-report-entry { border-color: var(--line); border
   .ws-page-trust { display: block; margin-bottom: 18px; }
   .ws-page-trust > div { padding: 11px 13px; border-right: 0; border-bottom: 1px solid var(--line-2); }
   .ws-page-trust > div:last-child { border-bottom: 0; }
+  .ws-section-nav { display: block; margin-top: -8px; overflow: hidden; }
+  .ws-section-nav[hidden] { display: none; }
+  .ws-section-nav > span { display: block; margin: 0 0 7px 2px; }
+  .ws-section-nav > div { overflow-x: auto; padding: 0 2px 5px; scrollbar-width: thin; }
   .ws-recent-head { align-items: flex-start; }
   .ws-recent-head > span { display: none; }
   .ws-recent-list { grid-template-columns: 1fr; }

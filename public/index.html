@@ -158,7 +158,7 @@
           </div>
         </div>
 
-        <div class="content-card pd-card" id="pd-card" style="display:none;">
+        <div class="content-card pd-card" id="pd-card" data-ws-section="Report delivery" style="display:none;">
           <div class="pd-head">
             <div>
               <h3 class="perf-title">Weekly Digest</h3>
@@ -195,7 +195,7 @@
           <div class="sum-ap-grid" id="sum-ap-grid"></div>
         </div>
 
-        <div class="perf-kpis">
+        <div class="perf-kpis" id="perf-overview" data-ws-section="Performance overview">
           <div class="sb-metric p1">
             <div class="sb-top"><span class="sb-pill p1">Found on Google</span><span class="sb-when">28 days</span></div>
             <div class="sb-val"><span id="perf-impr">&mdash;</span><u>impressions</u></div>
@@ -236,7 +236,7 @@
           </div>
         </div>
 
-        <div class="perf-panels">
+        <div class="perf-panels" id="perf-trends" data-ws-section="Trends and changes">
           <div class="content-card">
             <h3 class="perf-title">Biggest movers</h3>
             <p class="perf-hint">Keywords whose Google rank changed most vs the previous period.</p>
@@ -640,7 +640,7 @@
       <!-- TAB 4: AI SEARCH AUDIT -->
       <section class="tab-content" id="aio-tab">
 
-        <div class="tool-group"><b>Where you stand</b><span>how often AI names you, across engines</span><i></i></div>
+        <div class="tool-group" id="av-standing" data-ws-section="Where you stand"><b>Where you stand</b><span>how often AI names you, across engines</span><i></i></div>
         <div class="av-toolbar">
           <div class="av-engines" id="av-engines"></div>
           <div class="av-toolbar-right">
@@ -692,7 +692,7 @@
           </div>
         </div>
 
-        <div class="tool-group"><b>Checks you can run</b><span>each takes about a minute</span><i></i></div>
+        <div class="tool-group" id="av-checks" data-ws-section="Checks you can run"><b>Checks you can run</b><span>each takes about a minute</span><i></i></div>
         <div class="content-card fc-card" id="fc-card">
           <div class="fc-head">
             <div>
@@ -737,7 +737,7 @@
 
         <div class="av-divider">Spot-check a single search</div>
 
-        <div class="tool-group"><b>Deep tools</b><span>for one page or one search at a time</span><i></i></div>
+        <div class="tool-group" id="av-deep-tools" data-ws-section="Deep tools"><b>Deep tools</b><span>for one page or one search at a time</span><i></i></div>
         <div class="grid-2-col">
           <!-- Left Column: Auditor -->
           <div class="content-card">
@@ -829,7 +829,7 @@
         </div>
 
         <!-- History Row -->
-        <div class="tool-group"><b>History</b><span>every audit you have run</span><i></i></div>
+        <div class="tool-group" id="av-history" data-ws-section="History"><b>History</b><span>every audit you have run</span><i></i></div>
         <div class="content-card mt-4">
           <h2>AI Recommendation History Audit Log</h2>
           <div class="table-responsive">
@@ -896,7 +896,7 @@
       <section class="tab-content" id="local-tab">
 
         <!-- 1. The measurement. One number, one verdict, one primary action. -->
-        <div class="sb-metric p2" id="la-card">
+        <div class="sb-metric p2" id="la-card" data-ws-section="Current listing status">
           <div class="sb-top">
             <span class="sb-pill p2">Local listings</span>
             <span id="la-nap-badge"></span>
@@ -912,7 +912,7 @@
 
         <!-- 2. Everything automatic, collapsed into one feed. No buttons —
              none of it needs the owner. -->
-        <div class="sb-eyebrow">Running on its own
+        <div class="sb-eyebrow" id="la-running-heading" data-ws-section="Running on its own">Running on its own
           <span class="n" id="la-run-note"></span>
         </div>
         <div class="sb-feed">
@@ -948,7 +948,7 @@
 
         <!-- 3. The writers. Secondary actions — you come here when you want
              something written, not as part of the daily loop. -->
-        <div class="sb-eyebrow">Write something <span class="n">we draft it, you post it</span></div>
+        <div class="sb-eyebrow" id="la-write-heading" data-ws-section="Write something">Write something <span class="n">we draft it, you post it</span></div>
 
         <div class="lr-grid">
           <div class="content-card">
@@ -1019,7 +1019,7 @@
         </div>
 
         <!-- 4. The checklist. Count in the heading, sentence case, one row each. -->
-        <div class="sb-eyebrow">Your local checklist <span class="n" id="lr-score-label">0 of 0 complete</span></div>
+        <div class="sb-eyebrow" id="la-checklist-heading" data-ws-section="Local checklist">Your local checklist <span class="n" id="lr-score-label">0 of 0 complete</span></div>
         <div id="lr-checklist" class="sb-check"></div>
         <div class="lr-score-bar" style="margin-top:12px;"><div class="lr-score-fill" id="lr-score-fill" style="width:0%"></div></div>
         <div class="lr-muted" style="margin-top:8px;">Saved in this browser. <span id="lr-score">0%</span> complete.</div>
@@ -1028,7 +1028,7 @@
 
       <!-- TAB: ON-SITE SEO -->
       <section class="tab-content" id="onsite-tab">
-        <div class="tool-group"><b>Running on its own</b><span>no action needed unless a card says so</span><i></i></div>
+        <div class="tool-group" id="oa-running" data-ws-section="Running on its own"><b>Running on its own</b><span>no action needed unless a card says so</span><i></i></div>
         <!-- On-Site SEO Autopilot -->
         <div class="content-card oa-card" id="oa-card">
           <div class="oa-head">
@@ -1059,7 +1059,7 @@
           </div>
         </div>
 
-        <div class="tool-group"><b>Find opportunities</b><span>what to write about next</span><i></i></div>
+        <div class="tool-group" id="oa-opportunities" data-ws-section="Find opportunities"><b>Find opportunities</b><span>what to write about next</span><i></i></div>
         <div class="content-card">
           <h2>Keyword &amp; Topic Ideas</h2>
           <p class="text-muted mb-4">Find NEW opportunities beyond what you already rank for. Enter a seed keyword and get topic clusters, the questions people ask, and content ideas. Uses live Google Search.</p>
@@ -1073,7 +1073,7 @@
           <div id="os-keywords-out"></div>
         </div>
 
-        <div class="tool-group"><b>Fix your pages</b><span>titles, links and business details</span><i></i></div>
+        <div class="tool-group" id="oa-fixes" data-ws-section="Fix your pages"><b>Fix your pages</b><span>titles, links and business details</span><i></i></div>
         <div class="content-card">
           <h2>Will AI quote this page?</h2>
           <p class="text-muted mb-4">Paste one of your page URLs and SEO Buddy scores it against the 7-point checklist AI answer engines (ChatGPT, Perplexity, Google AI Overviews) use to decide what to quote &mdash; then tells you exactly what to fix. Uses your Gemini key.</p>
@@ -1261,12 +1261,12 @@
           <div class="ow-tiles" id="ow-find"></div>
           <div id="ow-find-note"></div>
         </section>
-        <div class="ow-h">Your reviews</div>
+        <div class="ow-h" id="ow-reviews-heading">Your reviews</div>
         <div class="ow-tiles" id="ow-rev"></div>
         <div id="ow-rev-note"></div>
         <div class="ow-note"><b>These are the reviews published on your reviews website.</b>
           <p>Not your total Google count — we can't read that without Business Profile access. When that's connected this will show both, labelled separately.</p></div>
-        <div class="ow-h">What it's worth</div>
+        <div class="ow-h" id="ow-worth-heading">What it's worth</div>
         <div class="ow-tiles" id="ow-worth"></div>
         <div class="ow-note"><b>Estimates, not invoices.</b>
           <p>Built from your value and conversion assumptions in Settings. Changing these does not change your measured optimization score.</p>
@@ -1274,13 +1274,13 @@
       </section>
 
       <section class="tab-content" id="owner-business-tab">
-        <div class="ow-h">The basics</div>
+        <div class="ow-h" id="ow-basics-heading" data-ws-section="The basics">The basics</div>
         <div class="ow-grid" id="ow-basics"></div>
-        <div class="ow-h">How we sound when we write for you</div>
+        <div class="ow-h" id="ow-voice-heading" data-ws-section="Brand voice">How we sound when we write for you</div>
         <div class="content-card" id="ow-voice"></div>
-        <div class="ow-h">Connected accounts</div>
+        <div class="ow-h" id="ow-connections-heading" data-ws-section="Connected accounts">Connected accounts</div>
         <div class="content-card" style="padding:0" id="ow-conn"></div>
-        <details class="content-card ow-tool-guide" id="ow-tool-guide">
+        <details class="content-card ow-tool-guide" id="ow-tool-guide" data-ws-section="What SEO Buddy can do">
           <summary>What SEO Buddy can help with</summary>
           <p>Open a tool to review its status and controls. Opening it does not publish, send, or enable anything.</p>
           <ul>
@@ -1295,7 +1295,7 @@
       </section>
 
       <section class="tab-content" id="settings-tab">
-        <div class="content-card max-width-md" id="settings-connection-overview" aria-labelledby="settings-overview-title">
+        <div class="content-card max-width-md" id="settings-connection-overview" data-ws-section="Connection status" aria-labelledby="settings-overview-title">
           <div class="settings-overview-header"><h2 id="settings-overview-title">Your connections</h2><button class="btn btn-secondary btn-xs" type="button" id="settings-refresh-connections">Refresh status</button></div>
           <p class="text-muted">See what is set up and jump straight to its controls. Configured does not mean a live connection test has passed.</p>
           <div id="settings-connection-list"></div>
@@ -1320,11 +1320,11 @@
             </div>
           </details>
         </div>
-        <div class="content-card max-width-md" id="storage-status-card" style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+        <div class="content-card max-width-md" id="storage-status-card" data-ws-section="Data storage" style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
           <div id="storage-badge" style="display:inline-flex;align-items:center;gap:8px;padding:8px 14px;border-radius:999px;font-weight:600;font-size:13px;background:rgba(148,163,184,.12);color:var(--text-muted);border:1px solid var(--border-color);"><span id="storage-dot" style="width:9px;height:9px;border-radius:50%;background:var(--text-muted);display:inline-block;"></span><span id="storage-label">Checking storage…</span></div>
           <div style="flex:1;min-width:220px;"><div style="font-weight:600;color:var(--text-main);">Data storage</div><div class="text-muted" style="font-size:12px;" id="storage-help">Whether your history survives a redeploy.</div></div>
         </div>
-        <div class="content-card max-width-md" id="usage-card">
+        <div class="content-card max-width-md" id="usage-card" data-ws-section="AI usage and budget">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">
             <div><h2 style="margin-bottom:2px;">Usage this month</h2><p class="text-muted" style="margin:0;">Estimated AI spend for <span id="usage-month">this month</span>. A rough estimate to keep an eye on cost &mdash; not a bill.</p></div>
             <div style="text-align:right;"><div style="font-family:var(--font-heading);font-size:2rem;font-weight:800;color:var(--text-main);line-height:1;" id="usage-cost">$0.00</div><div class="text-muted" style="font-size:11px;">estimated</div></div>
@@ -1361,7 +1361,7 @@
               <small class="text-muted">If the server is locked (public deployment), enter the same password here to authorise publishing, listing pages with Google, saving settings and writing content. Stored only in this browser.</small>
             </div>
 
-            <div class="settings-section-title" id="settings-value-heading" role="heading" aria-level="3" tabindex="-1">Business value assumptions</div>
+            <div class="settings-section-title" id="settings-value-heading" data-ws-section="Value assumptions" role="heading" aria-level="3" tabindex="-1">Business value assumptions</div>
             <p class="text-muted" style="font-size:var(--font-xs);margin:-4px 0 12px;">Used for estimates in Results and the Advanced dashboard, not your measured optimization score. These are the same three numbers available in business setup.</p>
             <div class="form-row">
               <div class="form-group col">
@@ -1381,7 +1381,7 @@
               <small class="text-muted">Of the searches where you currently get no clicks, roughly what share you'd win as visits if you ranked well. A conservative 3&ndash;8% is realistic.</small>
             </div>
 
-            <div class="settings-section-title" id="settings-connections-heading" role="heading" aria-level="3" tabindex="-1">Generative AI API</div>
+            <div class="settings-section-title" id="settings-connections-heading" data-ws-section="Credentials and APIs" role="heading" aria-level="3" tabindex="-1">Generative AI API</div>
             <div class="form-group">
               <label for="settings-gemini-key">Google Gemini key</label>
               <input type="password" id="settings-gemini-key" class="form-input" placeholder="Leave blank to keep the current key" autocomplete="new-password" spellcheck="false">

@@ -9,9 +9,11 @@ Tools, Business, Settings, and every detail tool.
 2. Orientation row: Back, breadcrumb, optional advanced label, and Help.
 3. Trust strip on detail pages: what is checked, when it was checked, what was
    found, and what the owner should do next.
-4. One dominant section: the first primary card or task area gets the strongest
+4. Compact “On this page” navigation when a view contains several distinct
+   owner tasks. These links move within the page and never run a tool.
+5. One dominant section: the first primary card or task area gets the strongest
    accent. Supporting sections use borders and whitespace instead of shadows.
-5. Evidence beside results: dates, unavailable states, and “Where did this
+6. Evidence beside results: dates, unavailable states, and “Where did this
    number come from?” disclosures stay next to the metric they explain.
 
 ## Visual rules
