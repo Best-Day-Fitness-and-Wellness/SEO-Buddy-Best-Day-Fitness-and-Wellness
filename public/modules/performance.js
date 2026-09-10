@@ -272,12 +272,12 @@
 
       const aio = d.aioTrend || [];
       $('perf-aio-chart').innerHTML = aio.length
-        ? perfLineChart(aio.map(p => ({ label: p.date.slice(5), value: p.rate })), { min: 0, max: 100, color: 'var(--color-secondary)' }) + `<div class="perf-kpi-note" style="text-align:right;">latest: ${aio[aio.length - 1].rate}% recommended</div>`
+        ? perfLineChart(aio.map(p => ({ label: p.date.slice(5), value: p.rate })), { min: 0, max: 100, color: 'var(--graphic-teal)' }) + `<div class="ws-chart-legend"><span><i style="--legend-color:var(--graphic-teal)"></i>AI recommendation rate</span><strong>Latest: ${aio[aio.length - 1].rate}%</strong></div>`
         : '<div class="perf-empty">Run AI Search Audits over time to build this trend.</div>';
 
       const snaps = d.snapshots || [];
       if (snaps.length >= 2) {
-        $('perf-snap-chart').innerHTML = perfLineChart(snaps.map(s => ({ label: s.date.slice(5), value: s.impressions })), { color: 'var(--color-primary)' }) + `<div class="perf-kpi-note" style="text-align:right;">${snaps.length} days recorded · impressions/day</div>`;
+        $('perf-snap-chart').innerHTML = perfLineChart(snaps.map(s => ({ label: s.date.slice(5), value: s.impressions })), { color: 'var(--brand-navy)' }) + `<div class="ws-chart-legend"><span><i style="--legend-color:var(--brand-navy)"></i>Google appearances per day</span><strong>${snaps.length} days recorded</strong></div>`;
       } else if (snaps.length === 1) {
         $('perf-snap-chart').innerHTML = `<div class="perf-empty">First snapshot captured (${snaps[0].date}). The trend line appears once there are at least two days of data — check back tomorrow.</div>`;
       } else {

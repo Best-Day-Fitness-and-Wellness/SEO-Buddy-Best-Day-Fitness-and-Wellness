@@ -78,6 +78,15 @@
   --font-xl: 1.25rem;
   --font-2xl: 1.5rem;
   --font-3xl: 1.875rem;
+
+  /* Calm dashboard rhythm: shared by every owner-facing page and control. */
+  --space-1: 0.5rem;
+  --space-2: 0.75rem;
+  --space-3: 1rem;
+  --space-4: 1.5rem;
+  --space-5: 2rem;
+  --page-width: 1120px;
+  --control-height: 42px;
   
   /* Shadow & Transitions — one soft shadow, no glow */
   --shadow-sm: 0 1px 2px rgba(17, 31, 50, 0.05);
@@ -3296,3 +3305,174 @@ body.ws-walkthrough-open::after { content:''; display:block; height:100vh; }
   .ws-empty-state .btn { width:100%; }
 }
 @media(prefers-reduced-motion:reduce) { .ws-help > summary::after { transition:none; } }
+
+/* --------------------------------------------------------------------------
+   CALM OPERATING DASHBOARD — shared production page system
+
+   These rules deliberately normalize the existing feature views instead of
+   rebuilding their controls. Product behavior and data wiring stay unchanged.
+   -------------------------------------------------------------------------- */
+body.workspace-preview .main-content {
+  max-width: calc(var(--page-width) + 96px);
+  padding: 32px 48px 140px;
+}
+body.workspace-preview .app-header,
+body.workspace-preview .ws-orientation,
+body.workspace-preview #ws-journey,
+body.workspace-preview #ws-page-trust,
+body.workspace-preview .tab-content {
+  width: 100%;
+  max-width: var(--page-width);
+  margin-inline: auto;
+}
+body.workspace-preview .app-header { margin-bottom: 20px; }
+body.workspace-preview .header-title-section h1 {
+  margin: 0 0 4px;
+  font-size: 26px;
+  line-height: 1.16;
+  letter-spacing: -.035em;
+}
+body.workspace-preview #page-subtitle { max-width: 66ch; font-size: 14px; line-height: 1.5; }
+body.workspace-preview .ws-normalized-page h2 { font-size: 20px; line-height: 1.3; letter-spacing: -.025em; }
+body.workspace-preview .ws-normalized-page h3 { font-size: 16px; line-height: 1.4; letter-spacing: -.012em; }
+body.workspace-preview .content-card,
+body.workspace-preview .sum-kpi,
+body.workspace-preview .sb-metric,
+body.workspace-preview .ow-tile,
+body.workspace-preview .ws-score,
+body.workspace-preview .ws-details,
+body.workspace-preview .ws-automations {
+  box-shadow: none;
+}
+body.workspace-preview .content-card { border-radius: 16px; padding: clamp(20px,2.4vw,28px); }
+body.workspace-preview .ws-normalized-page > .content-card:first-of-type { border-top: 3px solid var(--graphic-teal); }
+body.workspace-preview .content-card + .content-card { margin-top: var(--space-4); }
+body.workspace-preview .stats-grid,
+body.workspace-preview .perf-kpis,
+body.workspace-preview .sum-kpis { gap: var(--space-3); margin-bottom: var(--space-4); }
+body.workspace-preview .btn {
+  min-height: var(--control-height);
+  padding: 9px 14px;
+  border-radius: 10px;
+  box-shadow: none;
+}
+body.workspace-preview .btn:hover { box-shadow: none; }
+body.workspace-preview .btn-sm { min-height: 38px; padding: 7px 12px; }
+body.workspace-preview .btn-xs { min-height: 34px; padding: 6px 10px; }
+body.workspace-preview input.form-input,
+body.workspace-preview select.form-input { min-height: var(--control-height); padding: 9px 12px; border-radius: 10px; }
+body.workspace-preview textarea.form-input { padding: 11px 12px; border-radius: 10px; }
+body.workspace-preview .status-badge,
+body.workspace-preview .sb-pill,
+body.workspace-preview .ow-chip { border-radius: 7px; }
+body.workspace-preview .indicator-dot { box-shadow: none; animation: none; }
+body.workspace-preview .ws-tool-search,
+body.workspace-preview .ws-report-entry {
+  border-color: var(--line);
+  border-left: 3px solid var(--graphic-coral);
+  background: var(--surface);
+}
+body.dark.workspace-preview .ws-tool-search,
+body.dark.workspace-preview .ws-report-entry { border-color: var(--line); border-left-color: var(--graphic-coral); }
+
+.ws-advanced-label {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 5px 9px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.ws-advanced-label[hidden] { display: none; }
+
+.ws-page-trust {
+  display: grid;
+  grid-template-columns: repeat(4,minmax(0,1fr));
+  margin-bottom: 24px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+}
+.ws-page-trust[hidden] { display: none; }
+.ws-page-trust > div { min-width: 0; padding: 14px 16px; border-right: 1px solid var(--line-2); }
+.ws-page-trust > div:last-child { border-right: 0; }
+.ws-page-trust span,
+.ws-page-trust strong { display: block; }
+.ws-page-trust span {
+  margin-bottom: 5px;
+  color: var(--text-muted);
+  font-size: 9px;
+  font-weight: 750;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+}
+.ws-page-trust strong { color: var(--text-main); font-size: 11px; font-weight: 600; line-height: 1.45; }
+
+.ws-recent-tools { margin: 0 0 24px; padding: 18px 20px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
+.ws-recent-tools[hidden] { display: none; }
+.ws-recent-head { display: flex; align-items: end; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.ws-recent-head h2 { margin: 5px 0 0; font-size: 16px; }
+.ws-recent-head > span { color: var(--text-muted); font-size: 10px; }
+.ws-recent-list { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 10px; }
+.ws-recent-tool {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  min-height: 58px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--text-main);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ws-recent-tool:hover { border-color: var(--graphic-teal); background: var(--surface); }
+.ws-recent-tool:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
+.ws-recent-tool > span:nth-child(1) { display: grid; place-items: center; width: 30px; height: 30px; flex: none; color: var(--graphic-teal); }
+.ws-recent-tool > span:nth-child(2) { flex: 1; min-width: 0; }
+.ws-recent-tool strong,
+.ws-recent-tool small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ws-recent-tool strong { font-size: 12px; }
+.ws-recent-tool small { margin-top: 3px; color: var(--text-muted); font-size: 10px; }
+.ws-recent-tool > span:last-child { color: var(--text-muted); font-size: 18px; }
+
+.ws-metric-source,
+.ow-source { margin: 0 0 14px; padding: 0; border: 0; }
+.ws-metric-source summary,
+.ow-source summary { width: fit-content; cursor: pointer; color: var(--p1); font-size: 10px; font-weight: 650; text-decoration: underline; text-underline-offset: 3px; }
+.ws-metric-source p,
+.ow-source p { margin: 8px 0 0; color: var(--text-muted); font-size: 11px; line-height: 1.5; }
+.ow-source { margin: 12px 0 0; padding-top: 10px; border-top: 1px solid var(--line-2); }
+.ws-chart-legend { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 8px; color: var(--text-muted); font-size: 10px; }
+.ws-chart-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.ws-chart-legend i { width: 16px; height: 3px; border-radius: 2px; background: var(--legend-color); }
+.ws-chart-legend strong { color: var(--text-main); font-weight: 650; }
+
+@media(max-width:900px) {
+  body.workspace-preview .main-content { padding: 24px 24px 140px; }
+  .ws-page-trust { grid-template-columns: 1fr 1fr; }
+  .ws-page-trust > div:nth-child(2) { border-right: 0; }
+  .ws-page-trust > div:nth-child(-n+2) { border-bottom: 1px solid var(--line-2); }
+}
+@media(max-width:620px) {
+  body.workspace-preview .main-content { padding: 18px 16px 132px; }
+  body.workspace-preview .header-title-section h1 { font-size: 24px; }
+  .ws-page-trust { display: block; margin-bottom: 18px; }
+  .ws-page-trust > div { padding: 11px 13px; border-right: 0; border-bottom: 1px solid var(--line-2); }
+  .ws-page-trust > div:last-child { border-bottom: 0; }
+  .ws-recent-head { align-items: flex-start; }
+  .ws-recent-head > span { display: none; }
+  .ws-recent-list { grid-template-columns: 1fr; }
+  .ws-recent-tools { padding: 16px; }
+  .ws-chart-legend { align-items: flex-start; flex-direction: column; gap: 5px; }
+}

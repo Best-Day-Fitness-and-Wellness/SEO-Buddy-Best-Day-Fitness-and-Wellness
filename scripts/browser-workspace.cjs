@@ -393,6 +393,13 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
     await location('results/detail');
     await page.locator('#perf-download-pdf').waitFor();
     assert.match(await page.locator('#page-subtitle').innerText(), /manage email delivery/);
+    const savedScroll = await page.evaluate(() => { window.scrollTo(0, Math.min(500, document.documentElement.scrollHeight - innerHeight)); return window.scrollY; });
+    await page.evaluate(() => window.SeoBuddyWorkspace.navigate('settings-tab'));
+    await location('settings');
+    await page.goBack();
+    await location('results/detail');
+    await page.waitForFunction(expected => Math.abs(window.scrollY - expected) < 3, savedScroll);
+    await page.evaluate(() => window.scrollTo(0, 0));
     const parent = page.locator('#ws-location').getByRole('button', { name: 'Results', exact: true });
     await parent.focus();
     await page.keyboard.press('Enter');
@@ -405,6 +412,45 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
     await location('business');
     // Existing digest read receipts are intentional; navigation must never
     // send email, generate content, or save configuration.
+    assert.deepEqual(writes.slice(before).filter(write => write.path !== '/api/performance-digest/seen'), []);
+  });
+
+  await journey(`${prefix}: detail pages explain their evidence and advanced pages identify themselves`, async () => {
+    const before = writes.length;
+    await load('results', '?trust-pattern=1');
+    const trust = page.locator('#ws-page-trust');
+    await trust.waitFor();
+    assert.equal(await trust.locator(':scope > div').count(), 4);
+    assert.match(await trust.innerText(), /What SEO Buddy checks/i);
+    assert.match(await trust.innerText(), /When it was checked/i);
+    assert.match(await trust.innerText(), /What it found/i);
+    assert.match(await trust.innerText(), /What to do next/i);
+    await load('today', '?metric-source=1');
+    const source = page.locator('.ws-score .ws-metric-source');
+    await source.waitFor();
+    await source.locator('summary').click();
+    assert.match(await source.innerText(), /measured search, local listing, AI visibility/i);
+    await load('results/dashboard', '?advanced-label=1');
+    assert.match(await page.locator('#ws-advanced-label').innerText(), /Advanced · optional/i);
+    assert.equal(await page.locator('#ws-advanced-label').isVisible(), true);
+    assert.deepEqual(writes.slice(before).filter(write => write.path !== '/api/performance-digest/seen'), []);
+  });
+
+  await journey(`${prefix}: Tools remembers the last three destinations in this browser`, async () => {
+    const before = writes.length;
+    await load('tools/local', '?recent-tools=1');
+    await page.evaluate(() => window.SeoBuddyWorkspace.navigate('ai-tab'));
+    await location('tools/content/draft');
+    await page.locator('#ws-nav-tools').click();
+    await location('tools');
+    const recent = page.locator('#ws-recent-tools');
+    await recent.waitFor();
+    assert.equal(await recent.isVisible(), true);
+    assert.equal(await recent.locator('.ws-recent-tool').count() <= 3, true);
+    assert.match(await recent.innerText(), /Content · draft and review/);
+    assert.match(await recent.innerText(), /Local presence/);
+    await recent.getByRole('button', { name: /Local presence/ }).click();
+    await location('tools/local');
     assert.deepEqual(writes.slice(before).filter(write => write.path !== '/api/performance-digest/seen'), []);
   });
 

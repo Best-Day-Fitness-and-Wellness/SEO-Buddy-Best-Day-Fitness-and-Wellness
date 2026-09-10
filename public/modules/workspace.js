@@ -50,14 +50,33 @@
     'local-tab': { subtitle: 'Monitor business details and prepare local content', title: 'Local presence', help: 'Review listing evidence and prepared Google posts. A manual “posted” record is not verified API publishing.' },
     'onsite-tab': { subtitle: 'Review practical improvements for your website', title: 'Website improvements', help: 'These are recommendations until they are applied and verified on the live site.' },
     'reviews-tab': { subtitle: 'Draft thoughtful, on-brand responses to customer reviews', title: 'Review responses', help: 'Review the wording before copying or posting it. SEO Buddy does not submit the response from this page.' },
-    'summary-tab': { subtitle: 'Inspect the advanced dashboard and supporting measurements', title: 'Advanced dashboard', help: 'This detailed view complements Results. Dates, sources, and unavailable states matter more than any single number.' },
-    'grow-tab': { subtitle: 'Review the complete list of recommended actions', title: 'All recommended actions', help: 'Use this detailed list when you need more than the priorities shown in Today and Approvals.' },
+    'summary-tab': { subtitle: 'Inspect the advanced dashboard and supporting measurements', title: 'Advanced dashboard', help: 'This detailed view complements Results. Dates, sources, and unavailable states matter more than any single number.', advanced: true },
+    'grow-tab': { subtitle: 'Review the complete list of recommended actions', title: 'All recommended actions', help: 'Use this detailed list when you need more than the priorities shown in Today and Approvals.', advanced: true },
   });
+  const PAGE_TRUST = Object.freeze({
+    'owner-results-tab': ['Search, review, and optimization measurements', 'Use the comparison and open the supporting detail before deciding what changed.'],
+    'owner-business-tab': ['The business facts, voice, and connections SEO Buddy relies on', 'Correct the source information when your business changes.'],
+    'settings-tab': ['Connection readiness and saved operating preferences', 'Review a status before replacing credentials or changing automation.'],
+    'gsc-tab': ['Google searches, appearances, clicks, and average position', 'Choose a measured opportunity to investigate or draft content for.'],
+    'ai-tab': ['Your topic, business context, and brand guidance for this draft', 'Review every claim before continuing to publishing.'],
+    'publish-tab': ['The current draft, publication record, and indexing request state', 'Publish only after review, then verify the live page separately.'],
+    'performance-tab': ['Search trends, AI visibility, recorded activity, and report delivery', 'Compare matching periods and use the dated evidence—not one isolated number.'],
+    'brand-tab': ['The phrases, tone, and boundaries used for future writing', 'Save only when this guidance accurately represents the business.'],
+    'aio-tab': ['Mentions returned by each connected AI provider', 'Review provider coverage and evidence before acting on a visibility gap.'],
+    'citations-tab': ['Directories and sources where a genuine listing may be possible', 'Work only on eligible sources; competitor-owned sites stay excluded.'],
+    'local-tab': ['Business-detail consistency and the latest prepared Google post', 'Fix verified mismatches or review the prepared post and its publishing state.'],
+    'onsite-tab': ['Titles, links, schema, and other observable website signals', 'Review a recommendation before applying and verifying it on the live site.'],
+    'reviews-tab': ['Review inventory, ratings, and response-writing inputs', 'Review the response, then copy or post it through the appropriate service.'],
+    'summary-tab': ['The detailed signals that contribute to visibility and the score', 'Use this advanced view only when you need evidence beyond Results.'],
+    'grow-tab': ['The full set of ranked recommendations and recorded blockers', 'Start with Today unless you need to inspect the complete advanced list.'],
+  });
+  const TOOL_TABS = new Set(['gsc-tab', 'ai-tab', 'publish-tab', 'performance-tab', 'brand-tab', 'aio-tab', 'citations-tab', 'local-tab', 'onsite-tab', 'reviews-tab']);
+  const RECENT_TOOLS_KEY = 'seo_recent_tools_v1';
   const searchWords = value => value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(/\s+/).filter(word => word && !['a', 'an', 'the', 'to', 'my', 'our', 'your', 'for', 'and', 'i', 'want', 'need', 'please'].includes(word));
   // Keep contextual setup links consistent in both the briefing and status rows.
   const needsConnections = feature => feature.status === 'needs-setup' && !['digest', 'monthly-report'].includes(feature.key);
   const featureNavigation = feature => needsConnections(feature) ? 'data-settings-section="connections"' : `data-ws-tab="${esc(feature.tab)}"`;
-  let renderTab, current = null, depth = 0, todayRequest = 0, approvalsRequest = 0;
+  let renderTab, current = null, depth = 0, todayRequest = 0, approvalsRequest = 0, scrollRestoreToken = 0;
   const $ = id => document.getElementById(id);
   const pendingDraft = () => { const draft = global.SeoBuddyContent?.getDraftSummary?.(); return draft?.title && draft.publicationStatus !== 'published' ? draft : null; };
   const date = value => value && Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleString() : 'Not recorded';
@@ -83,6 +102,38 @@
     $('page-subtitle').textContent = meta.subtitle;
     if ($('ws-help-title')) $('ws-help-title').textContent = meta.title;
     if ($('ws-help-text')) $('ws-help-text').textContent = meta.help;
+    const trust = PAGE_TRUST[tab];
+    if ($('ws-page-trust')) $('ws-page-trust').hidden = !trust;
+    if (trust) {
+      $('ws-trust-check').textContent = trust[0];
+      $('ws-trust-next').textContent = trust[1];
+    }
+    if ($('ws-advanced-label')) {
+      $('ws-advanced-label').hidden = !meta.advanced;
+      $('ws-advanced-label').textContent = meta.advanced ? 'Advanced · optional' : '';
+    }
+  }
+
+  function recentTools() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(RECENT_TOOLS_KEY) || '[]');
+      return Array.isArray(saved) ? saved.filter(tab => TOOL_TABS.has(tab)).slice(0, 3) : [];
+    } catch (_) { return []; }
+  }
+
+  function recordRecentTool(tab) {
+    if (!TOOL_TABS.has(tab)) return;
+    try {
+      localStorage.setItem(RECENT_TOOLS_KEY, JSON.stringify([tab, ...recentTools().filter(item => item !== tab)].slice(0, 3)));
+    } catch (_) { /* Navigation still works when browser storage is unavailable. */ }
+  }
+
+  function renderRecentTools() {
+    const host = $('ws-recent-tools');
+    if (!host) return;
+    const tabs = recentTools();
+    host.hidden = tabs.length === 0;
+    host.innerHTML = tabs.length ? `<div class="ws-recent-head"><div><span class="ws-eyebrow">Recently used</span><h2>Continue where you left off</h2></div><span>Stored only in this browser</span></div><div class="ws-recent-list">${tabs.map(tab => `<button type="button" class="ws-recent-tool" data-ws-tab="${esc(tab)}"><span>${icon(ROUTES[tab][2])}</span><span><strong>${esc(ROUTES[tab][1])}</strong><small>Open tool</small></span><span aria-hidden="true">›</span></button>`).join('')}</div>` : '';
   }
 
   async function read(path, field) {
@@ -102,6 +153,21 @@
 
   function tabFromHash() {
     return Object.keys(ROUTES).find(tab => '#/' + ROUTES[tab][0] === global.location.hash) || 'workspace-today-tab';
+  }
+
+  // Some detail views expand after their data arrives. Restore history scroll
+  // again while the page is still growing instead of clamping a saved position
+  // to the shorter loading shell.
+  function restoreNavigationScroll(tab, top) {
+    const token = ++scrollRestoreToken;
+    let attempts = 0;
+    const restore = () => {
+      if (token !== scrollRestoreToken || current !== tab) return;
+      global.scrollTo({ top, behavior: 'instant' });
+      const max = Math.max(0, document.documentElement.scrollHeight - global.innerHeight);
+      if (top > max + 2 && attempts++ < 8) global.setTimeout(restore, 100);
+    };
+    restore();
   }
 
   function navigate(requested, options = {}) {
@@ -126,6 +192,7 @@
       else history.replaceState(state, '', url);
     } else if (replay) depth = history.state?.seoWorkspace?.depth || 0;
     current = tab;
+    recordRecentTool(tab);
     renderTab(tab, { render: true });
     document.body.classList.remove('nav-open');
     const [slug, title, group] = ROUTES[tab];
@@ -148,7 +215,7 @@
     const previousFocus = document.activeElement;
     requestAnimationFrame(() => {
       if (current !== tab || options.tour) return;
-      global.scrollTo({ top: replay ? history.state?.seoWorkspace?.scroll || 0 : 0, behavior: 'instant' });
+      restoreNavigationScroll(tab, replay ? history.state?.seoWorkspace?.scroll || 0 : 0);
       // Let the browser own focus on initial load/reload. Move it to the heading
       // only for in-app navigation, without interrupting a quick keyboard user.
       if (moveFocus && (document.activeElement === previousFocus || document.activeElement === document.body)) $('page-title').focus({ preventScroll: true });
@@ -212,7 +279,7 @@
       ${!score ? errorBox('Could not load your score', 'today') : ''}
       <div class="ws-dashboard"><section class="ws-operations" aria-label="Automation status"><div class="ws-section-heading"><div><h2>What happens next</h2><span>${automation ? 'Checked ' + esc(date(automation.checkedAt)) : 'Status unverified'}</span></div><button type="button" class="btn btn-secondary" data-ws-retry="today">Refresh checks</button></div>
       <div class="ws-automations">${features.map(statusCard).join('')}</div><p class="ws-footnote">Open a row for evidence and controls. Scheduled does not mean completed.</p></section>
-      <aside class="ws-progress" aria-label="Score and activity"><div class="ws-score"><span class="ws-eyebrow">Your progress</span><div class="ws-score-reading"><div class="ws-score-ring" style="--ws-score:${Math.max(0, Math.min(100, score?.overall || 0))}"><div><strong>${score?.overall ?? '—'}</strong><small>/ 100</small></div></div><div><h2>Optimization score</h2><p>Measured SEO signals.<br>Not a ranking guarantee.</p></div></div>${button('owner-results-tab', 'See measured results')}</div>
+      <aside class="ws-progress" aria-label="Score and activity"><div class="ws-score"><span class="ws-eyebrow">Your progress</span><div class="ws-score-reading"><div class="ws-score-ring" style="--ws-score:${Math.max(0, Math.min(100, score?.overall || 0))}"><div><strong>${score?.overall ?? '—'}</strong><small>/ 100</small></div></div><div><h2>Optimization score</h2><p>Measured SEO signals.<br>Not a ranking guarantee.</p></div></div><details class="ws-metric-source"><summary>Where did this number come from?</summary><p>It combines measured search, local listing, AI visibility, directory, and content signals. Missing measurements remain visible and are not treated as completed work.</p></details>${button('owner-results-tab', 'See measured results')}</div>
       <details class="ws-details"><summary>Recent recorded work — drafts and completed actions</summary>${activityResult.status === 'fulfilled'
         ? `<p class="text-muted">These records can be older than this week. A draft or suggestion is not a published change.</p>${activityResult.value.items.map(item => `<div class="ws-activity"><div><b>${esc(item.label)}</b><p>${esc(item.text)}</p></div>${button(item.tab, 'Inspect record')}</div>`).join('') || '<p>No activity records were returned.</p>'}`
         : errorBox('Could not load activity records', 'today')}</details></aside></div>`;
@@ -252,6 +319,16 @@
       advanced.before(details); details.append(summary, advanced);
       host.append(details);
     }
+    if (typeof document.createElement !== 'function' || !$('exp-getstarted')) return void filterTools();
+    let recent = $('ws-recent-tools');
+    if (!recent) {
+      recent = document.createElement('section');
+      recent.id = 'ws-recent-tools';
+      recent.className = 'ws-recent-tools';
+      recent.setAttribute('aria-label', 'Recently used tools');
+      $('exp-getstarted').before(recent);
+    }
+    renderRecentTools();
     filterTools();
   }
 
@@ -261,6 +338,8 @@
     const query = $('ws-tool-search').value.trim().toLowerCase();
     const words = searchWords(query);
     $('ws-tool-clear').hidden = !query;
+    const recent = $('ws-recent-tools');
+    if (recent) recent.hidden = !!query || recentTools().length === 0;
     let count = 0;
     document.querySelectorAll('#exp-groups .exp-group').forEach(group => {
       let shown = 0;
@@ -520,8 +599,10 @@
     };
     positionNav(); mobile.addEventListener('change', positionNav);
     const bar = $('ws-orientation');
-    bar.insertAdjacentHTML('afterbegin', '<button type="button" id="ws-back" class="btn btn-secondary">← Back</button><nav id="ws-location" aria-label="Your location"></nav>');
+    bar.insertAdjacentHTML('afterbegin', '<button type="button" id="ws-back" class="btn btn-secondary">← Back</button><nav id="ws-location" aria-label="Your location"></nav><span id="ws-advanced-label" class="ws-advanced-label" hidden></span>');
     const journey = document.createElement('section'); journey.id = 'ws-journey'; journey.className = 'ws-journey'; journey.setAttribute('aria-label', 'Content workspace'); bar.after(journey);
+    journey.insertAdjacentHTML('afterend', `<section id="ws-page-trust" class="ws-page-trust" aria-label="How to read this page" hidden><div><span>What SEO Buddy checks</span><strong id="ws-trust-check"></strong></div><div><span>When it was checked</span><strong>Dates appear wherever a check or saved record exists.</strong></div><div><span>What it found</span><strong>The measured result, draft state, or unavailable status stays visible below.</strong></div><div><span>What to do next</span><strong id="ws-trust-next"></strong></div></section>`);
+    document.querySelectorAll('.tab-content').forEach(tab => tab.classList.add('ws-normalized-page'));
     // Keep the same form and controls; tuck occasional technical settings
     // behind a native, keyboard-accessible disclosure without changing saves.
     const form = $('settings-form');

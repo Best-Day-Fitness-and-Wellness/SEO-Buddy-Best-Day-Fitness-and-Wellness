@@ -28,7 +28,15 @@
     const find = document.getElementById('ow-find');
     if (!find) return;
     const request = ++resultsRequest;
-    const tile = (l, v, d) => `<div class="ow-tile"><div class="l">${l}</div><div class="v">${v}</div><div class="d">${d}</div></div>`;
+    const metricSource = label => {
+      if (['Visits from Google', 'Times you appeared', 'Typical position'].includes(label)) return 'Google Search Console, comparing the latest 28 days with the previous 28 days.';
+      if (label === 'Optimization score') return 'A weighted combination of measured search, local listing, AI visibility, directory, and content signals. It is not a Google ranking.';
+      if (['Shown on your reviews site', 'Average rating there', 'Review page health'].includes(label)) return 'The latest recorded inventory and structured-data check from your reviews site.';
+      if (label === 'Estimated opportunity value') return 'A model using recorded search clicks and the editable conversion and client-value assumptions in Settings. It is not measured revenue.';
+      if (label === 'Assumed new-client value') return 'The planning assumption saved in Settings.';
+      return 'The latest recorded source available to SEO Buddy.';
+    };
+    const tile = (l, v, d) => `<div class="ow-tile"><div class="l">${l}</div><div class="v">${v}</div><div class="d">${d}</div><details class="ow-source"><summary>Where did this number come from?</summary><p>${metricSource(l)}</p></details></div>`;
     const arrow = (now, was, lowerBetter) => {
       if (was == null || now == null) return '<span class="ow-flat">■ no comparison yet</span>';
       const diff = now - was;
