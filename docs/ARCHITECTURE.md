@@ -106,8 +106,8 @@ AEO, title/meta, internal-link, and schema interactions, `ai-visibility.js` owns
 grounded audits, multi-engine visibility, FactCheck, crawler, Reddit, and schema
 interactions, `brand-profile.js` owns the Brand Voice editor and readiness event,
 `owner-views.js` owns the shared Results and Business views and their read-only
-retry/readiness handlers; `owner-mode.js` owns only recovery-mode Today, its
-actions, and the legacy mode switch,
+retry/readiness handlers. The former recovery-mode Today and mode switch are
+retired; old Today hashes resolve to the supported workspace,
 `search-opportunities.js` owns Search Console gaps, filters, statistics, and
 question fan-out,
 `settings.js` owns connection fields, secure settings submission, and Search
@@ -120,7 +120,7 @@ and `theme.js` owns theme behavior. `public/app.js` remains the main feature coo
 The browser loads only the visible dashboard work initially. Feature loaders
 use same-origin APIs and render escaped values. PDF reporting, Reviews, recorded
 content, Citations, Local Presence, Progress, Site Optimization, AI Visibility,
-Brand Voice, and Owner mode load on demand; the PDF vendor libraries remain
+and Brand Voice load on demand; the PDF vendor libraries remain
 behind the report module's second-stage loader. Search opportunities also load
 only when opened, while their content-creation handoff stays in the coordinator.
 Settings form wiring and diagnostics load only when Settings is opened; unsaved
@@ -485,12 +485,14 @@ so one production replica remains the supported topology.
    remain in the existing performance service. Best-effort write failures keep
    their historical behavior, including updating memory before persistence.
    Regression tests cover restart recovery, tenant isolation, concurrent reads,
-   unavailable data and failed writes. This is not a transactional cutover or
-   a change to the supported one-replica topology.
-3. **The worker shares the web process.** Durable state prevents lost work, but
-   provider latency still consumes web-process memory and event-loop capacity.
-   The transactional database queue is deployed. Moving handlers to a separate
-   worker still requires removing process-local feature-state assumptions.
+   unavailable data and failed writes. PostgreSQL prestart hydration is the
+   durable authority in database mode; runtime outbox entries drain in one
+   transaction and stale replicas never perform periodic full-state uploads.
+3. **Web and worker roles are separable.** `PROCESS_ROLE=web` owns HTTP and
+   schedules durable jobs; `PROCESS_ROLE=worker` claims them; `all` preserves the
+   one-service deployment. PostgreSQL worker heartbeats make availability visible
+   across processes. A separate Railway worker service is an operational scaling
+   choice, not required for the current one-service deployment.
 4. **`public/app.js` still coordinates the shell.** Fifteen secondary feature
    modules now load on demand; the coordinator retains Today, Explore, the
    detailed dashboard, setup, and navigation. These shared projections are an
@@ -500,22 +502,19 @@ so one production replica remains the supported topology.
    the four-destination owner navigation, approvals, tool search and progressive
    disclosure. Existing feature modules still own their workflows and data.
    `lib/automation-status.js` is a read-only, secret-free status projection,
-   not a second scheduler. `?workspace=classic` temporarily retains the previous
-   navigation for emergency recovery, not normal use. Its shell link is hidden
-   unless workspace startup fails. Results and Business now load through
-   `owner-views.js` without loading legacy Today or mode controls. The recovery
-   owner-mode loader loads those shared views first, preserving its existing
-   behavior and readiness-listener order. Shared reads and escaping use the
-   browser core. Remove the remaining legacy navigation, Today markup, mode
-   preferences, and recovery branch only in a separate retirement release.
-   See `docs/OWNER-WORKSPACE-PREVIEW.md` for the owner-authorized rollout,
-   owner-reported usability acceptance and precise evidence limits.
-5. **Configuration still supports UI-saved secrets.** A managed secret store is
-   preferable for multi-instance deployment and independent rotation. Until
-   then, restrict Settings to owners and keep the volume private and backed up.
-6. **External success paths depend on vendor sandboxes.** Local tests exercise
-   provider policy with fake HTTP servers. Add opt-in staging contract tests for
-   each vendor; never run publish/send/index writes in normal CI.
+   not a second scheduler. The classic shell, legacy Today markup, mode switch,
+   recovery asset and saved-mode branch are removed. Old classic and preview URLs
+   load the supported workspace without changing data. Results and Business load
+   through `owner-views.js`. See `docs/OWNER-WORKSPACE-PREVIEW.md` for the
+   owner-authorized rollout and retirement record.
+5. **Secrets support a managed deployment policy.** With
+   `SECRET_STORAGE_MODE=managed`, credential fields become read-only and the
+   server rejects credential writes; Railway Variables remain the source of
+   truth. `volume` remains available for local and migration compatibility.
+6. **Vendor staging is explicit and read-only.** The manual
+   `vendor-staging` workflow checks production-mode health, live Search Console,
+   AI-engine status, GBP readiness and integration health. It is opt-in and has
+   no publish, send or indexing calls.
 
 ## Refactoring rules
 

@@ -317,10 +317,7 @@ body.dark .logo-icon .logo-mark-dark { display: block; }
      for the old sticky bar and left the final line of Local presence permanently
      under the chips — the reachability sweep caught it. */
   padding-bottom: 140px;
-  /* Cap the content column. Without this the header stayed hard left while
-     #today-tab's 620px .td-wrap centred itself in the full width — on a 2560px
-     display that left an 787px gap between the page title and its own content.
-     Capping here keeps the header and every tab on one shared column. */
+  /* Keep the header and every tab on one shared, readable column. */
   max-width: 1280px;
   margin-inline: auto;
   width: 100%;
@@ -1252,7 +1249,7 @@ body.dark { --focus-ring:rgba(140,140,255,.24); }
 .data-table tbody tr:hover { background:rgba(128,128,128,.06); }
 
 /* Comfortable reading width on wide screens (tools only; Today/Explore manage their own) */
-.tab-content:not(#today-tab):not(#explore-tab) { max-width:1160px; }
+.tab-content:not(#explore-tab) { max-width:1160px; }
 .tab-content { padding-bottom: 8px; }
 
 /* Non-blocking feedback and confirmation UI */
@@ -1318,48 +1315,6 @@ body.nav-open #mobile-backdrop{display:block;}}
 .biz-chip .dm{font-size:10.5px;color:var(--text-dark);}
 .sidebar-footer{border-top:1px solid var(--border-color);padding-top:10px;}
 .sidebar-footer .nav-item{width:100%;box-sizing:border-box;}
-
-
-/* --------------------------------------------------------------------------
-   TODAY — calm landing
-   (was index.html line 181)
-   -------------------------------------------------------------------------- */
-#today-tab{ --td-surface:var(--surface); --td-surface2:var(--surface-2); --td-ink:var(--ink); --td-ink2:var(--ink-2); --td-ink3:var(--ink-3); --td-line:var(--line); --td-accent:var(--action); --td-accent-fg:var(--action-fg); --td-accent-soft:var(--p1-t); --td-ok:var(--p4); --td-ok-soft:var(--p4-t); --td-warn:var(--p2); --td-warn-soft:var(--p2-t); --td-shadow:var(--shadow-md); }
-
-/* Left-aligned, not centred: the page title sits at the left edge of the capped
-   content column, so a centred card column reads as detached from its heading. */
-#today-tab .td-wrap{max-width:660px;margin:0;color:var(--td-ink);font-family:var(--font-body);}
-#today-tab .td-icn{fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;width:21px;height:21px;display:block;}
-#today-tab .td-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:30px;}
-#today-tab .td-brand b{display:block;font-family:var(--font-heading);font-size:22px;font-weight:700;letter-spacing:-.02em;line-height:1.1;color:var(--td-ink);}
-#today-tab .td-brand span{font-size:13px;color:var(--td-ink3);}
-#today-tab .td-hero{margin-bottom:34px;}
-#today-tab .td-kick{font-size:12px;text-transform:uppercase;letter-spacing:.14em;color:var(--td-ink3);font-weight:600;margin-bottom:14px;}
-#today-tab .td-line{font-size:16px;line-height:1.55;color:var(--td-ink2);}
-#today-tab .td-line b{color:var(--td-ink);font-weight:600;}
-#today-tab .td-sec{display:flex;align-items:baseline;justify-content:space-between;margin:0 2px 14px;}
-#today-tab .td-sec h3{font-size:17px;font-weight:600;letter-spacing:-.01em;color:var(--td-ink);}
-#today-tab .td-count{font-size:13px;color:var(--td-ink3);}
-#today-tab .td-card{background:var(--td-surface);border:1px solid var(--td-line);border-radius:22px;padding:22px;margin-bottom:14px;box-shadow:var(--td-shadow);transition:opacity .3s,transform .3s;}
-#today-tab .td-card-top{display:flex;align-items:center;gap:12px;margin-bottom:12px;}
-#today-tab .td-ic{width:44px;height:44px;border-radius:13px;background:var(--td-accent-soft);color:var(--p1);display:flex;align-items:center;justify-content:center;flex-shrink:0;}
-#today-tab .td-ic.warn{background:var(--td-warn-soft);color:var(--td-warn);}
-#today-tab .td-tag{margin-left:auto;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--td-ink3);}
-#today-tab .td-card h4{font-size:18px;font-weight:600;letter-spacing:-.01em;margin-bottom:6px;line-height:1.25;color:var(--td-ink);}
-#today-tab .td-card p{font-size:14px;color:var(--td-ink2);line-height:1.5;margin-bottom:18px;}
-#today-tab .td-btn{border:none;font-family:var(--font-body);font-weight:600;font-size:15px;border-radius:14px;padding:13px 22px;cursor:pointer;background:var(--td-accent);color:var(--td-accent-fg);transition:transform .12s,filter .15s;}
-#today-tab .td-btn:active{transform:scale(.97);} #today-tab .td-btn:hover{filter:brightness(1.06);}
-#today-tab .td-running{margin-top:26px;background:var(--td-surface);border:1px solid var(--td-line);border-radius:20px;padding:20px 22px;box-shadow:var(--td-shadow);}
-#today-tab .td-rk{display:flex;align-items:center;gap:9px;font-size:12px;text-transform:uppercase;letter-spacing:.12em;color:var(--td-ok);font-weight:600;margin-bottom:10px;}
-#today-tab .td-pulse{width:8px;height:8px;border-radius:50%;background:var(--td-ok);}
-#today-tab .td-running p{font-size:14.5px;line-height:1.55;color:var(--td-ink2);}
-#today-tab .td-running p b{color:var(--td-ink);font-weight:600;}
-#today-tab .td-running a{display:inline-block;margin-top:12px;font-size:14px;color:var(--td-accent);font-weight:600;cursor:pointer;text-decoration:none;}
-#today-tab .td-allset{text-align:center;padding:30px 10px;}
-#today-tab .td-allset .big{width:78px;height:78px;border-radius:50%;background:var(--td-ok-soft);color:var(--td-ok);display:flex;align-items:center;justify-content:center;margin:0 auto 18px;}
-#today-tab .td-allset .big .td-icn{width:36px;height:36px;stroke-width:2.4;}
-#today-tab .td-allset h4{font-size:20px;font-weight:600;margin-bottom:8px;color:var(--td-ink);}
-#today-tab .td-allset p{font-size:14.5px;color:var(--td-ink2);line-height:1.55;max-width:300px;margin:0 auto;}
 
 
 /* --------------------------------------------------------------------------
@@ -1987,7 +1942,7 @@ body:not(.dark) #local-tab .la-badge.new{color:#9f3028;}
    OWNER MODE — Today / Results / Business
    (was index.html line 1945)
    -------------------------------------------------------------------------- */
-#owner-today-tab .ow-sum,#owner-results-tab .ow-sum{display:flex;align-items:center;gap:18px;
+#owner-results-tab .ow-sum{display:flex;align-items:center;gap:18px;
   background:var(--surface-warm);
   border:1px solid var(--line);border-radius:16px;padding:18px 20px;margin-bottom:6px;box-shadow:var(--shadow-md);}
 .ow-sum .ow-big{font-size:34px;font-weight:800;letter-spacing:-1.2px;line-height:1;color:var(--color-primary);margin-left:auto;}
@@ -2504,7 +2459,6 @@ body.asst-open .sb-dock-wrap { display: none; }
 .sb-score-meta span { white-space: nowrap; }
 .sb-score-meta b { color: var(--ink-2); font-weight: 700; }
 #summary-tab .sb-score-meta { justify-content: flex-start; margin: 12px 0 0; }
-#today-tab .sb-score-meta { margin-top: 8px; margin-bottom: 18px; }
 /* Chips do not fit inside a small ring — below ~190px they sit under it. */
 .sb-ring.sm .sb-ring-n { font-size: 34px; }
 .sb-ring.sm .sb-ring-chip { display: none; }
@@ -3064,16 +3018,12 @@ body:not(.dark) .status-indicator.mock { color: #874700; }
 body.dark .asst-fab { color: #111329; }
 body.dark .asst-fab svg { stroke: currentColor; }
 
-/* Default owner workspace. Keep the existing scope class so classic navigation
-   and shared tool styles remain available through ?workspace=classic. */
+/* The owner workspace is the only supported shell. */
 .workspace-only { display: none !important; }
 body.workspace-preview .workspace-only { display: block !important; }
 body.workspace-preview #workspace-nav { display: flex !important; }
 body.workspace-preview .ws-orientation.workspace-only { display: flex !important; }
-body.workspace-preview .classic-only { display: none !important; }
 body.workspace-preview .nav-menu:not(#workspace-nav),
-body.workspace-preview #btn-mode-switch,
-body.workspace-preview #btn-open-setup,
 body.workspace-preview #exp-getstarted { display: none !important; }
 body.workspace-preview [hidden] { display: none !important; }
 body.workspace-preview .main-content { padding-bottom: 100px; }

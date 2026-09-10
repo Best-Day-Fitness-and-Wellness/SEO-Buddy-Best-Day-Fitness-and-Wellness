@@ -192,21 +192,31 @@ In `STATE_BACKEND=filesystem`, PostgreSQL is an outbox-backed mirror and a
 mirror failure is an operational warning. To cut over, verify the mirror and a
 filesystem backup first, then set `STATE_BACKEND=postgres`; prestart replays the
 outbox, hydrates the runtime cache, imports existing jobs, and then uses the
-transactional PostgreSQL queue before readiness succeeds. Do not enable multiple
-web replicas yet: feature mutations are still process-local during a run.
+transactional PostgreSQL queue before readiness succeeds. Runtime writes drain
+as a single database transaction and never periodically push an entire stale
+replica snapshot over canonical rows.
+
+`PROCESS_ROLE=all` is the default and preserves the current single-service
+topology. For scale-out, run one `web` role and one or more `worker` roles against
+the same `DATABASE_URL` and tenant. Web owns recurring schedule creation; workers
+own provider jobs. Active worker heartbeats appear in protected diagnostics.
+
+Set `SECRET_STORAGE_MODE=managed` only after every credential is present in
+Railway Variables. In this mode Settings can save non-secret business fields,
+but credential inputs are disabled and credential replacement requests are
+rejected. Never copy credential values into logs, tickets, or staging variables.
+
+The manual **Vendor staging contracts** GitHub workflow requires the
+`vendor-staging` environment, `STAGING_BASE_URL` variable and
+`STAGING_OWNER_TOKEN` secret. It performs read-only GET checks only.
 
 ## Rollback
 
-The normal URL opens the redesigned workspace with no previous-interface link
-in normal navigation. `/?workspace=classic` temporarily retains the earlier
-interface and its saved Owner mode preference for emergency recovery. The shell
-reveals **Open recovery interface** only if workspace startup fails; a successful
-reload hides it again. Old `/?workspace=preview` bookmarks remain supported. The
-owner approved rollout before first-time-user testing, then reported “tests
-good” on 2026-09-03 and accepted the navigation step. Participant-level findings
-were not supplied. See `docs/OWNER-WORKSPACE-PREVIEW.md` for the record and status semantics.
-Interface entry is read-only, but actions use the same live authenticated
-workflows: do not treat either interface as a vendor sandbox.
+The normal URL and old `/?workspace=classic` or `/?workspace=preview` bookmarks
+all open the supported workspace. The previous interface, recovery link and mode
+preference are retired. The owner reported “tests good” on 2026-09-03 and later
+authorized retirement. Participant-level findings were not supplied. See
+`docs/OWNER-WORKSPACE-PREVIEW.md` for the record and status semantics.
 
 Prefer a new revert commit on `main`, then let Railway deploy it. A code rollback
 must not delete the volume or replace tenant state. If the release introduced a

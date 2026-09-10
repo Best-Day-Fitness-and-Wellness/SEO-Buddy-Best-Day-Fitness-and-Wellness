@@ -1,10 +1,7 @@
 // SEO Buddy - Application Logic
 document.addEventListener('DOMContentLoaded', () => {
   // --- APPLICATION STATE ---
-  const state = { activeTab: 'today-tab' };
-  // Keep old preview bookmarks working; only an explicit classic link opts out.
-  const workspaceEnabled = new URLSearchParams(window.location.search).get('workspace') !== 'classic';
-  document.body.classList.toggle('workspace-preview', workspaceEnabled);
+  const state = { activeTab: 'workspace-today-tab' };
 
   // --- DOM ELEMENT SELECTORS ---
   const tabButtons = document.querySelectorAll('.nav-item');
@@ -150,28 +147,12 @@ document.addEventListener('DOMContentLoaded', () => {
     return window.SeoBuddyCore.loadFeature('ownerViewsAsset', () => !!(window.loadOwnerResults && window.loadOwnerBusiness), 'Results and Business');
   }
 
-  async function ensureOwnerModeFeature() {
-    // Recovery mode shares the current views, but current views never load it.
-    await ensureOwnerViewsFeature();
-    return window.SeoBuddyCore.loadFeature('ownerModeAsset', () => !!(window.setOwnerMode && window.loadOwnerToday), 'OwnerMode');
-  }
-
-  async function loadOwnerModeView(loaderName) {
+  async function loadOwnerView(loaderName) {
     try {
-      if (loaderName === 'loadOwnerToday') await ensureOwnerModeFeature();
-      else await ensureOwnerViewsFeature();
+      await ensureOwnerViewsFeature();
       if (typeof window[loaderName] === 'function') await window[loaderName]();
     } catch (error) {
-      showToast('Could not load Owner mode. Refresh and try again.');
-    }
-  }
-
-  async function setOwnerModeFeature(on) {
-    try {
-      await ensureOwnerModeFeature();
-      if (window.setOwnerMode) window.setOwnerMode(on);
-    } catch (error) {
-      showToast('Could not load Owner mode. Refresh and try again.');
+      showToast('Could not load this workspace view. Refresh and try again.');
     }
   }
 
@@ -231,7 +212,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const normalized = mode === true ? 'live' : mode === false ? 'demo' : mode;
     if (normalized === 'live') {
       modeStatus.className = 'status-indicator live';
-      modeStatusText.innerText = workspaceEnabled ? 'Live Search Data' : 'Live Operations';
+      modeStatusText.innerText = 'Live Search Data';
     } else if (normalized === 'demo') {
       modeStatus.className = 'status-indicator mock';
       modeStatusText.innerText = 'Demo Search Data';
@@ -290,21 +271,8 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   })();
 
-  // Time-of-day greeting. Uses the browser clock, so it is right for whoever
-  // is looking rather than for the server's timezone.
-  function ownerGreeting() {
-    const h = new Date().getHours();
-    const part = h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
-    // Greet the person, not the business. The author name is the only place we
-    // actually hold a human's name; without it we say the time of day and stop,
-    // rather than greeting someone as "Best".
-    let who = '';
-    try { who = (localStorage.getItem('seo_author_name') || '').trim().split(/\s+/)[0] || ''; } catch (e) {}
-    return who ? `${part}, ${who}` : part;
-  }
-
   function switchTab(tabId, options = {}) {
-    if (workspaceEnabled && window.SeoBuddyWorkspace && !options.render) return window.SeoBuddyWorkspace.navigate(tabId);
+    if (window.SeoBuddyWorkspace && !options.render) return window.SeoBuddyWorkspace.navigate(tabId);
     state.activeTab = tabId;
     
     // Update active nav button
@@ -345,10 +313,6 @@ document.addEventListener('DOMContentLoaded', () => {
       pageTitle.innerText = 'Approvals';
       pageSubtitle.innerText = 'Priority decisions and your current article draft';
       window.SeoBuddyWorkspace?.loadApprovals();
-    } else if (tabId === 'today-tab') {
-      pageTitle.innerText = 'Today';
-      pageSubtitle.innerText = 'What needs you — and what SEO Buddy handled on its own';
-      if (window.loadToday) window.loadToday();
     } else if (tabId === 'explore-tab') {
       pageTitle.innerText = 'Explore';
       pageSubtitle.innerText = 'All of SEO Buddy’s tools, grouped — dip in when you want to go deeper';
@@ -367,18 +331,14 @@ document.addEventListener('DOMContentLoaded', () => {
       loadPerformanceFeature();
       loadAutopilotDigest();
       loadSummary(); // refresh the KPI / stats / AI-standing / opportunities / content widgets that now live on Reports
-    } else if (tabId === 'owner-today-tab') {
-      pageTitle.innerText = ownerGreeting();
-      pageSubtitle.innerText = 'SEO Buddy is handling your marketing \u2014 here\u2019s anything that needs you';
-      loadOwnerModeView('loadOwnerToday');
     } else if (tabId === 'owner-results-tab') {
       pageTitle.innerText = 'Results';
       pageSubtitle.innerText = 'The last 28 days, next to the 28 before them';
-      loadOwnerModeView('loadOwnerResults');
+      loadOwnerView('loadOwnerResults');
     } else if (tabId === 'owner-business-tab') {
       pageTitle.innerText = 'Business';
       pageSubtitle.innerText = 'Your details \u2014 not marketing settings. Just the facts we use everywhere';
-      loadOwnerModeView('loadOwnerBusiness');
+      loadOwnerView('loadOwnerBusiness');
     } else if (tabId === 'brand-tab') {
       pageTitle.innerText = 'Brand Voice';
       pageSubtitle.innerText = 'How everything SEO Buddy writes should sound \u2014 and the words it must never use';
@@ -464,24 +424,8 @@ document.addEventListener('DOMContentLoaded', () => {
   if (bpGoto) bpGoto.addEventListener('click', () => switchTab('brand-tab'));
   // Brand Voice editor tools load only when their tab is opened.
 
-  // ===========================================================================
-  // Owner mode views load only when the saved preference or mode switch requests them.
-  const modeBtn = document.getElementById('btn-mode-switch');
-  if (modeBtn) modeBtn.addEventListener('click', () => {
-    setOwnerModeFeature(!document.body.classList.contains('owner-mode'));
-  });
-
-  // Restore the saved preference through the same lazy boundary used by the
-  // mode switch. Full-interface users never download the owner workspace.
-  try {
-    if (!workspaceEnabled && localStorage.getItem('seo_owner_mode') === '1') setOwnerModeFeature(true);
-  } catch (error) {}
-
   // Readiness changes also refresh the always-available dashboard surfaces.
-  // Owner-specific views subscribe inside their module once it is loaded.
   document.addEventListener('seo:readiness-changed', () => {
-    if (!workspaceEnabled && window.loadToday) window.loadToday();
-    if (!workspaceEnabled && window.loadGetStarted) window.loadGetStarted();
     if (window.refreshReadinessBoard) window.refreshReadinessBoard();
   });
 
@@ -1219,7 +1163,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const go = card.querySelector('[data-go]');
       if (go && !st.locked) go.addEventListener('click', () => {
         if (st.action) return runMoveAction({ action: st.action, tab: st.tab }, go);
-        if (st.act === 'setup') { const b = document.getElementById('btn-open-setup'); if (b) b.click(); return; }
+        if (st.act === 'setup') { if (window.openSetupWizard) window.openSetupWizard(); return; }
         if (st.tab) switchTab(st.tab);
       });
       const how = card.querySelector('[data-how]');
@@ -1539,7 +1483,6 @@ document.addEventListener('DOMContentLoaded', () => {
       { icon: 'gear', b: 'Settings', s: 'Connections & account', tab: 'settings-tab' } ] }
   ];
   function loadExplore(){
-    if (!workspaceEnabled) loadGetStarted();
     const host = document.getElementById('exp-groups'); if (!host) return;
     host.innerHTML = EXPLORE_GROUPS.map(function(grp){
       return '<div class="exp-group"><div class="exp-gl">' + grp.g + '</div><div class="exp-list">' + grp.items.map(function(it){
@@ -1551,11 +1494,11 @@ document.addEventListener('DOMContentLoaded', () => {
       bindAction(row, function(){
         const go = row.getAttribute('data-go') || '';
         if (go.indexOf('tab:') === 0) { switchTab(go.slice(4)); }
-        else if (go === 'act:setup') { const b = document.getElementById('btn-open-setup'); if (b) b.click(); }
+        else if (go === 'act:setup' && window.openSetupWizard) window.openSetupWizard();
         else if (go === 'act:ask') { const b = document.getElementById('asst-fab'); if (b) b.click(); }
       });
     });
-    if (workspaceEnabled) window.SeoBuddyWorkspace?.enhanceTools();
+    window.SeoBuddyWorkspace?.enhanceTools();
   }
   window.loadExplore = loadExplore;
 
@@ -1746,22 +1689,15 @@ document.addEventListener('DOMContentLoaded', () => {
   // Load only the visible landing screen. Search Console, publish status, and
   // the full dashboard now initialize when their tabs are opened instead of
   // competing with first paint and duplicating hidden API work.
-  if (workspaceEnabled) {
-    // Deep links must verify the shared header even when Today is never opened.
-    window.SeoBuddyCore.readHealthScore().catch(() => {});
-    window.SeoBuddyCore.loadFeature('workspaceAsset', () => !!window.SeoBuddyWorkspace, 'Owner workspace')
-      .then(() => window.SeoBuddyWorkspace.start(switchTab))
-      .catch(() => {
-        const error = document.getElementById('ws-load-error');
-        error.textContent = 'Could not load the workspace. Reload to retry, or open the recovery interface.';
-        error.hidden = false;
-        document.getElementById('ws-classic').hidden = false;
-      });
-  } else if (state.activeTab === 'today-tab') {
-    loadToday();
-  } else {
-    window.SeoBuddyCore.readHealthScore().catch(() => {});
-  }
+  // Deep links must verify the shared header even when Today is never opened.
+  window.SeoBuddyCore.readHealthScore().catch(() => {});
+  window.SeoBuddyCore.loadFeature('workspaceAsset', () => !!window.SeoBuddyWorkspace, 'Owner workspace')
+    .then(() => window.SeoBuddyWorkspace.start(switchTab))
+    .catch(() => {
+      const error = document.getElementById('ws-load-error');
+      error.textContent = 'Could not load the workspace. Reload this page to try again.';
+      error.hidden = false;
+    });
   const sumRefreshBtn = document.getElementById('sum-refresh');
   if (sumRefreshBtn) sumRefreshBtn.addEventListener('click', loadSummary);
   // Context links open the existing form, never save it or reset its draft.
@@ -1986,9 +1922,6 @@ document.addEventListener('DOMContentLoaded', () => {
       try { localStorage.setItem('seo_wizard_seen', '1'); } catch (e) {}
     }
     window.openSetupWizard = openWiz;
-    const btnOpen = document.getElementById('btn-open-setup');
-    if (btnOpen) btnOpen.addEventListener('click', openWiz);
-
     nextBtn.addEventListener('click', () => { collect(); if (step < TOTAL - 1) { step++; render(); } else { finish(); } });
     backBtn.addEventListener('click', () => { collect(); if (step > 0) { step--; render(); } });
     closeBtn.addEventListener('click', closeWiz);

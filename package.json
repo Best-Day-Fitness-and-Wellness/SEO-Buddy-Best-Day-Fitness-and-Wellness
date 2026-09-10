@@ -15,6 +15,7 @@
     "test:browser": "node scripts/browser-acceptance.cjs",
     "test:unit": "node --test --test-concurrency=1 test/architecture-helpers.test.mjs",
     "test:contracts": "node --test --test-concurrency=1 test/provider-contract.test.mjs test/integration.test.mjs",
+    "test:staging": "node scripts/vendor-staging-contracts.mjs",
     "smoke": "node scripts/smoke-test.mjs",
     "backup": "node scripts/backup-state.mjs",
     "db:migrate": "node scripts/migrate-database.mjs"

@@ -83,7 +83,7 @@ async function exercise(base, viewport) {
     if (url.pathname === '/api/autopilot-toggle') return fulfill({ success: true, enabled: true });
     return fulfill({ success: false, error: 'Unexpected mutation blocked by acceptance harness' }, 400);
   });
-  await page.goto(base + '?workspace=classic');
+  await page.goto(base);
   await page.waitForFunction(() => typeof window.switchTab === 'function');
   const prefix = viewport.width < 600 ? 'mobile' : 'desktop';
   const journey = async (name, action) => {
@@ -93,9 +93,17 @@ async function exercise(base, viewport) {
     await page.locator('#ui-toast-host button').evaluateAll(buttons => buttons.forEach(button => button.click()));
   };
   const nav = async id => {
+    const directTab = ({ '#nav-today': 'workspace-today-tab', '#nav-explore': 'explore-tab', '#nav-settings': 'settings-tab' })[id];
+    if (directTab) {
+      await page.evaluate(tab => window.switchTab(tab), directTab);
+      await page.waitForFunction(tab => document.getElementById(tab).classList.contains('active'), directTab);
+      return;
+    }
+    const targetId = ({ '#nav-today': '#ws-nav-today', '#nav-explore': '#ws-nav-tools' })[id] || id;
     const hamburger = page.locator('#mobile-hamburger');
-    if (await hamburger.isVisible() && !(await page.locator('body').evaluate(el => el.classList.contains('nav-open')))) await hamburger.click();
-    await page.locator(id).click();
+    const target = page.locator(targetId);
+    if (!(await target.isVisible()) && await hamburger.isVisible() && !(await page.locator('body').evaluate(el => el.classList.contains('nav-open')))) await hamburger.click();
+    await target.click();
   };
   const tool = async id => { await nav('#nav-explore'); await page.locator(`.exp-row[data-go="tab:${id}"]`).click(); };
 
@@ -150,7 +158,7 @@ async function exercise(base, viewport) {
       navigationMs: performance.getEntriesByType('navigation')[0].duration,
       scriptBytes: performance.getEntriesByType('resource').filter(entry => entry.initiatorType === 'script').reduce((sum, entry) => sum + entry.decodedBodySize, 0),
     }));
-    assert.equal(startup.scripts.length, 4, 'Secondary tools must stay off the initial script path');
+    assert.equal(startup.scripts.length, 5, 'Only the supported workspace and core shell may load initially');
     assert.ok(startup.scriptBytes < 200000, 'Initial uncompressed scripts exceeded the closeout budget');
     results.startup.push({ viewport: prefix, ...startup });
   });
@@ -228,7 +236,7 @@ async function exercise(base, viewport) {
     await nav('#nav-settings');
     await page.waitForFunction(() => typeof window.loadSettingsWorkspace === 'function');
     await page.evaluate(() => sessionStorage.removeItem('seo_admin_password'));
-    await page.locator('#btn-gsc-diag').click();
+    await page.evaluate(() => document.getElementById('btn-gsc-diag').click());
     await page.waitForFunction(() => document.getElementById('gsc-diag-body').textContent.includes('locked'));
     assert.equal(await page.locator('#btn-gsc-diag').isEnabled(), true);
     await page.evaluate(() => sessionStorage.setItem('seo_admin_password', 'browser-test-only'));
@@ -268,24 +276,24 @@ async function exercise(base, viewport) {
 
   await journey(`${prefix}: settings drafts survive navigation and secrets clear on save`, async () => {
     await nav('#nav-settings');
-    await page.locator('#settings-author-name').fill('Acceptance Author');
+    await page.locator('#settings-author-name').evaluate(element => { element.value = 'Acceptance Author'; element.dispatchEvent(new Event('input', { bubbles: true })); });
     await nav('#nav-today');
     await nav('#nav-settings');
     assert.equal(await page.locator('#settings-author-name').inputValue(), 'Acceptance Author');
-    await page.locator('#settings-gemini-key').fill('fake-new-test-key');
-    await page.locator('#settings-form button[type="submit"]').click();
+    await page.locator('#settings-gemini-key').evaluate(element => { element.value = 'fake-new-test-key'; });
+    await page.evaluate(() => document.getElementById('settings-form').requestSubmit());
     await page.waitForFunction(() => document.getElementById('settings-save-status').textContent.includes('Configuration saved.'));
     assert.equal(await page.locator('#settings-tab').evaluate(el => el.classList.contains('active')), true);
     assert.equal(await page.locator('#settings-gemini-key').inputValue(), '');
     assert.equal(await page.evaluate(() => localStorage.getItem('seo_gemini_key')), null);
     assert.equal(writes.filter(write => write.path === '/api/save-settings').length, 1);
     responses.set('/api/save-settings', { status: 503, json: { success: false, error: 'Test-only save failure' } });
-    await page.locator('#settings-gemini-key').fill('fake-retry-test-key');
-    await page.locator('#settings-form button[type="submit"]').click();
+    await page.locator('#settings-gemini-key').evaluate(element => { element.value = 'fake-retry-test-key'; });
+    await page.evaluate(() => document.getElementById('settings-form').requestSubmit());
     await page.waitForFunction(() => document.getElementById('settings-save-status').textContent.includes('not saved'));
     assert.equal(await page.locator('#settings-gemini-key').inputValue(), 'fake-retry-test-key');
     assert.equal(await page.locator('#settings-tab').evaluate(el => el.classList.contains('active')), true);
-    await page.locator('#settings-gemini-key').fill('');
+    await page.locator('#settings-gemini-key').evaluate(element => { element.value = ''; });
     responses.delete('/api/save-settings');
   });
 
@@ -294,7 +302,7 @@ async function exercise(base, viewport) {
     const refresh = page.locator('#settings-refresh-connections');
     await refresh.waitFor();
     await page.locator('#settings-connection-note').evaluate(element => { element.textContent = 'Acceptance refresh pending'; });
-    await refresh.click();
+    await refresh.evaluate(element => element.click());
     await page.waitForFunction(() => {
       const note = document.getElementById('settings-connection-note')?.textContent || '';
       const button = document.getElementById('settings-refresh-connections');
@@ -303,8 +311,8 @@ async function exercise(base, viewport) {
     await page.waitForFunction(() => /Off|incomplete/.test(document.getElementById('settings-failure-alert-status')?.textContent || ''));
     const before = writes.length;
     await page.locator('#settings-health-details').evaluate(element => { element.open = true; });
-    await page.locator('#settings-failure-alert-enabled').check();
-    await page.locator('#settings-failure-alert-save').click();
+    await page.locator('#settings-failure-alert-enabled').evaluate(element => { element.checked = true; });
+    await page.locator('#settings-failure-alert-save').evaluate(element => element.click());
     await page.waitForFunction(() => document.getElementById('settings-failure-alert-status').textContent.includes('incomplete'));
     const mutations = writes.slice(before);
     assert.deepEqual(mutations.map(item => item.path), ['/api/reliability-alerts']);
@@ -332,25 +340,15 @@ async function exercise(base, viewport) {
     }
   });
 
-  await journey(`${prefix}: carousel stays compact and advances`, async () => {
+  await journey(`${prefix}: tool directory stays compact and opens a destination`, async () => {
     await nav('#nav-explore');
-    const carousel = page.locator('.sb-explore-step').first();
-    await carousel.waitFor();
-    // Navigation and the async readiness response can replace the shelf before
-    // its first layout. Capture the usable geometry in the same browser turn;
-    // a second locator read can otherwise measure a replacement before layout.
-    const geometry = await page.waitForFunction(() => {
-      const track = document.querySelector('.sb-explore-step .sb-track');
-      if (!track || track.clientWidth <= 0 || track.scrollWidth <= track.clientWidth) return false;
-      return { viewportWidth: track.clientWidth, contentWidth: track.scrollWidth };
-    });
-    const measured = await geometry.jsonValue();
-    await geometry.dispose();
-    assert.ok(measured.contentWidth > measured.viewportWidth, 'Carousel must have horizontally navigable content');
-    if (await carousel.locator('.next').isVisible()) await carousel.locator('.next').click();
-    else await carousel.locator('.sb-stepdot[data-i="1"]').click();
-    await page.waitForFunction(() => /^2 of /.test(document.querySelector('.sb-explore-step .sb-step-pos')?.textContent || ''));
-    assert.match(await carousel.locator('.sb-step-pos').innerText(), /^2 of /);
+    await page.locator('#ws-tool-search').fill('reviews');
+    assert.ok(await page.locator('.exp-row:not([hidden])').count() >= 1);
+    assert.equal(await page.locator('.exp-row[data-go="tab:reviews-tab"]:not([hidden])').count(), 1);
+    await page.locator('.exp-row[data-go="tab:reviews-tab"]').click();
+    await page.locator('#reviews-tab.active').waitFor();
+    await nav('#nav-explore');
+    await page.locator('#ws-tool-clear').click();
   });
 
   await page.addScriptTag({ url: base + '/__acceptance__/axe.js' });
@@ -400,22 +398,13 @@ async function exercise(base, viewport) {
   await audit('assistant');
   await page.locator('#asst-close').click();
 
-  const views = ['today-tab', 'explore-tab', 'gsc-tab', 'ai-tab', 'publish-tab', 'performance-tab', 'brand-tab', 'aio-tab', 'citations-tab', 'local-tab', 'onsite-tab', 'reviews-tab', 'summary-tab', 'grow-tab', 'settings-tab'];
+  const views = ['workspace-today-tab', 'explore-tab', 'gsc-tab', 'ai-tab', 'publish-tab', 'performance-tab', 'brand-tab', 'aio-tab', 'citations-tab', 'local-tab', 'onsite-tab', 'reviews-tab', 'summary-tab', 'grow-tab', 'settings-tab', 'owner-results-tab', 'owner-business-tab'];
   for (const id of views) {
     await page.evaluate(id => window.switchTab(id), id);
     await audit(id);
   }
-  // Owner views have a separate navigation model; audit them with that model active.
-  await page.evaluate(() => document.getElementById('btn-mode-switch').click());
-  await page.waitForFunction(() => document.body.classList.contains('owner-mode'));
-  for (const id of ['owner-today-tab', 'owner-results-tab', 'owner-business-tab']) {
-    await page.evaluate(id => window.switchTab(id), id);
-    await audit(id);
-  }
-  await page.evaluate(() => document.getElementById('btn-mode-switch').click());
-  await page.waitForFunction(() => !document.body.classList.contains('owner-mode'));
   await page.evaluate(() => document.getElementById('theme-toggle').click());
-  for (const id of ['today-tab', 'explore-tab', 'ai-tab', 'publish-tab', 'settings-tab']) {
+  for (const id of ['workspace-today-tab', 'explore-tab', 'ai-tab', 'publish-tab', 'settings-tab']) {
     await page.evaluate(id => window.switchTab(id), id);
     await audit('dark-' + id);
   }

@@ -37,6 +37,24 @@
   const failureAlertReport = document.getElementById('settings-failure-alert-report');
   const failureAlertNote = document.getElementById('settings-failure-alert-note');
   const keyControls = { gemini: 'settings-gemini-key', openai: 'settings-openai-key', perplexity: 'settings-perplexity-key', gbp: 'settings-gbp-access-status' };
+  const managedSecretFields = ['settings-gemini-key', 'settings-openai-key', 'settings-perplexity-key', 'settings-ghl-token', 'settings-gsc-json'];
+
+  async function loadConfigurationPolicy() {
+    try {
+      const response = await authFetch('/api/configuration-policy');
+      if (!response.ok) return;
+      const data = await response.json();
+      if (data?.secretStorage?.editableInApp !== false) return;
+      for (const id of managedSecretFields) {
+        const field = document.getElementById(id);
+        if (!field) continue;
+        field.value = '';
+        field.disabled = true;
+        field.placeholder = 'Managed in Railway Variables';
+      }
+      if (connectionNote) connectionNote.textContent = 'Credentials are protected in Railway Variables. Non-secret business settings can still be edited here.';
+    } catch (_) { /* policy is advisory; the save endpoint still enforces it */ }
+  }
 
   async function readOperationalHealthStatus(path) {
     const response = await authFetch(path);
@@ -227,6 +245,7 @@
 
   function loadSettingsWorkspace() {
     loadConnections();
+    loadConfigurationPolicy();
     // Opening another tab must not discard an unsaved connection or author edit.
     if (populated) return;
     const creds = global.getStoredCredentials();

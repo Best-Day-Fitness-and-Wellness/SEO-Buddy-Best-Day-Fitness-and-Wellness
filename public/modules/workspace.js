@@ -99,7 +99,7 @@
     } else if (replay) depth = history.state?.seoWorkspace?.depth || 0;
     current = tab;
     renderTab(tab, { render: true });
-    document.body.classList.remove('nav-open', 'owner-mode');
+    document.body.classList.remove('nav-open');
     const [slug, title, group] = ROUTES[tab];
     document.title = title + ' · SEO Buddy';
     $('page-title').textContent = title;

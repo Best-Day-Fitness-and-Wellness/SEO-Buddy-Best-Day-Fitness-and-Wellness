@@ -326,11 +326,11 @@ test('supplied logo variants and shortcut icons are served without authenticatio
   assert.doesNotMatch(html, /--sb-mark-core|--sb-mark-tick/);
 });
 
-test('legacy recovery is present in the shell but hidden before workspace startup', async () => {
+test('retired interfaces are absent from the production shell', async () => {
   const response = await request('/', { auth: false });
   assert.equal(response.status, 200);
   const html = await response.text();
-  assert.match(html, /<a\b[^>]*href="\?workspace=classic"[^>]*id="ws-classic"[^>]*\bhidden>Open recovery interface<\/a>/);
+  assert.doesNotMatch(html, /workspace=classic|id="ws-classic"|id="btn-mode-switch"|id="today-tab"|id="owner-today-tab"/);
   assert.doesNotMatch(html, />Previous interface</);
 });
 
@@ -367,7 +367,6 @@ test('static assets compress, cache briefly, and keep PDF code off the critical 
   const siteOptimizationAsset = html.match(/data-site-optimization-asset="(\/assets\/site-optimization\.[a-f0-9]{12}\.js)"/)?.[1];
   const aiVisibilityAsset = html.match(/data-ai-visibility-asset="(\/assets\/ai-visibility\.[a-f0-9]{12}\.js)"/)?.[1];
   const brandProfileAsset = html.match(/data-brand-profile-asset="(\/assets\/brand-profile\.[a-f0-9]{12}\.js)"/)?.[1];
-  const ownerModeAsset = html.match(/data-owner-mode-asset="(\/assets\/owner-mode\.[a-f0-9]{12}\.js)"/)?.[1];
   const ownerViewsAsset = html.match(/data-owner-views-asset="(\/assets\/owner-views\.[a-f0-9]{12}\.js)"/)?.[1];
   const searchOpportunitiesAsset = html.match(/data-search-opportunities-asset="(\/assets\/search-opportunities\.[a-f0-9]{12}\.js)"/)?.[1];
   const settingsAsset = html.match(/data-settings-asset="(\/assets\/settings\.[a-f0-9]{12}\.js)"/)?.[1];
@@ -380,7 +379,6 @@ test('static assets compress, cache briefly, and keep PDF code off the critical 
   assert.ok(siteOptimizationAsset, 'Site Optimization must have a versioned lazy asset');
   assert.ok(aiVisibilityAsset, 'AI Visibility must have a versioned lazy asset');
   assert.ok(brandProfileAsset, 'Brand Voice must have a versioned lazy asset');
-  assert.ok(ownerModeAsset, 'Owner mode must have a versioned lazy asset');
   assert.ok(ownerViewsAsset, 'Shared Results and Business must have a versioned lazy asset');
   assert.equal(hashedAssets.includes(ownerViewsAsset), false, 'Shared views must stay off the initial script path');
   assert.ok(searchOpportunitiesAsset, 'Search opportunities must have a versioned lazy asset');
@@ -394,7 +392,6 @@ test('static assets compress, cache briefly, and keep PDF code off the critical 
   assert.equal(hashedAssets.includes(siteOptimizationAsset), false, 'Site Optimization must not execute on the initial path');
   assert.equal(hashedAssets.includes(aiVisibilityAsset), false, 'AI Visibility must not execute on the initial path');
   assert.equal(hashedAssets.includes(brandProfileAsset), false, 'Brand Voice must not execute on the initial path');
-  assert.equal(hashedAssets.includes(ownerModeAsset), false, 'Owner mode must not execute on the initial path');
   assert.equal(hashedAssets.includes(searchOpportunitiesAsset), false, 'Search opportunities must not execute on the initial path');
   assert.equal(hashedAssets.includes(settingsAsset), false, 'Settings must not execute on the initial path');
   for (const asset of hashedAssets) {
@@ -403,7 +400,7 @@ test('static assets compress, cache briefly, and keep PDF code off the critical 
     assert.equal(response.status, 200, `${asset} must be served`);
     assert.match(response.headers.get('cache-control') || '', /max-age=31536000, immutable/);
   }
-  for (const asset of [reviewsAsset, recordedContentAsset, pdfReportAsset, citationAsset, localPresenceAsset, performanceAsset, siteOptimizationAsset, aiVisibilityAsset, brandProfileAsset, ownerModeAsset, searchOpportunitiesAsset, settingsAsset]) {
+  for (const asset of [reviewsAsset, recordedContentAsset, pdfReportAsset, citationAsset, localPresenceAsset, performanceAsset, siteOptimizationAsset, aiVisibilityAsset, brandProfileAsset, searchOpportunitiesAsset, settingsAsset]) {
     const response = await request(asset, { auth: false, headers: { 'Accept-Encoding': 'gzip' } });
     assert.equal(response.status, 200, `${asset} must be served lazily`);
     assert.match(response.headers.get('cache-control') || '', /max-age=31536000, immutable/);
@@ -444,7 +441,7 @@ test('static assets compress, cache briefly, and keep PDF code off the critical 
   assert.match(source, /ensureSiteOptimizationFeature/);
   assert.match(source, /ensureAiVisibilityFeature/);
   assert.match(source, /ensureBrandProfileFeature/);
-  assert.match(source, /ensureOwnerModeFeature/);
+  assert.doesNotMatch(source, /ensureOwnerModeFeature|btn-mode-switch|owner-mode\.js/);
   assert.match(source, /ensureSearchOpportunitiesFeature/);
   assert.match(source, /ensureSettingsFeature/);
   assert.match(source, /ensureContentWorkspaceFeature/);
@@ -453,7 +450,6 @@ test('static assets compress, cache briefly, and keep PDF code off the critical 
   assert.match(source, /migrateLegacyBrowserSecrets\(\)/);
   assert.match(source, /window\.getStoredCredentials/);
   assert.match(source, /btn-goto-brand/);
-  assert.match(source, /btn-mode-switch/);
   assert.match(source, /window\.loadKeywordIntoCreator/);
   assert.match(source, /fetch\('\/api\/performance'\)\.catch/);
 
@@ -468,7 +464,6 @@ test('static assets compress, cache briefly, and keep PDF code off the critical 
   const siteOptimizationSource = await (await request('/modules/site-optimization.js', { auth: false })).text();
   const aiVisibilitySource = await (await request('/modules/ai-visibility.js', { auth: false })).text();
   const brandProfileSource = await (await request('/modules/brand-profile.js', { auth: false })).text();
-  const ownerModeSource = await (await request('/modules/owner-mode.js', { auth: false })).text();
   const ownerViewsSource = await (await request('/modules/owner-views.js', { auth: false })).text();
   const workspaceSource = await (await request('/modules/workspace.js', { auth: false })).text();
   const searchOpportunitiesSource = await (await request('/modules/search-opportunities.js', { auth: false })).text();
@@ -524,20 +519,13 @@ test('static assets compress, cache briefly, and keep PDF code off the critical 
   assert.match(brandProfileSource, /seo:readiness-changed/);
   assert.doesNotMatch(brandProfileSource, /btn-goto-brand/);
   assert.doesNotMatch(brandProfileSource, /bpLoad\(\);/);
-  assert.match(ownerModeSource, /global\.setOwnerMode/);
-  assert.match(ownerModeSource, /global\.loadOwnerToday/);
-  assert.doesNotMatch(ownerModeSource, /function loadOwnerResults|function loadOwnerBusiness/);
   assert.match(ownerViewsSource, /global\.loadOwnerResults/);
   assert.match(ownerViewsSource, /global\.loadOwnerBusiness/);
   assert.doesNotMatch(ownerViewsSource, /setOwnerMode|loadOwnerToday|data-ow="|authFetch/);
   assert.doesNotMatch(workspaceSource, /features\.length\s*!==\s*\d+/, 'Today must not break when another valid automation is added');
   assert.match(workspaceSource, /new Set\(data\.features\.map/);
-  assert.match(ownerModeSource, /\/api\/next-moves/);
   assert.match(ownerViewsSource, /\/api\/performance/);
   assert.match(ownerViewsSource, /\/api\/business-profile/);
-  assert.match(ownerModeSource, /seo:readiness-changed/);
-  assert.doesNotMatch(ownerModeSource, /btn-mode-switch/);
-  assert.doesNotMatch(ownerModeSource, /window\.loadToday|window\.loadGetStarted|window\.refreshReadinessBoard/);
   assert.match(searchOpportunitiesSource, /global\.syncGSCData/);
   assert.match(searchOpportunitiesSource, /global\.setDataMode/);
   assert.match(searchOpportunitiesSource, /payload\.source === 'live_gsc' \? 'live'/);

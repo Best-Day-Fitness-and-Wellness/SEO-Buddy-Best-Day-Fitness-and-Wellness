@@ -68,7 +68,7 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
       await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
       assert.equal(await heading.evaluate(el => el === document.activeElement), false, 'Startup must not autofocus the heading');
       assert.equal(await heading.evaluate(el => getComputedStyle(el).outlineStyle), 'none', 'Refresh must not draw a heading box');
-      assert.equal(await page.locator('#ws-classic').isVisible(), false, 'Recovery must not appear during normal startup or refresh');
+      assert.equal(await page.locator('#ws-classic').count(), 0, 'Retired recovery controls must not exist');
     };
     for (const slug of ['today', 'tools']) {
       // A different query forces a fresh document on the app's own origin;
@@ -93,7 +93,7 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
     await page.route('**/assets/owner-views.*.js', fail);
     try {
       await load('results', '?shared-views-check=1');
-      await page.getByText('Could not load Owner mode. Refresh and try again.', { exact: true }).waitFor();
+      await page.getByText('Could not load this workspace view. Refresh and try again.', { exact: true }).waitFor();
       assert.equal(await page.locator('script[src*="/owner-mode."]').count(), 0);
     } finally {
       await page.unroute('**/assets/owner-views.*.js', fail);
@@ -114,26 +114,23 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
     assert.equal(writes.length, before, 'Reading shared views must not send mutations');
   });
 
-  await journey(`${prefix}: normal navigation hides legacy entry while emergency and preview bookmarks still work`, async () => {
+  await journey(`${prefix}: retired interface bookmarks resolve to the supported workspace`, async () => {
     const before = writes.length;
     await page.evaluate(() => localStorage.setItem('seo_owner_mode', '1'));
     await page.goto(base);
     await location('today');
-    assert.equal(await page.locator('body.workspace-preview:not(.owner-mode)').count(), 1);
+    assert.equal(await page.locator('body.workspace-preview').count(), 1);
     assert.equal(await page.locator('#workspace-nav .nav-item:visible').count(), 4);
     assert.equal(await page.getByText('Navigation preview', { exact: true }).count(), 0);
-    assert.equal(await page.locator('#ws-classic').isVisible(), false);
+    assert.equal(await page.locator('#ws-classic').count(), 0);
     assert.equal(await page.getByText('Previous interface', { exact: true }).count(), 0);
     await page.goto(base + '?workspace=classic');
-    await page.waitForFunction(() => document.body.classList.contains('owner-mode'));
-    assert.equal(new URL(page.url()).searchParams.get('workspace'), 'classic');
-    assert.equal(await page.locator('body.workspace-preview').count(), 0);
-    assert.equal(await page.locator('script[src*="/workspace."]').count(), 0);
-    if (prefix === 'mobile') await page.locator('#mobile-hamburger').click();
-    await page.locator('#ws-return').click();
+    await page.waitForFunction(() => !!window.SeoBuddyWorkspace);
     await location('today');
-    assert.notEqual(new URL(page.url()).searchParams.get('workspace'), 'classic');
-    assert.equal(await page.locator('#ws-classic').isVisible(), false);
+    assert.equal(new URL(page.url()).searchParams.get('workspace'), 'classic');
+    assert.equal(await page.locator('body.workspace-preview').count(), 1);
+    assert.equal(await page.locator('script[src*="/workspace."]').count(), 1);
+    assert.equal(await page.locator('#ws-return').count(), 0);
     assert.equal(await page.evaluate(() => localStorage.getItem('seo_owner_mode')), '1');
     await page.goto(base + '?workspace=preview#/tools');
     await page.locator('#ws-tool-search').waitFor();
@@ -142,25 +139,21 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
     await page.evaluate(() => localStorage.removeItem('seo_owner_mode'));
   });
 
-  await journey(`${prefix}: failed default workspace still offers a working classic recovery link`, async () => {
+  await journey(`${prefix}: failed workspace startup offers a safe reload message`, async () => {
     const before = writes.length;
     const failWorkspace = route => route.abort();
     await page.route('**/assets/workspace.*.js', failWorkspace);
     try {
       await page.goto(base);
       await page.locator('#ws-load-error:visible').waitFor();
-      assert.match(await page.locator('#ws-load-error').innerText(), /recovery interface/);
-      assert.equal(await page.getByRole('link', { name: 'Open recovery interface' }).isVisible(), true);
-      await page.locator('#ws-classic').click();
-      await page.waitForFunction(() => document.getElementById('td-hero').textContent.trim().length > 0);
-      assert.equal(new URL(page.url()).searchParams.get('workspace'), 'classic');
-      assert.equal(await page.locator('body.workspace-preview').count(), 0);
+      assert.match(await page.locator('#ws-load-error').innerText(), /reload this page/i);
+      assert.equal(await page.locator('#ws-classic').count(), 0);
     } finally {
       await page.unroute('**/assets/workspace.*.js', failWorkspace);
     }
     await page.goto(base);
     await location('today');
-    assert.equal(await page.locator('#ws-classic').isVisible(), false, 'Recovery must disappear after a successful reload');
+    assert.equal(await page.locator('#ws-classic').count(), 0);
     assert.equal(await page.locator('#ws-load-error').isVisible(), false);
     assert.equal(writes.length, before, 'Recovery must not write settings or trigger provider actions');
   });
@@ -169,7 +162,7 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
     await load('today');
     await page.waitForFunction(() => document.querySelectorAll('.ws-automation').length === 7);
     assert.equal(await page.locator('#workspace-nav .nav-item:visible').count(), 4);
-    assert.equal(await page.locator('#btn-mode-switch').isVisible(), false);
+    assert.equal(await page.locator('#btn-mode-switch').count(), 0);
     assert.equal(await page.locator('.nav-menu:not(#workspace-nav):visible').count(), 0);
     assert.match(await page.locator('#ws-today').innerText(), /There are things to review/);
     assert.equal(await page.locator('.ws-automation details[open]').count(), 0);
@@ -1056,7 +1049,7 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
   const routes = await page.evaluate(() => Object.keys(window.SeoBuddyWorkspace.routes));
   for (const id of routes) {
     await page.evaluate(id => window.switchTab(id), id);
-    assert.equal(await page.locator('#ws-classic').isVisible(), false);
+    assert.equal(await page.locator('#ws-classic').count(), 0);
     await audit('preview-' + id);
   }
   await page.evaluate(() => document.getElementById('theme-toggle').click());
@@ -1065,7 +1058,7 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
   await open('#ws-walkthrough-skip');
   for (const id of ['workspace-today-tab', 'approvals-tab', 'owner-results-tab', 'explore-tab', 'owner-business-tab', 'settings-tab']) {
     await page.evaluate(id => window.switchTab(id), id);
-    assert.equal(await page.locator('#ws-classic').isVisible(), false);
+    assert.equal(await page.locator('#ws-classic').count(), 0);
     await audit('preview-dark-' + id);
   }
 };

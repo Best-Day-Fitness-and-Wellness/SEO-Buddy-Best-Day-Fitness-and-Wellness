@@ -1,0 +1,28 @@
+name: Vendor staging contracts
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  read-only-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: vendor-staging
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Verify live read-only vendor contracts
+        run: npm run test:staging
+        env:
+          RUN_VENDOR_STAGING_CONTRACTS: '1'
+          STAGING_BASE_URL: ${{ vars.STAGING_BASE_URL }}
+          STAGING_OWNER_TOKEN: ${{ secrets.STAGING_OWNER_TOKEN }}

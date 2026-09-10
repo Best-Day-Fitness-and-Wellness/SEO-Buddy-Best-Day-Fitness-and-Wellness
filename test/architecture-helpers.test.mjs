@@ -30,6 +30,8 @@ const { loadMigrations } = require('../lib/postgres-store.js');
 const { createDurableJobQueue } = require('../lib/durable-job-queue.js');
 const { createSwitchableJobQueue } = require('../lib/job-queue.js');
 const { createJobWorker } = require('../lib/job-worker.js');
+const { resolveProcessRole } = require('../lib/process-role.js');
+const { createBackgroundRuntime } = require('../lib/background-runtime.js');
 const { createPostgresJobQueue, publicJob: publicPostgresJob } = require('../lib/postgres-job-queue.js');
 const { registerProfileRoutes } = require('../lib/profile-routes.js');
 const { normalizeBudget, registerUsageRoutes } = require('../lib/usage-routes.js');
@@ -298,6 +300,62 @@ test('PostgreSQL state bridge replays a pending write before hydration', async (
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('PostgreSQL state bridge commits pending keys as one database batch', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'seo-buddy-postgres-batch-'));
+  try {
+    const repository = createFileStateRepository({ storageRoot: root, tenantId: 'batch-test' });
+    const writes = [];
+    const bridge = createPostgresStateBridge({
+      repository,
+      store: { putStates: async (tenantId, entries) => writes.push({ tenantId, entries }) },
+    });
+    bridge.capture(repository.pathFor('usage.json'), { count: 1 });
+    bridge.capture(repository.pathFor('health-score.json'), { score: 73 });
+    assert.equal(await bridge.flush(), true);
+    assert.equal(writes.length, 1);
+    assert.deepEqual(writes[0], {
+      tenantId: 'batch-test',
+      entries: { 'usage.json': { count: 1 }, 'health-score.json': { score: 73 } },
+    });
+    bridge.close();
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('process roles separate web scheduling from background execution', async () => {
+  assert.deepEqual(resolveProcessRole({ PROCESS_ROLE: 'web' }), { name: 'web', servesWeb: true, schedules: true, worksJobs: false });
+  assert.deepEqual(resolveProcessRole({ PROCESS_ROLE: 'worker' }), { name: 'worker', servesWeb: false, schedules: false, worksJobs: true });
+  assert.deepEqual(resolveProcessRole({}), { name: 'all', servesWeb: true, schedules: true, worksJobs: true });
+  assert.throws(() => resolveProcessRole({ PROCESS_ROLE: 'invalid' }), /all, web, or worker/);
+
+  const calls = [];
+  const runtime = createBackgroundRuntime({
+    role: resolveProcessRole({ PROCESS_ROLE: 'web' }),
+    worker: { start: () => calls.push('worker:start'), stop: async () => calls.push('worker:stop') },
+    dispatcher: {
+      scheduleDaily: type => calls.push(`daily:${type}`),
+      scheduleCheck: type => calls.push(`check:${type}`),
+      stop: () => calls.push('dispatcher:stop'),
+    },
+    handlers: new Map(),
+    featureHandlers: { 'health.snapshot': async () => ({ recorded: true }) },
+    startContentSchedule: () => calls.push('content:start'),
+    stopContentSchedule: () => calls.push('content:stop'),
+    scheduleHealthSnapshots: () => calls.push('health:schedule'),
+    recurringChecks: [{ type: 'local.autopilot', initialDelayMs: 1, intervalMs: 2 }],
+    reindexRepairedPosts: async () => calls.push('reindex'),
+    logger: { info() {}, error() {} },
+  });
+  runtime.start();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(calls.includes('worker:start'), false);
+  assert.ok(calls.includes('content:start'));
+  assert.ok(calls.includes('check:local.autopilot'));
+  await runtime.stop();
+  assert.equal(calls.includes('worker:stop'), false);
 });
 
 test('durable jobs are idempotent, leased, completed, and never expose payloads in snapshots', () => {
@@ -1459,6 +1517,9 @@ test('configuration routes preserve secrets, credentials, validation, activation
     GHL_BLOG_PATH_PREFIX: 'articles',
     ADMIN_PASSWORD: 'owner-secret',
   });
+  assert.deepEqual(normalizeSettings({ geminiKey: 'new', ghlLocation: 'location-2' }, {
+    GEMINI_API_KEY: 'existing', ADMIN_PASSWORD: 'owner-secret', GHL_LOCATION_ID: 'location-1',
+  }, { persistSecrets: false }), { GHL_LOCATION_ID: 'location-2' });
   assert.deepEqual(normalizeSettings({ gbpAccessStatus: 'pending', gbpCaseId: ' 6-1234000012345 ', gbpSubmittedAt: '2026-09-08' }, {}), {
     GBP_API_ACCESS_STATUS: 'pending',
     GBP_API_CASE_ID: '6-1234000012345',
@@ -1577,6 +1638,39 @@ test('configuration routes preserve secrets, credentials, validation, activation
   assert.equal(invalidSecret.statusCode, 400);
   assert.match(invalidSecret.body.error, /control characters/);
   assert.deepEqual(errors.at(-1), ['[Settings] Failed to save server settings:', 'GoHighLevel access token contains unsupported control characters.']);
+});
+
+test('managed configuration rejects UI credential replacement without persisting secret values', () => {
+  const routes = new Map();
+  const app = {
+    get(path, ...handlers) { routes.set(`GET ${path}`, handlers); },
+    post(path, ...handlers) { routes.set(`POST ${path}`, handlers); },
+  };
+  const writes = [];
+  const environment = { GEMINI_API_KEY: 'managed-value', ADMIN_PASSWORD: 'owner-value', GHL_LOCATION_ID: 'old-location' };
+  const requireOwner = () => {};
+  registerConfigurationRoutes(app, {
+    requireOwner,
+    configDir: '/managed',
+    environment,
+    secretStorageMode: 'managed',
+    parseServiceAccountJson: () => ({ creds: null }),
+    reloadEnvironment() {}, reinitializeGemini() {}, clearCaches() {}, getStorageStatus: () => ({}),
+    writePrivateFile: (...args) => writes.push(args),
+  });
+  const response = () => ({ statusCode: 200, body: null, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } });
+  const blocked = response();
+  routes.get('POST /api/save-settings').at(-1)({ body: { geminiKey: 'replacement' } }, blocked);
+  assert.equal(blocked.statusCode, 409);
+  assert.equal(blocked.body.code, 'MANAGED_SECRETS_REQUIRED');
+  assert.equal(writes.length, 0);
+
+  const policy = response();
+  routes.get('GET /api/configuration-policy').at(-1)({}, policy);
+  assert.equal(policy.body.secretStorage.mode, 'managed');
+  assert.equal(policy.body.secretStorage.editableInApp, false);
+  assert.equal(policy.body.secretStorage.configured.gemini, true);
+  assert.equal(JSON.stringify(policy.body).includes('managed-value'), false);
 });
 
 test('reviews service preserves parsing, audits, snapshots, coalescing, caching, and route failures', async () => {

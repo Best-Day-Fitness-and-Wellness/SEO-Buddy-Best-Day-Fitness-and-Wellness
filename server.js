@@ -83,19 +83,24 @@ const { registerConfigurationRoutes } = require('./lib/configuration-routes');
 const { buildOperationalHealth } = require('./lib/operational-health');
 const { createCredentialMetadata } = require('./lib/credential-metadata');
 const { createReliabilityAlertService, registerReliabilityAlertRoutes } = require('./lib/reliability-alerts');
+const { resolveProcessRole } = require('./lib/process-role');
+const { createBackgroundRuntime } = require('./lib/background-runtime');
 
-// Load UI-saved secrets from the durable storage root. Tenant state is isolated
-// below this root after configuration is loaded; host-provided variables still
-// win unless a user explicitly saves a replacement through Settings.
+// Load volume-backed configuration before composition. Deployments using
+// SECRET_STORAGE_MODE=managed keep credentials in host variables; dotenv's
+// default no-override behavior preserves those authoritative values.
 const CONFIG_DIR = process.env.DATA_DIR || __dirname;
 dotenv.config({ path: path.join(CONFIG_DIR, '.env') });
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const APP_MODE = resolveAppMode(process.env);
+const PROCESS_ROLE = resolveProcessRole(process.env);
 const STATE_BACKEND_MODE = String(process.env.STATE_BACKEND || 'filesystem').trim().toLowerCase();
+const SECRET_STORAGE_MODE = String(process.env.SECRET_STORAGE_MODE || 'volume').trim().toLowerCase();
 if (!['filesystem', 'postgres'].includes(STATE_BACKEND_MODE)) throw new Error('STATE_BACKEND must be filesystem or postgres.');
 if (STATE_BACKEND_MODE === 'postgres' && !process.env.DATABASE_URL) throw new Error('STATE_BACKEND=postgres requires DATABASE_URL.');
+if (!['volume', 'managed'].includes(SECRET_STORAGE_MODE)) throw new Error('SECRET_STORAGE_MODE must be volume or managed.');
 const ALLOW_MOCK_INTEGRATIONS = mocksAllowed(APP_MODE, process.env);
 const BOOTED_AT = new Date().toISOString();
 const logger = createLogger({ service: 'seo-buddy', environment: APP_MODE });
@@ -137,7 +142,6 @@ const BROWSER_ASSETS = buildBrowserAssets(PUBLIC_DIR, [
   { token: 'SITE_OPTIMIZATION_ASSET', file: 'modules/site-optimization.js' },
   { token: 'AI_VISIBILITY_ASSET', file: 'modules/ai-visibility.js' },
   { token: 'BRAND_PROFILE_ASSET', file: 'modules/brand-profile.js' },
-  { token: 'OWNER_MODE_ASSET', file: 'modules/owner-mode.js' },
   { token: 'OWNER_VIEWS_ASSET', file: 'modules/owner-views.js' },
   { token: 'SEARCH_OPPORTUNITIES_ASSET', file: 'modules/search-opportunities.js' },
   { token: 'SETTINGS_ASSET', file: 'modules/settings.js' },
@@ -176,6 +180,7 @@ const googleApi = createGoogleApiClient({
   env: process.env,
   baseDir: __dirname,
   logger: console,
+  secretStorageMode: SECRET_STORAGE_MODE,
 });
 const {
   getGoogleAuth,
@@ -225,10 +230,16 @@ const jobWorker = createJobWorker({
   logger,
   workerId: JOB_WORKER_ID,
   isShuttingDown: () => isShuttingDown,
+  reportHeartbeat: async () => {
+    if (postgresMirror && PROCESS_ROLE.worksJobs) {
+      await postgresMirror.touchWorker(stateRepository.tenantId, JOB_WORKER_ID, PROCESS_ROLE.name);
+      postgresStatus.activeWorkers = await postgresMirror.activeWorkers(stateRepository.tenantId);
+    }
+  },
 });
 
 const jobDispatcher = createJobDispatcher({ queue: durableJobQueue, worker: jobWorker, logger });
-const { key: durableJobKey, enqueue: enqueueDurableJob, scheduleCheck: scheduleDurableCheck } = jobDispatcher;
+const { key: durableJobKey, enqueue: enqueueDurableJob } = jobDispatcher;
 let postgresMirror = null;
 let postgresStateBridge = null;
 const postgresStatus = {
@@ -238,15 +249,18 @@ const postgresStatus = {
   lastSyncAt: null,
   syncedFiles: 0,
   pendingWrites: 0,
+  activeWorkers: [],
   error: null,
 };
 
 async function syncPostgresMirror() {
   if (!postgresMirror) return;
   try {
-    postgresStatus.syncedFiles = await postgresMirror.syncFrom(stateRepository);
+    await postgresStateBridge?.flush();
+    postgresStatus.syncedFiles = (await postgresMirror.listStates(stateRepository.tenantId)).length;
     postgresStatus.lastSyncAt = new Date().toISOString();
     postgresStatus.pendingWrites = postgresStateBridge?.status().pendingWrites || 0;
+    postgresStatus.activeWorkers = await postgresMirror.activeWorkers(stateRepository.tenantId);
     postgresStatus.ready = true;
     postgresStatus.error = null;
   } catch (error) {
@@ -265,6 +279,9 @@ async function initializePostgresMirror() {
   }
   postgresStateBridge = createPostgresStateBridge({ repository: stateRepository, store: postgresMirror, logger });
   setJsonWriteObserver(postgresStateBridge.capture);
+  // `npm start` runs prepare-state first. PostgreSQL is hydrated to the local
+  // read cache before this process loads feature services, so runtime sync only
+  // drains new writes; it must never overwrite canonical rows from a stale replica.
   await syncPostgresMirror();
   await postgresStateBridge.flush();
   postgresStatus.pendingWrites = postgresStateBridge.status().pendingWrites;
@@ -447,6 +464,13 @@ app.get('/health/ready', (req, res) => {
   res.status(ready ? 200 : 503).json({ status: ready ? 'ready' : 'not_ready', checks });
 });
 
+// A dedicated worker deployment exposes probes to the platform but does not
+// expose the application or API surface. It only claims PostgreSQL jobs.
+app.use((req, res, next) => {
+  if (PROCESS_ROLE.servesWeb || req.path.startsWith('/health/')) return next();
+  return res.status(404).json({ success: false, error: 'This process serves background work only.' });
+});
+
 // Recording uploads need far more than the default 100kb. Mounted path-first so
 // every other endpoint keeps the small limit.
 // Mounted path-first so the global limit below still protects every other route.
@@ -557,15 +581,19 @@ function currentBudgetStatus() {
   };
 }
 
+function isWorkerAvailable() {
+  return jobWorker.status().running || postgresStatus.activeWorkers.length > 0;
+}
+
 async function currentOperationalHealth({ budget = currentBudgetStatus(), providerSnapshot = providerRuntime.snapshot() } = {}) {
   const queue = await durableJobQueue.snapshot(100);
   return buildOperationalHealth({
     budget,
     providerSnapshot,
     storage: storageReadiness(),
-    workerRunning: jobWorker.status().running,
+    workerRunning: isWorkerAvailable(),
     backups: backupService.list(),
-    automation: buildAutomationStatus(getAutomationFeatures(), queue, jobWorker.status().running),
+    automation: buildAutomationStatus(getAutomationFeatures(), queue, isWorkerAvailable()),
     monthlyReport: monthlyReportService?.status() || null,
     credentialMetadata: credentialMetadata.snapshot(),
   });
@@ -581,6 +609,7 @@ registerOperationsRoutes(app, {
     bootedAt: BOOTED_AT,
     uptimeSeconds: Math.floor(process.uptime()),
     shuttingDown: isShuttingDown,
+    processRole: PROCESS_ROLE.name,
   }),
   storageReadiness,
   requestMetrics,
@@ -592,7 +621,7 @@ registerOperationsRoutes(app, {
   getBudget: currentBudgetStatus,
   backupService,
   durableJobQueue,
-  isJobWorkerRunning: () => jobWorker.status().running,
+  isJobWorkerRunning: isWorkerAvailable,
   getOperationalHealth: currentOperationalHealth,
 });
 
@@ -1034,7 +1063,6 @@ registerAiVisibilityRoutes(app, {
 });
 
 // Staggered startup catch-up + 12h heartbeat so the trend fills on schedule.
-scheduleDurableCheck('ai.visibility', 90000, 12 * 60 * 60 * 1000);
 
 // ============================================================
 // P4a — FACTCHECK / BRAND-ACCURACY MONITOR
@@ -1199,7 +1227,7 @@ const assistantContext = createAssistantContext({
   getSiteDomain: siteDomain,
 });
 // ============================================================
-// USAGE / COST METERING — single-process compatibility boundary.
+// USAGE / COST METERING — tenant-scoped compatibility boundary.
 // Account/month accounting is separate from storage and HTTP. A transactional
 // reservation design is still required before adding application replicas.
 // ============================================================
@@ -1385,7 +1413,6 @@ registerCitationRoutes(app, {
 
 // Background scheduler for the weekly citation auto-scan (staggered from the
 // Local/On-Site autopilots so they don't all fire grounded calls at once).
-scheduleDurableCheck('citation.scan', 60000, 12 * 60 * 60 * 1000);
 
 // ============================================================
 // 16. Local SEO Autopilot — hands-off local upkeep:
@@ -1451,7 +1478,6 @@ registerLocalSeoRoutes(app, {
 registerLocalListingRoutes(app, { requireOwner, state: localDb, save: saveLocal });
 
 // Background scheduler: catch up shortly after boot, then check twice a day.
-scheduleDurableCheck('local.autopilot', 30000, 12 * 60 * 60 * 1000);
 
 // ============================================================
 // 17. On-Site SEO Autopilot — a weekly content & optimization pipeline:
@@ -1485,7 +1511,6 @@ const onsiteAutopilotService = createOnsiteAutopilotService({
   logger: console,
 });
 
-scheduleDurableCheck('onsite.autopilot', 45000, 12 * 60 * 60 * 1000);
 
 // ============================================================
 // 18. OAuth integrations — Gmail direct send + Google Business Profile
@@ -1640,7 +1665,6 @@ registerScheduledFeatureRoutes(app, {
     },
   ],
 });
-scheduleDurableCheck('performance.digest', 75000, 12 * 60 * 60 * 1000);
 
 // ============================================================
 // 20. Optimization (Health) Score — the redesign's headline number.
@@ -1751,16 +1775,9 @@ registerDashboardRoutes(app, {
 });
 
 registerAutomationStatusRoute(app, {
-  queue: durableJobQueue, worker: jobWorker,
+  queue: durableJobQueue, worker: { status: () => ({ ...jobWorker.status(), running: isWorkerAvailable() }) },
   getFeatures: getAutomationFeatures,
 });
-
-// Restore the autopilot schedule if it was enabled before a redeploy.
-if (autopilotEnabled) {
-  try { startAutopilotScheduler(); } catch (e) { console.error('[Autopilot] restore failed:', e.message); }
-}
-
-// The persisted content deadline also handles one bounded overdue catch-up.
 
 // Start the Express Server
 
@@ -1814,7 +1831,7 @@ const monthlyReportDataService = createMonthlyReportDataService({
   getDigest: performanceDigestService.status,
   buildAutomation: buildAutomationStatus,
   getAutomationFeatures,
-  getWorkerRunning: () => jobWorker.status().running,
+  getWorkerRunning: isWorkerAvailable,
   buildReadiness: () => buildDeployReadiness(getReadinessContext()),
   logger,
 });
@@ -1869,54 +1886,50 @@ registerRecordedContentRoutes(app, {
   logger: console,
 });
 
-function scheduleDailyStateBackups() {
-  jobDispatcher.scheduleDaily('storage.backup', 2 * 60 * 1000);
-}
-
-function scheduleMonthlyOwnerReport() {
-  // A daily eligibility check keeps the calendar decision restart-safe and
-  // timezone-aware. Only the first local calendar day can deliver.
-  jobDispatcher.scheduleDaily('report.monthly-email', 150000, 13 * 60);
-}
-
-function scheduleReliabilityAlerts() {
-  // Backups start after two minutes. Waiting five minutes avoids reporting a
-  // missing backup during the normal startup window; hourly checks are enough
-  // for owner-facing operational alerts without adding noisy background work.
-  scheduleDurableCheck('operations.alert-check', 5 * 60 * 1000, 60 * 60 * 1000);
-}
-
-function registerDurableJobHandlers() {
-  jobHandlers.set('content.autopilot', async () => {
+const backgroundRuntime = createBackgroundRuntime({
+  role: PROCESS_ROLE,
+  worker: jobWorker,
+  dispatcher: jobDispatcher,
+  handlers: jobHandlers,
+  logger,
+  startContentSchedule: () => {
+    if (!autopilotEnabled) return;
+    try { startAutopilotScheduler(); }
+    catch (error) { logger.error('autopilot.schedule_restore_failed', { error }); }
+  },
+  stopContentSchedule: () => contentScheduler?.stop(),
+  scheduleHealthSnapshots: scheduleDailyHealthSnapshots,
+  recurringChecks: [
+    { type: 'local.autopilot', initialDelayMs: 30000, intervalMs: 12 * 60 * 60 * 1000 },
+    { type: 'onsite.autopilot', initialDelayMs: 45000, intervalMs: 12 * 60 * 60 * 1000 },
+    { type: 'citation.scan', initialDelayMs: 60000, intervalMs: 12 * 60 * 60 * 1000 },
+    { type: 'performance.digest', initialDelayMs: 75000, intervalMs: 12 * 60 * 60 * 1000 },
+    { type: 'ai.visibility', initialDelayMs: 90000, intervalMs: 12 * 60 * 60 * 1000 },
+  ],
+  reindexRepairedPosts: () => articleIndexingService.reindexRepairedPosts(),
+  featureHandlers: {
+    'content.autopilot': async () => {
     if (!autopilotEnabled) return { skipped: 'disabled' };
     await runAutopilotCycle();
     return { completed: true };
-  });
-  jobHandlers.set('ai.visibility', async () => { await aiVisibilityService.maybeRun(false); return { checked: true }; });
-  jobHandlers.set('citation.scan', async () => { await citationScanService.maybeRun(false); return { checked: true }; });
-  jobHandlers.set('local.autopilot', async () => { await localAutopilotService.maybeRun(false); return { checked: true }; });
-  jobHandlers.set('onsite.autopilot', async () => { await onsiteAutopilotService.maybeRun(false); return { checked: true }; });
-  jobHandlers.set('performance.digest', async () => { await performanceDigestService.maybeRun(false); return { checked: true }; });
-  jobHandlers.set('report.monthly-email', async () => monthlyReportService.runScheduled());
-  jobHandlers.set('operations.alert-check', async () => reliabilityAlertService.check(await currentOperationalHealth()));
-  jobHandlers.set('health.snapshot', async () => { await recordDailyHealthSnapshot(); return { recorded: true }; });
-  jobHandlers.set('storage.backup', async () => {
-    const today = new Date().toISOString().slice(0, 10);
-    if (backupService.list().some(item => item.valid && String(item.id).startsWith(today))) return { skipped: 'already-backed-up' };
-    const backup = backupService.create();
-    logger.info('storage.backup_created', { tenantId: stateRepository.tenantId, backupId: backup.id, files: backup.files.length });
-    return { backupId: backup.id, files: backup.files.length };
-  });
-}
-
-
-function startBackgroundWork() {
-  jobWorker.start();
-  scheduleDailyHealthSnapshots();
-  scheduleDailyStateBackups();
-  scheduleMonthlyOwnerReport();
-  scheduleReliabilityAlerts();
-}
+    },
+    'ai.visibility': async () => { await aiVisibilityService.maybeRun(false); return { checked: true }; },
+    'citation.scan': async () => { await citationScanService.maybeRun(false); return { checked: true }; },
+    'local.autopilot': async () => { await localAutopilotService.maybeRun(false); return { checked: true }; },
+    'onsite.autopilot': async () => { await onsiteAutopilotService.maybeRun(false); return { checked: true }; },
+    'performance.digest': async () => { await performanceDigestService.maybeRun(false); return { checked: true }; },
+    'report.monthly-email': async () => monthlyReportService.runScheduled(),
+    'operations.alert-check': async () => reliabilityAlertService.check(await currentOperationalHealth()),
+    'health.snapshot': async () => { await recordDailyHealthSnapshot(); return { recorded: true }; },
+    'storage.backup': async () => {
+      const today = new Date().toISOString().slice(0, 10);
+      if (backupService.list().some(item => item.valid && String(item.id).startsWith(today))) return { skipped: 'already-backed-up' };
+      const backup = backupService.create();
+      logger.info('storage.backup_created', { tenantId: stateRepository.tenantId, backupId: backup.id, files: backup.files.length });
+      return { backupId: backup.id, files: backup.files.length };
+    },
+  },
+});
 
 const server = app.listen(PORT, () => {
   logger.info('server.started', {
@@ -1931,12 +1944,13 @@ const server = app.listen(PORT, () => {
     tenantId: stateRepository.tenantId,
     repositoryBackend: stateRepository.backend,
     stateBackendMode: STATE_BACKEND_MODE,
+    processRole: PROCESS_ROLE.name,
     migratedStateFiles: stateRepository.migrated.length,
     railwayEnvironment: process.env.RAILWAY_ENVIRONMENT_NAME || null,
     railwayReplica: process.env.RAILWAY_REPLICA_ID || null,
   });
   if (!ADMIN_PASSWORD) logger.warn('security.admin_lock_disabled', { mode: APP_MODE });
-  registerDurableJobHandlers();
+  backgroundRuntime.registerHandlers();
   const databaseInitialization = initializePostgresMirror().catch(error => {
     postgresStatus.ready = false;
     postgresStatus.error = error.code || error.message;
@@ -1944,19 +1958,16 @@ const server = app.listen(PORT, () => {
     if (STATE_BACKEND_MODE === 'postgres') throw error;
   });
   if (STATE_BACKEND_MODE === 'postgres') {
-    databaseInitialization.then(startBackgroundWork).catch(() => { /* readiness remains false */ });
+    databaseInitialization.then(() => backgroundRuntime.start()).catch(() => { /* readiness remains false */ });
   } else {
-    startBackgroundWork();
+    backgroundRuntime.start();
   }
-  // Fire-and-forget: repair-triggered re-indexing (safe, self-clearing).
-  articleIndexingService.reindexRepairedPosts().catch(e => console.error('[URL Migration] reindex batch error:', e.message));
 });
 
 function gracefulShutdown(signal) {
   if (isShuttingDown) return;
   isShuttingDown = true;
-  contentScheduler?.stop();
-  jobDispatcher.stop();
+  const backgroundStop = backgroundRuntime.stop().catch(error => logger.warn('background.stop_failed', { error }));
   logger.info('server.shutdown_started', { signal });
   const forceExit = setTimeout(() => {
     logger.error('server.shutdown_timeout', { signal, timeoutMs: 10000 });
@@ -1971,7 +1982,7 @@ function gracefulShutdown(signal) {
       process.exit(1);
     }
     try {
-      await jobWorker.stop();
+      await backgroundStop;
       if (postgresStateBridge) {
         await postgresStateBridge.flush();
         postgresStateBridge.close();
