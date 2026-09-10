@@ -64,6 +64,20 @@ and a single-column phone layout. The browser suite checks a 320px phone
 width, row height, primary-action visibility, and keyboard disclosure controls
 in addition to the regular desktop/mobile and dark-mode coverage.
 
+Every destination owns its subtitle and page guidance, so detail pages never
+inherit an explanation from the previously visited page. **Page guide** gives a
+short, page-specific explanation and an entry to a seven-stop visual walkthrough.
+The walkthrough visits and highlights Today, the score, Approvals, tool search,
+Results, Business facts, and connection status on the real pages. It remains
+view-only, restores the owner's starting location and unsaved form values, supports
+keyboard focus, and adapts its spotlight and guide card to a 320px phone.
+
+Empty Approvals and no-result tool searches use compact, branded states with an
+honest explanation and a reversible next step. A clear approval list does not
+claim that scheduled checks succeeded, and clearing a tool search restores the
+unchanged directory. These states add orientation only; they do not run a check,
+save a setting, grant approval, or publish content.
+
 The content journey links search opportunities → draft and review → publish
 and verify → results. One existing content state is retained across in-tab
 navigation. Reloading or closing the tab still discards an unsaved article;

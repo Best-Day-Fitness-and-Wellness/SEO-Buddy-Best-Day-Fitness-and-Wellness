@@ -33,6 +33,26 @@
     'citations-tab': 'directories directory citations listings sources',
     'settings-tab': 'connections connect credentials account password api key',
   });
+  const PAGE_META = Object.freeze({
+    'workspace-today-tab': { subtitle: 'What needs you, what is running, and what happens next', title: 'Your daily command center', help: 'Start with the briefing, then open any status row for evidence. “Scheduled” means planned, not completed.' },
+    'approvals-tab': { subtitle: 'Review prepared work before anything changes', title: 'Decisions waiting for you', help: 'Only items that need your review belong here. Opening an item does not approve or publish it.' },
+    'owner-results-tab': { subtitle: 'See measured progress, search visibility, reviews, and reports', title: 'Evidence and outcomes', help: 'Use the dated measurements here to judge progress. An unavailable signal is not the same as a zero.' },
+    'explore-tab': { subtitle: 'Find the right tool by the outcome you want', title: 'Tools for a specific job', help: 'Search in plain language, such as “email my report” or “reply to a review.” Searching never runs a tool.' },
+    'owner-business-tab': { subtitle: 'Review the facts and voice SEO Buddy uses everywhere', title: 'Your source of truth', help: 'Check the business details, connected services, and brand voice that guide SEO Buddy’s work.' },
+    'settings-tab': { subtitle: 'Connect accounts and manage operational preferences', title: 'Account and connections', help: 'Review connection status and report assumptions here. A saved credential is not proof of a successful live test.' },
+    'gsc-tab': { subtitle: 'Find search opportunities using measured Google data', title: 'Search opportunities', help: 'Review the searches already bringing people to you, then choose an opportunity to work on.' },
+    'ai-tab': { subtitle: 'Create and review an article draft before publishing', title: 'Draft and review', help: 'Generated content remains a draft until you explicitly continue through the publishing workflow.' },
+    'publish-tab': { subtitle: 'Choose how reviewed content is published and verified', title: 'Publish and verify', help: 'Publishing, marking as published, and Google indexing are separate states. Check the confirmation shown here.' },
+    'performance-tab': { subtitle: 'Download your report, manage email delivery, and inspect search trends and leads', title: 'Reports and delivery', help: 'Use this page for the detailed report and owner-email controls. Delivery settings do not send a report immediately.' },
+    'brand-tab': { subtitle: 'Shape the writing guidance used across generated content', title: 'Brand voice', help: 'Keep the voice accurate to your business. Saving it changes future guidance, not already published content.' },
+    'aio-tab': { subtitle: 'Measure where supported AI answers mention your business', title: 'AI visibility', help: 'Results only cover connected providers and completed checks. Missing provider data is not a negative mention.' },
+    'citations-tab': { subtitle: 'Review directories and sources where a real listing is possible', title: 'Directory opportunities', help: 'Competitor-owned sites are excluded from the worklist. Review only sources where the business can actually be listed.' },
+    'local-tab': { subtitle: 'Monitor business details and prepare local content', title: 'Local presence', help: 'Review listing evidence and prepared Google posts. A manual “posted” record is not verified API publishing.' },
+    'onsite-tab': { subtitle: 'Review practical improvements for your website', title: 'Website improvements', help: 'These are recommendations until they are applied and verified on the live site.' },
+    'reviews-tab': { subtitle: 'Draft thoughtful, on-brand responses to customer reviews', title: 'Review responses', help: 'Review the wording before copying or posting it. SEO Buddy does not submit the response from this page.' },
+    'summary-tab': { subtitle: 'Inspect the advanced dashboard and supporting measurements', title: 'Advanced dashboard', help: 'This detailed view complements Results. Dates, sources, and unavailable states matter more than any single number.' },
+    'grow-tab': { subtitle: 'Review the complete list of recommended actions', title: 'All recommended actions', help: 'Use this detailed list when you need more than the priorities shown in Today and Approvals.' },
+  });
   const searchWords = value => value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(/\s+/).filter(word => word && !['a', 'an', 'the', 'to', 'my', 'our', 'your', 'for', 'and', 'i', 'want', 'need', 'please'].includes(word));
   // Keep contextual setup links consistent in both the briefing and status rows.
   const needsConnections = feature => feature.status === 'needs-setup' && !['digest', 'monthly-report'].includes(feature.key);
@@ -56,6 +76,14 @@
   const art = key => `<div class="ws-art" aria-hidden="true">${global.SeoBuddyArtwork.render(key, true)}</div>`;
   const button = (tab, label) => `<button type="button" class="btn btn-secondary" data-ws-tab="${esc(tab)}">${esc(label)}</button>`;
   const errorBox = (label, retry) => `<div class="ow-note warn" role="alert"><b>${esc(label)}</b><p>This is a missing check, not an all-clear. No changes were made.</p><button class="btn btn-secondary" type="button" data-ws-retry="${retry}">Try again</button></div>`;
+  const emptyState = (title, copy, tab, label) => `<div class="ws-empty-state"><span class="ws-empty-mark" aria-hidden="true">✓</span><div><h2>${esc(title)}</h2><p>${esc(copy)}</p></div>${button(tab, label)}</div>`;
+
+  function updatePageGuide(tab) {
+    const meta = PAGE_META[tab] || { subtitle: '', title: ROUTES[tab]?.[1] || 'This page', help: 'Use the visible evidence and controls to decide what to do next.' };
+    $('page-subtitle').textContent = meta.subtitle;
+    if ($('ws-help-title')) $('ws-help-title').textContent = meta.title;
+    if ($('ws-help-text')) $('ws-help-text').textContent = meta.help;
+  }
 
   async function read(path, field) {
     const response = await fetch(path, { signal: AbortSignal.timeout(15000), cache: 'no-store' });
@@ -103,8 +131,8 @@
     const [slug, title, group] = ROUTES[tab];
     document.title = title + ' · SEO Buddy';
     $('page-title').textContent = title;
-    if (tab === 'explore-tab') $('page-subtitle').textContent = 'Find the tool you need. Everyday decisions live in Today and Approvals.';
-    if (tab === 'performance-tab') $('page-subtitle').textContent = 'Download your report, manage email delivery, and inspect search trends and leads.';
+    updatePageGuide(tab);
+    if (!options.tour && $('ws-help')) $('ws-help').open = false;
     document.querySelectorAll('#workspace-nav .nav-item, #ws-nav-business, #nav-settings').forEach(item => {
       const target = ROUTES[item.dataset.tab];
       const active = target && target[2] === group;
@@ -204,7 +232,7 @@
       $('ws-approvals').innerHTML = `${draft ? `<article class="ws-decision"><span class="ws-status needs-approval">Needs approval</span><h2>${esc(draft.title)}</h2><p>Your current browser-tab draft is ready for review. This version has not been published.</p>${button('ai-tab', 'Review article')}</article>` : ''}
         ${decisions.length ? decisions.map(move => `<article class="ws-decision"><span class="ws-status needs-approval">${move.capability === 'manual' ? 'Your step' : 'Your approval needed'}</span>
           <h2>${esc(move.ownerTitle || move.title)}</h2><p><strong>Why it matters:</strong> ${esc(move.ownerWhy || move.why)}</p><p><strong>What you need to do:</strong> ${esc(ownerInstruction(move))}</p><p class="text-muted">Estimated time: ${esc(move.realEffort || move.effort || 'not recorded')}</p>
-          ${move.key === 'autopilot' ? `<button class="btn btn-primary" type="button" data-ws-enable-content>${esc(move.ownerCta || 'Review permission')}</button>` : button(move.tab, move.key === 'gbp' ? 'Review prepared Google post' : (move.ownerCta || 'Review details'))}</article>`).join('') : '<div class="ow-note"><b>No decisions are waiting.</b><p>This does not confirm that every scheduled check succeeded. Today shows the latest status.</p></div>'}
+          ${move.key === 'autopilot' ? `<button class="btn btn-primary" type="button" data-ws-enable-content>${esc(move.ownerCta || 'Review permission')}</button>` : button(move.tab, move.key === 'gbp' ? 'Review prepared Google post' : (move.ownerCta || 'Review details'))}</article>`).join('') : emptyState('You’re caught up', 'No decisions are waiting. This does not confirm every scheduled check succeeded; Today shows the latest status.', 'workspace-today-tab', 'Review today’s status')}
         ${blockers.length ? '<h2>Setup needed</h2>' + blockers.map(move => `<article class="ws-decision"><h3>${esc(move.title)}</h3><p>${esc(move.why)}</p>${button(move.tab, 'Review setup')}</article>`).join('') : ''}`;
     } catch (_) {
       if (request !== approvalsRequest) return;
@@ -256,6 +284,8 @@
       }
     });
     $('ws-tool-count').textContent = count ? `${count} destination${count === 1 ? '' : 's'} available` : 'No matching tools. Try “post”, “reviews”, “search”, or “listings”.';
+    const empty = $('ws-tool-empty');
+    if (empty) empty.hidden = count > 0 || !query;
   }
 
   function clearToolSearch() {
@@ -276,9 +306,15 @@
     { title: 'Approvals: your decisions', tab: 'approvals-tab', target: '#ws-approvals > :first-child', where: 'Approvals · Review before acting',
       text: 'Review the decisions or setup needs shown here. If the list is empty, there is nothing here to approve.',
       takeaway: 'A draft is not live. Read each permission: enabling autopilot can authorize ongoing publishing.' },
+    { title: 'Tools: find a specific job', tab: 'explore-tab', target: '.ws-tool-search', where: 'Tools · Search by outcome',
+      text: 'Use plain language to find a tool, such as “email my report,” “Google post,” or “reply to a review.”',
+      takeaway: 'Searching only filters the directory. It never runs a check, sends an email, or changes a setting.' },
     { title: 'Results: see the evidence', tab: 'owner-results-tab', target: '#ow-find-section', where: 'Results · People finding you',
       text: 'These measurements show how people find you. Check the dates and compare matching periods; unavailable data is not zero.',
       takeaway: 'The “Open reports & email” button at the top of this page opens downloads and monthly delivery controls.' },
+    { title: 'Business: confirm the source of truth', tab: 'owner-business-tab', target: '#ow-basics', where: 'Business · Facts and identity',
+      text: 'These are the business facts and brand details SEO Buddy uses when it evaluates and prepares work.',
+      takeaway: 'Correct the source details here when the business changes so future guidance stays consistent.' },
     { title: 'Connections: what is ready', tab: 'settings-tab', target: '#settings-connection-list > :first-child', where: 'Settings · Your connections',
       text: 'This is the first service in your connection list. Each row shows its setup status and where to manage it.',
       takeaway: 'Configured is not a successful live test. Optional providers can stay disconnected. Finish returns you to your starting page.' },
@@ -380,7 +416,7 @@
     walkthroughTarget = null;
     const step = WALKTHROUGH[walkthroughStep];
     if (current !== step.tab) navigate(step.tab, { tour: true });
-    $('ws-walkthrough-step').textContent = `Step ${walkthroughStep + 1} of ${WALKTHROUGH.length} · About 2 minutes`;
+    $('ws-walkthrough-step').textContent = `Step ${walkthroughStep + 1} of ${WALKTHROUGH.length} · About 3 minutes`;
     $('ws-walkthrough-progress').value = walkthroughStep + 1;
     $('ws-walkthrough-title').textContent = step.title;
     $('ws-walkthrough-where').textContent = step.where;
@@ -414,14 +450,14 @@
   }
 
   function setupWalkthrough() {
-    $('ws-orientation').insertAdjacentHTML('beforeend', `<details id="ws-help" class="ws-help"><summary>Help</summary><div class="ws-help-menu"><p id="ws-walkthrough-entry-note">New to SEO Buddy?</p><button type="button" class="btn btn-secondary" id="ws-start-walkthrough">Start the walkthrough</button></div></details>`);
+    $('ws-orientation').insertAdjacentHTML('beforeend', `<details id="ws-help" class="ws-help"><summary>Page guide</summary><div class="ws-help-menu"><span class="ws-help-kicker">On this page</span><h2 id="ws-help-title"></h2><p id="ws-help-text"></p><div class="ws-help-tour"><p id="ws-walkthrough-entry-note">New to SEO Buddy?</p><button type="button" class="btn btn-secondary" id="ws-start-walkthrough">Start the walkthrough</button></div><p class="ws-help-safe">Guidance is view-only. Nothing runs until you choose an action.</p></div></details>`);
     walkthroughDialog = document.createElement('dialog');
     walkthroughDialog.id = 'ws-walkthrough';
     walkthroughDialog.className = 'ws-walkthrough';
     walkthroughDialog.setAttribute('aria-labelledby', 'ws-walkthrough-title');
     walkthroughDialog.setAttribute('aria-describedby', 'ws-walkthrough-text ws-walkthrough-context');
     walkthroughDialog.innerHTML = `<div id="ws-walkthrough-spotlight" aria-hidden="true"></div><section id="ws-walkthrough-card"><div class="ws-walkthrough-top"><span id="ws-walkthrough-step"></span><button type="button" class="btn btn-secondary" id="ws-walkthrough-skip">Skip tour</button></div>
-      <progress id="ws-walkthrough-progress" max="5" value="1" aria-label="Walkthrough progress"></progress>
+      <progress id="ws-walkthrough-progress" max="${WALKTHROUGH.length}" value="1" aria-label="Walkthrough progress"></progress>
       <p class="ws-eyebrow" id="ws-walkthrough-where"></p>
       <h2 id="ws-walkthrough-title" tabindex="-1"></h2><p id="ws-walkthrough-text"></p>
       <p id="ws-walkthrough-takeaway" class="ws-walkthrough-note"></p><p id="ws-walkthrough-status" role="status"></p><span id="ws-walkthrough-context" class="sr-only"></span>
@@ -463,6 +499,7 @@
       target.focus({ preventScroll: true });
     });
     updateWalkthroughEntry();
+    updatePageGuide(current);
   }
 
   function start(render) {
@@ -501,6 +538,7 @@
     $('ws-back').addEventListener('click', () => depth > 0 ? history.back() : navigate('workspace-today-tab'));
     $('ws-tool-search').addEventListener('input', filterTools);
     $('ws-tool-clear').addEventListener('click', clearToolSearch);
+    $('ws-tool-empty-clear')?.addEventListener('click', clearToolSearch);
     $('ws-tool-search').addEventListener('keydown', event => {
       if (event.key !== 'Escape' || !$('ws-tool-search').value) return;
       event.preventDefault();

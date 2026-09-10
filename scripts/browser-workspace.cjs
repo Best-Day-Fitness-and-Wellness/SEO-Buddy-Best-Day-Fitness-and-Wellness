@@ -309,6 +309,8 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
     await page.locator('#ws-tool-search').fill('zzzz-no-such-tool');
     assert.match(await page.locator('#ws-tool-count').innerText(), /No matching tools/);
     assert.equal(await page.locator('.exp-row:visible').count(), 0);
+    assert.equal(await page.locator('#ws-tool-empty').isVisible(), true);
+    await audit('tools-no-results');
     await page.locator('#ws-tool-search').fill('reviews');
     await audit('preview-tools');
     await page.locator('.exp-row[data-go="tab:reviews-tab"]').focus();
@@ -420,10 +422,12 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
     await location('tools');
     await page.locator('#ws-tool-search').fill('no-such-destination');
     assert.equal(await page.locator('.exp-row:visible').count(), 0);
-    await page.locator('#ws-tool-clear').click();
+    assert.equal(await page.locator('#ws-tool-empty').isVisible(), true);
+    await page.locator('#ws-tool-empty-clear').click();
     assert.equal(await page.locator('#ws-tool-search').inputValue(), '');
     assert.equal(await page.locator('#ws-tool-search').evaluate(el => el === document.activeElement), true);
     assert.equal(await page.locator('#ws-tool-clear').isVisible(), false);
+    assert.equal(await page.locator('#ws-tool-empty').isVisible(), false);
     assert.ok(await page.locator('.exp-row:visible').count() > 5);
     if (prefix === 'mobile') await page.setViewportSize({ width: 320, height: 640 });
     try {
@@ -640,6 +644,45 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
     } finally {
       for (const [path, value] of previous) { if (value) responses.set(path, value); else responses.delete(path); }
     }
+  });
+
+  await journey(`${prefix}: every owner destination explains its purpose without carrying stale page copy`, async () => {
+    const before = writes.length;
+    const pages = [
+      ['workspace-today-tab', 'What needs you, what is running, and what happens next', 'Your daily command center'],
+      ['approvals-tab', 'Review prepared work before anything changes', 'Decisions waiting for you'],
+      ['owner-results-tab', 'See measured progress, search visibility, reviews, and reports', 'Evidence and outcomes'],
+      ['explore-tab', 'Find the right tool by the outcome you want', 'Tools for a specific job'],
+      ['owner-business-tab', 'Review the facts and voice SEO Buddy uses everywhere', 'Your source of truth'],
+      ['settings-tab', 'Connect accounts and manage operational preferences', 'Account and connections'],
+    ];
+    for (const [tab, subtitle, guide] of pages) {
+      await page.evaluate(tab => window.SeoBuddyWorkspace.navigate(tab), tab);
+      assert.equal(await page.locator('#page-subtitle').innerText(), subtitle);
+      assert.equal(await page.locator('#ws-help-title').textContent(), guide);
+      assert.ok((await page.locator('#ws-help-text').textContent()).length > 35);
+    }
+    await page.locator('#ws-help summary').click();
+    assert.equal(await page.locator('.ws-help-menu').count(), 1);
+    assert.match(await page.locator('.ws-help-menu').innerText(), /Guidance is view-only/);
+    await audit('page-guide');
+    await page.locator('#ws-help summary').click();
+    assert.deepEqual(writes.slice(before).filter(write => write.path !== '/api/performance-digest/seen'), []);
+  });
+
+  await journey(`${prefix}: an empty approval list gives the owner a useful next step`, async () => {
+    const before = writes.length;
+    const previous = responses.get('/api/next-moves');
+    responses.set('/api/next-moves', { json: { success: true, moves: [] } });
+    try {
+      await load('approvals', '?empty-approvals=1');
+      await page.getByRole('heading', { name: 'You’re caught up' }).waitFor();
+      assert.match(await page.locator('#ws-approvals').innerText(), /does not confirm every scheduled check succeeded/);
+      await audit('approvals-empty');
+      await page.getByRole('button', { name: 'Review today’s status' }).click();
+      await location('today');
+      assert.deepEqual(writes.slice(before).filter(write => write.path !== '/api/performance-digest/seen'), []);
+    } finally { if (previous) responses.set('/api/next-moves', previous); else responses.delete('/api/next-moves'); }
   });
 
   await journey(`${prefix}: partial search results stay honest and recover through retry`, async () => {
@@ -896,9 +939,9 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
     await page.locator('#ws-help summary').click();
     await open('#ws-start-walkthrough');
     assert.equal(await page.locator('#ws-walkthrough-back').isDisabled(), true);
-    const titles = ['Today:', 'Your score:', 'Approvals:', 'Results:', 'Connections:'];
-    const slugs = ['today', 'today', 'approvals', 'results', 'settings'];
-    const targets = ['#ws-today .ws-briefing', '#ws-today .ws-score', '#ws-approvals > :first-child', '#ow-find-section', '#settings-connection-list > :first-child'];
+    const titles = ['Today:', 'Your score:', 'Approvals:', 'Tools:', 'Results:', 'Business:', 'Connections:'];
+    const slugs = ['today', 'today', 'approvals', 'tools', 'results', 'business', 'settings'];
+    const targets = ['#ws-today .ws-briefing', '#ws-today .ws-score', '#ws-approvals > :first-child', '.ws-tool-search', '#ow-find-section', '#ow-basics', '#settings-connection-list > :first-child'];
     const ready = index => page.waitForFunction(target => {
       const dialog = document.getElementById('ws-walkthrough');
       return dialog.dataset.ready === 'true' && document.getElementById('ws-walkthrough-spotlight').dataset.target === target;
@@ -925,7 +968,7 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
     for (let index = 0; index < titles.length; index++) {
       await assertHighlight(index);
       assert.ok((await page.locator('#ws-walkthrough-title').innerText()).startsWith(titles[index]));
-      assert.match(await page.locator('#ws-walkthrough-step').innerText(), new RegExp(`Step ${index + 1} of 5`));
+      assert.match(await page.locator('#ws-walkthrough-step').innerText(), new RegExp(`Step ${index + 1} of 7`));
       assert.equal(await page.locator('#ws-walkthrough-title').evaluate(el => el === document.activeElement), true);
       await audit('walkthrough-step-' + (index + 1));
       if (index === 1) {
@@ -966,7 +1009,7 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
     await ready(1);
     await open('#ws-walkthrough-skip');
     await page.locator('#ws-help summary').click();
-    assert.match(await page.locator('#ws-start-walkthrough').innerText(), /Continue walkthrough.*step 2 of 5/);
+    assert.match(await page.locator('#ws-start-walkthrough').innerText(), /Continue walkthrough.*step 2 of 7/);
     await open('#ws-start-walkthrough');
     await ready(1);
     await open('#ws-walkthrough-skip');

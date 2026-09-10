@@ -64,7 +64,7 @@
         <button class="mobile-hamburger" id="mobile-hamburger" type="button" aria-label="Open menu">&#9776;</button>
         <div class="header-title-section">
           <h1 id="page-title" tabindex="-1">Today</h1>
-          <p id="page-subtitle" class="text-muted">What needs you — and what SEO Buddy handled on its own</p>
+          <p id="page-subtitle" class="text-muted">What needs you, what is running, and what happens next</p>
         </div>
         <div class="header-actions">
           <div class="status-indicator checking" id="mode-status">
@@ -93,6 +93,11 @@
             <label for="ws-tool-search">Find a tool or tell us what you want to do</label>
             <div class="ws-search-controls"><input id="ws-tool-search" type="search" class="form-input" placeholder="Try: email report, Google post, reviews…" autocomplete="off" aria-describedby="ws-tool-count"><button type="button" class="btn btn-secondary" id="ws-tool-clear" hidden>Clear search</button></div>
             <p id="ws-tool-count" class="text-muted" role="status"></p>
+          </div>
+          <div id="ws-tool-empty" class="workspace-only ws-empty-state ws-tool-empty" hidden>
+            <span class="ws-empty-mark" aria-hidden="true">⌕</span>
+            <div><h2>No tool matched that search</h2><p>Try a shorter phrase such as “report,” “Google post,” “reviews,” “search,” or “listings.”</p></div>
+            <button type="button" class="btn btn-secondary" id="ws-tool-empty-clear">Show all tools</button>
           </div>
           <!-- Get-started cards first while there is anything left to do; the
                tool directory keeps its place underneath. -->
