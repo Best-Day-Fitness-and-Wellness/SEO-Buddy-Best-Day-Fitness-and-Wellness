@@ -176,6 +176,14 @@ body {
   --gradient-dark: var(--surface);
   --gradient-glow: none;
   --shadow-glow: var(--shadow-md);
+
+  /* One chart language everywhere: brand teal for the owner's primary series,
+     navy/coral for comparisons, and the same quiet grid in both themes. */
+  --chart-primary: var(--graphic-teal);
+  --chart-secondary: var(--brand-navy);
+  --chart-tertiary: var(--graphic-coral);
+  --chart-neutral: var(--ink-3);
+  --chart-grid: var(--line-2);
 }
 
 /* Global Reset & Base Styles */
@@ -3576,16 +3584,22 @@ body.workspace-preview .schema-code-output { width: 100%; height: 280px; padding
 .ws-recent-tool > span:last-child { color: var(--text-muted); font-size: 18px; }
 
 .ws-metric-source,
-.ow-source { margin: 0 0 14px; padding: 0; border: 0; }
+.ow-source,
+.ws-chart-source { margin: 0 0 14px; padding: 0; border: 0; }
 .ws-metric-source summary,
-.ow-source summary { width: fit-content; cursor: pointer; color: var(--p1); font-size: 10px; font-weight: 650; text-decoration: underline; text-underline-offset: 3px; }
+.ow-source summary,
+.ws-chart-source summary { width: fit-content; cursor: pointer; color: var(--p1); font-size: 10px; font-weight: 650; text-decoration: underline; text-underline-offset: 3px; }
 .ws-metric-source p,
-.ow-source p { margin: 8px 0 0; color: var(--text-muted); font-size: 11px; line-height: 1.5; }
+.ow-source p,
+.ws-chart-source p { margin: 8px 0 0; color: var(--text-muted); font-size: 11px; line-height: 1.5; }
 .ow-source { margin: 12px 0 0; padding-top: 10px; border-top: 1px solid var(--line-2); }
 .ws-chart-legend { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 8px; color: var(--text-muted); font-size: 10px; }
 .ws-chart-legend span { display: inline-flex; align-items: center; gap: 6px; }
 .ws-chart-legend i { width: 16px; height: 3px; border-radius: 2px; background: var(--legend-color); }
 .ws-chart-legend strong { color: var(--text-main); font-weight: 650; }
+.ws-chart-legend.is-series { flex-wrap: wrap; }
+.ws-chart-legend .ws-chart-series { flex: 1 1 300px; flex-wrap: wrap; gap: 7px 14px; }
+.ws-chart-source { margin-top: 9px; }
 
 @media(max-width:900px) {
   body.workspace-preview .main-content { padding: 24px 24px 140px; }

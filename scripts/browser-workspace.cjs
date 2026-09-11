@@ -489,6 +489,57 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
     assert.deepEqual(writes.slice(before).filter(write => write.path !== '/api/performance-digest/seen'), []);
   });
 
+  await journey(`${prefix}: scores and charts share one palette, timeframe and explanation pattern`, async () => {
+    const before = writes.length;
+    const previousAi = responses.get('/api/ai-visibility');
+    const previousReviews = responses.get('/api/reviews-stats');
+    try {
+      responses.set('/api/ai-visibility', { json: {
+        success: true, brand: 'Best Day Fitness', anyConfigured: true, autoEnabled: false, running: false,
+        updatedAt: '2026-09-01T12:00:00Z', engines: [{ id: 'gemini', label: 'Gemini', configured: true }], prompts: [],
+        latest: { visibilityScore: 50, shareOfVoice: 40, sentimentScore: 80, perEngine: [] }, deltas: {}, leaderboard: [],
+        trend: {
+          dates: ['2026-08-01', '2026-09-01'],
+          series: [
+            { name: 'Best Day Fitness', isBrand: true, points: [{ date: '2026-08-01', score: 40 }, { date: '2026-09-01', score: 50 }] },
+            { name: 'Example competitor', isBrand: false, points: [{ date: '2026-08-01', score: 30 }, { date: '2026-09-01', score: 35 }] },
+          ],
+          metricLines: {},
+        },
+      } });
+      await load('tools/ai-visibility', '?chart-language=ai');
+      await page.evaluate(() => window.loadAiVisibility());
+      const aiLegend = page.locator('#av-legend.ws-chart-legend');
+      await aiLegend.waitFor();
+      assert.match(await aiLegend.innerText(), /2 completed checks/);
+      assert.equal(await page.locator('#av-chart svg polyline').first().getAttribute('stroke'), 'var(--chart-primary)');
+      assert.match(await page.locator('#aio-tab .ws-chart-source').first().textContent(), /missing providers and checks are not plotted as zero/i);
+
+      responses.set('/api/reviews-stats', { json: {
+        success: true, reachable: true, url: 'https://reviews.example.test', checkedAt: '2026-09-01T12:00:00Z',
+        inventory: { published: 2, avgRating: 5, newest: '2026-09-01', delta30: 1, byPlatform: { google: 2 } },
+        platformTotals: { google: { reviewCount: 2 } }, score: 100, problems: 0, checks: [],
+        growth: [{ month: '2026-08', total: 1, added: 1 }, { month: '2026-09', total: 2, added: 1 }],
+      } });
+      await load('tools/reviews', '?chart-language=reviews');
+      await page.evaluate(() => window.loadReviews(true));
+      const reviewLegend = page.locator('#rv-growth .ws-chart-legend');
+      await reviewLegend.waitFor();
+      assert.match(await reviewLegend.innerText(), /Cumulative published reviews/);
+      assert.match(await reviewLegend.innerText(), /Latest total: 2/);
+      assert.equal(await page.locator('#rv-growth .rv-chart path[fill="none"]').getAttribute('stroke'), 'var(--chart-primary)');
+
+      await load('results/dashboard', '?chart-language=score');
+      const scoreHelp = page.locator('#home-score-explainer');
+      await scoreHelp.waitFor();
+      assert.match(await scoreHelp.textContent(), /7-day score.*Live today/is);
+    } finally {
+      if (previousAi) responses.set('/api/ai-visibility', previousAi); else responses.delete('/api/ai-visibility');
+      if (previousReviews) responses.set('/api/reviews-stats', previousReviews); else responses.delete('/api/reviews-stats');
+    }
+    assert.deepEqual(writes.slice(before).filter(write => write.path !== '/api/performance-digest/seen'), []);
+  });
+
   await journey(`${prefix}: Tools remembers the last three destinations in this browser`, async () => {
     const before = writes.length;
     await load('tools/local', '?recent-tools=1');

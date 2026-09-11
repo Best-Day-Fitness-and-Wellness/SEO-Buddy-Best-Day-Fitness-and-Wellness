@@ -96,19 +96,19 @@
     const step = Math.ceil(series.length / 6);
     const xlabels = series.map((p, i) =>
       (i % step === 0 || i === series.length - 1)
-        ? `<text class="lbl" x="${x(i).toFixed(1)}" y="${H - 8}" text-anchor="middle">${p.month}</text>` : '').join('');
+        ? `<text class="lbl" x="${x(i).toFixed(1)}" y="${H - 8}" text-anchor="middle">${uiEsc(p.month)}</text>` : '').join('');
   
     const dots = series.map((p, i) => p.added
-      ? `<circle cx="${x(i).toFixed(1)}" cy="${y(p.total).toFixed(1)}" r="3" fill="var(--color-primary)"><title>${p.month}: +${p.added} → ${p.total} total</title></circle>` : '').join('');
+      ? `<circle cx="${x(i).toFixed(1)}" cy="${y(p.total).toFixed(1)}" r="3" fill="var(--chart-primary)"><title>${uiEsc(p.month)}: +${p.added} → ${p.total} total</title></circle>` : '').join('');
   
     return `<svg class="rv-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Cumulative published reviews by month">
       <defs><linearGradient id="rvFill" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stop-color="var(--color-primary)" stop-opacity=".35"/>
-        <stop offset="100%" stop-color="var(--color-primary)" stop-opacity="0"/>
+        <stop offset="0%" stop-color="var(--chart-primary)" stop-opacity=".28"/>
+        <stop offset="100%" stop-color="var(--chart-primary)" stop-opacity="0"/>
       </linearGradient></defs>
       ${grid}
       <path d="${area}" fill="url(#rvFill)"/>
-      <path d="${line}" fill="none" stroke="var(--color-primary)" stroke-width="2.5" stroke-linejoin="round"/>
+      <path d="${line}" fill="none" stroke="var(--chart-primary)" stroke-width="2.5" stroke-linejoin="round"/>
       ${dots}${xlabels}
     </svg>`;
   }
@@ -160,7 +160,11 @@
            <div class="sb-verdict"><i class="sb-dot" style="background:${dotFor(k.tone)}"></i>${k.sub}</div>
          </div>`).join('');
   
-    document.getElementById('rv-growth').innerHTML = rvGrowthChart(d.growth);
+    const growth = Array.isArray(d.growth) ? d.growth : [];
+    const growthMeta = growth.length >= 2
+      ? `<div class="ws-chart-legend"><span><i style="--legend-color:var(--chart-primary)"></i>Cumulative published reviews</span><strong>Latest total: ${growth[growth.length - 1].total} · ${uiEsc(growth[0].month)}–${uiEsc(growth[growth.length - 1].month)}</strong></div><details class="ws-chart-source"><summary>How to read this chart</summary><p>The line is the cumulative number of dated reviews published on the reviews site. It grows when another published review has a usable date; platform totals are shown separately.</p></details>`
+      : '';
+    document.getElementById('rv-growth').innerHTML = rvGrowthChart(growth) + growthMeta;
   
     renderTrustpilot(d.trustpilot);
   

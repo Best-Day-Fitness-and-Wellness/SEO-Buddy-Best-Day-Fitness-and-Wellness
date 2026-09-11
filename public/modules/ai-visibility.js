@@ -280,24 +280,29 @@
     let g = '';
     // horizontal gridlines at 0/25/50/75/100
     for (const gv of [0, 25, 50, 75, 100]) {
-      g += `<line x1="${padL}" y1="${y(gv)}" x2="${W - padR}" y2="${y(gv)}" stroke="rgba(255,255,255,.06)" stroke-width="1"/>`;
-      g += `<text x="${padL - 6}" y="${y(gv) + 3}" text-anchor="end" font-size="9" fill="#64748b">${gv}</text>`;
+      g += `<line x1="${padL}" y1="${y(gv)}" x2="${W - padR}" y2="${y(gv)}" stroke="var(--chart-grid)" stroke-width="1"/>`;
+      g += `<text x="${padL - 6}" y="${y(gv) + 3}" text-anchor="end" font-size="9" fill="var(--text-muted)">${gv}</text>`;
     }
     series.forEach(s => {
       const pts = s.points.map((p, i) => `${x(i)},${y(p.score)}`);
-      const col = s.color || (s.isBrand ? '#6366f1' : '#64748b');
+      const col = s.color || (s.isBrand ? 'var(--chart-primary)' : 'var(--chart-neutral)');
       if (pts.length > 1) g += `<polyline points="${pts.join(' ')}" fill="none" stroke="${col}" stroke-width="${s.isBrand ? 3 : 1.6}" stroke-linecap="round" stroke-linejoin="round" opacity="${s.isBrand ? 1 : .75}"/>`;
       s.points.forEach((p, i) => { g += `<circle cx="${x(i)}" cy="${y(p.score)}" r="${s.isBrand ? 3.5 : 2.5}" fill="${col}"/>`; });
     });
     // x labels (first + last)
     if (n) {
-      g += `<text x="${x(0)}" y="${H - 6}" text-anchor="start" font-size="9" fill="#64748b">${avEsc(dates[0])}</text>`;
-      if (n > 1) g += `<text x="${x(n - 1)}" y="${H - 6}" text-anchor="end" font-size="9" fill="#64748b">${avEsc(dates[n - 1])}</text>`;
+      g += `<text x="${x(0)}" y="${H - 6}" text-anchor="start" font-size="9" fill="var(--text-muted)">${avEsc(dates[0])}</text>`;
+      if (n > 1) g += `<text x="${x(n - 1)}" y="${H - 6}" text-anchor="end" font-size="9" fill="var(--text-muted)">${avEsc(dates[n - 1])}</text>`;
     }
     return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="AI visibility trend">${g}</svg>`;
   }
 
-  const AV_PALETTE = ['#6366f1', '#06b6d4', '#f59e0b', '#f43f5e', '#10b981', '#a855f7'];
+  const AV_PALETTE = ['var(--chart-primary)', 'var(--chart-secondary)', 'var(--chart-tertiary)', 'var(--p2-g)', 'var(--p3-g)', 'var(--p5-g)'];
+  function avChartWindow(dates) {
+    if (!dates.length) return '';
+    const range = dates.length === 1 ? dates[0] : `${dates[0]}–${dates[dates.length - 1]}`;
+    return `${dates.length} completed check${dates.length === 1 ? '' : 's'} · ${range}`;
+  }
   function avRenderChart() {
     const box = avEl('av-chart'), legend = avEl('av-legend'); if (!box) return;
     const trend = avState.trend || { series: [], dates: [], metricLines: {} };
@@ -305,14 +310,14 @@
     if (!dates.length) { box.innerHTML = '<div class="text-muted" style="font-size:13px;padding:20px 0;">Run a check to start the trend. It builds a line over time as checks accrue.</div>'; legend.innerHTML = ''; return; }
     if (avMetric === 'visibility') {
       // multi-brand: you vs top competitors
-      const series = (trend.series || []).map((s, i) => ({ ...s, color: s.isBrand ? '#6366f1' : AV_PALETTE[(i % (AV_PALETTE.length - 1)) + 1] }));
+      const series = (trend.series || []).map((s, i) => ({ ...s, color: s.isBrand ? AV_PALETTE[0] : AV_PALETTE[(i % (AV_PALETTE.length - 1)) + 1] }));
       box.innerHTML = avLineChart(series, dates);
-      legend.innerHTML = series.map(s => `<span class="lg"><i style="background:${s.color}"></i>${avEsc(s.name)}${s.isBrand ? ' (you)' : ''}</span>`).join('');
+      legend.innerHTML = `<span class="ws-chart-series">${series.map(s => `<span class="lg"><i style="--legend-color:${s.color}"></i>${avEsc(s.name)}${s.isBrand ? ' (you)' : ''}</span>`).join('')}</span><strong>${avEsc(avChartWindow(dates))}</strong>`;
     } else {
       const line = (trend.metricLines && trend.metricLines[avMetric]) || [];
-      const series = [{ name: avState.brand, isBrand: true, color: '#6366f1', points: line.map(p => ({ date: p.date, score: p.value == null ? 0 : p.value })) }];
+      const series = [{ name: avState.brand, isBrand: true, color: AV_PALETTE[0], points: line.map(p => ({ date: p.date, score: p.value == null ? 0 : p.value })) }];
       box.innerHTML = avLineChart(series, dates);
-      legend.innerHTML = `<span class="lg"><i style="background:#6366f1"></i>${avEsc(AV_METRIC_META[avMetric].label)}</span>`;
+      legend.innerHTML = `<span class="ws-chart-series"><span class="lg"><i style="--legend-color:${AV_PALETTE[0]}"></i>${avEsc(AV_METRIC_META[avMetric].label)}</span></span><strong>${avEsc(avChartWindow(dates))}</strong>`;
     }
   }
 

@@ -23,8 +23,8 @@
     const path = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(p.value).toFixed(1)}`).join(' ');
     const dots = points.map((p, i) => `<circle cx="${x(i).toFixed(1)}" cy="${y(p.value).toFixed(1)}" r="3" fill="${color}"/>`).join('');
     const step = Math.max(1, Math.ceil(n / 8));
-    const labels = points.map((p, i) => (i % step === 0 || i === n - 1) ? `<text x="${x(i).toFixed(1)}" y="${h - 6}" font-size="9" fill="var(--text-dark)" text-anchor="middle">${p.label}</text>` : '').join('');
-    return `<svg viewBox="0 0 ${w} ${h}" width="100%" style="max-height:${h}px;"><path d="${path}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linejoin="round"/>${dots}${labels}</svg>`;
+    const labels = points.map((p, i) => (i % step === 0 || i === n - 1) ? `<text x="${x(i).toFixed(1)}" y="${h - 6}" font-size="9" fill="var(--text-dark)" text-anchor="middle">${citEsc(p.label)}</text>` : '').join('');
+    return `<svg viewBox="0 0 ${w} ${h}" width="100%" style="max-height:${h}px;" role="img" aria-label="Recorded trend over time"><path d="${path}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linejoin="round"/>${dots}${labels}</svg>`;
   }
 
   // Paints the measurement card's verdict dot alongside the delta text, so
@@ -272,12 +272,12 @@
 
       const aio = d.aioTrend || [];
       $('perf-aio-chart').innerHTML = aio.length
-        ? perfLineChart(aio.map(p => ({ label: p.date.slice(5), value: p.rate })), { min: 0, max: 100, color: 'var(--graphic-teal)' }) + `<div class="ws-chart-legend"><span><i style="--legend-color:var(--graphic-teal)"></i>AI recommendation rate</span><strong>Latest: ${aio[aio.length - 1].rate}%</strong></div>`
+        ? perfLineChart(aio.map(p => ({ label: p.date.slice(5), value: p.rate })), { min: 0, max: 100, color: 'var(--chart-primary)' }) + `<div class="ws-chart-legend"><span><i style="--legend-color:var(--chart-primary)"></i>AI recommendation rate</span><strong>Latest: ${aio[aio.length - 1].rate}% · ${aio.length} check${aio.length === 1 ? '' : 's'}</strong></div><details class="ws-chart-source"><summary>How to read this chart</summary><p>Each point is a completed AI visibility check. The percentage is how often the tracked answers recommended your business; missing checks are not plotted as zero.</p></details>`
         : '<div class="perf-empty">Run AI Search Audits over time to build this trend.</div>';
 
       const snaps = d.snapshots || [];
       if (snaps.length >= 2) {
-        $('perf-snap-chart').innerHTML = perfLineChart(snaps.map(s => ({ label: s.date.slice(5), value: s.impressions })), { color: 'var(--brand-navy)' }) + `<div class="ws-chart-legend"><span><i style="--legend-color:var(--brand-navy)"></i>Google appearances per day</span><strong>${snaps.length} days recorded</strong></div>`;
+        $('perf-snap-chart').innerHTML = perfLineChart(snaps.map(s => ({ label: s.date.slice(5), value: s.impressions })), { color: 'var(--chart-secondary)' }) + `<div class="ws-chart-legend"><span><i style="--legend-color:var(--chart-secondary)"></i>Google appearances per day</span><strong>${snaps.length} daily snapshots · ${citEsc(snaps[0].date)}–${citEsc(snaps[snaps.length - 1].date)}</strong></div><details class="ws-chart-source"><summary>How to read this chart</summary><p>Each point is a saved daily Search Console snapshot. Compare the overall direction across matching dates rather than treating one day as a trend.</p></details>`;
       } else if (snaps.length === 1) {
         $('perf-snap-chart').innerHTML = `<div class="perf-empty">First snapshot captured (${snaps[0].date}). The trend line appears once there are at least two days of data — check back tomorrow.</div>`;
       } else {

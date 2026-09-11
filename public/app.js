@@ -686,7 +686,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // The single number used to conflate them.
     let cov = document.getElementById('home-coverage');
     if (!cov) { cov = document.createElement('div'); cov.id = 'home-coverage'; el.parentNode.insertBefore(cov, el.nextSibling); }
-    cov.innerHTML = sbCoverage(hs) + sbScoreMeta(hs);
+    cov.innerHTML = sbCoverage(hs) + sbScoreMeta(hs)
+      + '<details class="ws-chart-source" id="home-score-explainer"><summary>How to read this score</summary><p>The ring combines the measured search, local listing, AI visibility, directory, and content areas shown below. “7-day score” is stabilized across recent samples; “Live today” is the current calculation. Unknown areas stay unmeasured, and the score is not a ranking guarantee.</p></details>';
     el.innerHTML = hs.pillars.map(p => {
       const detCls = p.status === 'warn' ? 'warnt' : (p.status === 'off' ? 'offt' : '');
       // The dot carries the pillar's own hue so the eye links a tile to its arc
