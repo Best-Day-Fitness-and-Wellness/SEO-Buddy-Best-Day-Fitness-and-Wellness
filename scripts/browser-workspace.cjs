@@ -188,6 +188,34 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
     }
   });
 
+  await journey(`${prefix}: assistant launcher stays available without covering page content`, async () => {
+    const before = writes.length;
+    await load('tools/reviews', '?assistant-dock=1');
+    const placement = await page.locator('#asst-fab').evaluate(fab => {
+      const content = document.querySelector('.tab-content.active').getBoundingClientRect();
+      const button = fab.getBoundingClientRect();
+      const overlaps = !(button.right <= content.left || button.left >= content.right || button.bottom <= content.top || button.top >= content.bottom);
+      return {
+        parent: fab.parentElement.className,
+        overlaps,
+        width: button.width,
+        shadow: getComputedStyle(fab).boxShadow,
+        labelVisible: fab.querySelector('span').getClientRects().length > 0,
+      };
+    });
+    assert.equal(placement.overlaps, false, 'The closed assistant launcher must not cover the active page');
+    if (prefix === 'desktop') {
+      assert.match(placement.parent, /sidebar-footer/);
+      assert.ok(placement.width > 150, 'The desktop sidebar launcher should remain easy to discover');
+      assert.equal(placement.shadow, 'none');
+      assert.equal(placement.labelVisible, true);
+    } else {
+      assert.match(placement.parent, /header-actions/);
+      assert.equal(placement.labelVisible, false);
+    }
+    assert.deepEqual(writes.slice(before).filter(write => write.path !== '/api/performance-digest/seen'), []);
+  });
+
   await journey(`${prefix}: menu controls and overlay dismissal stay above primary navigation`, async () => {
     await load('today');
     const originalViewport = page.viewportSize();

@@ -646,7 +646,8 @@
     // Move, do not duplicate, the same four primary controls on phones.
     const primaryNav = $('workspace-nav'), sidebar = document.querySelector('.sidebar');
     primaryNav.querySelectorAll('.nav-item').forEach(item => item.insertAdjacentHTML('afterbegin', icon(ROUTES[item.dataset.tab][2])));
-    const assistant = $('asst-fab'), assistantDock = assistant.parentElement;
+    const assistant = $('asst-fab');
+    const sidebarFooter = sidebar.querySelector('.sidebar-footer');
     const mobile = global.matchMedia('(max-width: 860px)');
     const positionNav = () => {
       if (mobile.matches) {
@@ -654,7 +655,7 @@
         document.querySelector('.header-actions').append(assistant);
       } else {
         sidebar.querySelector('.biz-chip').after(primaryNav);
-        assistantDock.append(assistant);
+        sidebarFooter.prepend(assistant);
       }
     };
     positionNav(); mobile.addEventListener('change', positionNav);

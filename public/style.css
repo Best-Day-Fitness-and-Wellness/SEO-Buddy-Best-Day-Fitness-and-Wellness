@@ -3050,6 +3050,27 @@ body.workspace-preview [hidden] { display: none !important; }
 body.workspace-preview .main-content { padding-bottom: 100px; }
 body.workspace-preview .app-header { margin-bottom: 22px; }
 body.workspace-preview .sb-chips { display: none; }
+body.workspace-preview .sidebar-footer > .asst-fab {
+  width: 100%;
+  min-height: 42px;
+  justify-content: flex-start;
+  margin-bottom: 8px;
+  padding: 10px 13px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--text-main);
+  box-shadow: none;
+  font-size: 13px;
+}
+body.workspace-preview .sidebar-footer > .asst-fab svg { width: 18px; height: 18px; stroke: var(--graphic-teal); }
+body.workspace-preview .sidebar-footer > .asst-fab:hover {
+  transform: none;
+  border-color: var(--graphic-teal);
+  background: var(--surface);
+  box-shadow: none;
+}
+body.workspace-preview.dark .sidebar-footer > .asst-fab { color: var(--text-main); }
 body.workspace-preview #page-title { letter-spacing: -.035em; font-size: 28px; }
 body.workspace-preview #page-title:focus:not(:focus-visible) { outline: none; }
 .ws-icon { width: 20px; height: 20px; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
