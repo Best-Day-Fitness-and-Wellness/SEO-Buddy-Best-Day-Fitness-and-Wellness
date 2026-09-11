@@ -459,6 +459,36 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
     assert.deepEqual(writes.slice(before).filter(write => write.path !== '/api/performance-digest/seen'), []);
   });
 
+  await journey(`${prefix}: shared controls stay consistent across older feature pages`, async () => {
+    const before = writes.length;
+    await load('business/voice', '?shared-controls=brand');
+    const brandFields = page.locator('#bp-card input:not([type="checkbox"]), #bp-card textarea');
+    assert.ok(await brandFields.count() > 8);
+    assert.equal(await brandFields.evaluateAll(fields => fields.every(field => field.classList.contains('form-input'))), true);
+    assert.equal(await page.locator('#bp-reset').evaluate(el => el.classList.contains('btn-secondary')), true);
+    assert.equal(await page.locator('#bp-tagline').evaluate(el => getComputedStyle(el).borderRadius), '10px');
+
+    const toggleSize = async (slug, selector) => {
+      await load(slug, '?shared-controls=toggle');
+      return page.locator(selector).evaluate(input => {
+        const style = getComputedStyle(input.parentElement);
+        return [style.width, style.height];
+      });
+    };
+    for (const [slug, selector] of [
+      ['results/detail', '#pd-enabled'],
+      ['tools/ai-visibility', '#av-auto'],
+      ['tools/directories', '#cit-auto-toggle'],
+      ['tools/local', '#la-toggle'],
+      ['tools/website', '#oa-toggle'],
+    ]) assert.deepEqual(await toggleSize(slug, selector), ['42px', '24px']);
+
+    await load('tools/ai-visibility', '?shared-controls=schema');
+    assert.equal(await page.locator('#schema-code-output').evaluate(el => el.classList.contains('schema-code-output')), true);
+    assert.equal(await page.locator('.schema-code-box').evaluate(el => getComputedStyle(el).borderRadius), '10px');
+    assert.deepEqual(writes.slice(before).filter(write => write.path !== '/api/performance-digest/seen'), []);
+  });
+
   await journey(`${prefix}: Tools remembers the last three destinations in this browser`, async () => {
     const before = writes.length;
     await load('tools/local', '?recent-tools=1');

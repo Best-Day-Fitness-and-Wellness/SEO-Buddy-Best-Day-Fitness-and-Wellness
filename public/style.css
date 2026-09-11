@@ -87,6 +87,10 @@
   --space-5: 2rem;
   --page-width: 1120px;
   --control-height: 42px;
+  --control-height-sm: 38px;
+  --control-height-xs: 34px;
+  --control-radius: 10px;
+  --badge-radius: 7px;
   
   /* Shadow & Transitions — one soft shadow, no glow */
   --shadow-sm: 0 1px 2px rgba(17, 31, 50, 0.05);
@@ -3353,18 +3357,18 @@ body.workspace-preview .sum-kpis { gap: var(--space-3); margin-bottom: var(--spa
 body.workspace-preview .btn {
   min-height: var(--control-height);
   padding: 9px 14px;
-  border-radius: 10px;
+  border-radius: var(--control-radius);
   box-shadow: none;
 }
 body.workspace-preview .btn:hover { box-shadow: none; }
-body.workspace-preview .btn-sm { min-height: 38px; padding: 7px 12px; }
-body.workspace-preview .btn-xs { min-height: 34px; padding: 6px 10px; }
+body.workspace-preview .btn-sm { min-height: var(--control-height-sm); padding: 7px 12px; }
+body.workspace-preview .btn-xs { min-height: var(--control-height-xs); padding: 6px 10px; }
 body.workspace-preview input.form-input,
-body.workspace-preview select.form-input { min-height: var(--control-height); padding: 9px 12px; border-radius: 10px; }
-body.workspace-preview textarea.form-input { padding: 11px 12px; border-radius: 10px; }
+body.workspace-preview select.form-input { min-height: var(--control-height); padding: 9px 12px; border-radius: var(--control-radius); }
+body.workspace-preview textarea.form-input { padding: 11px 12px; border-radius: var(--control-radius); }
 body.workspace-preview .status-badge,
 body.workspace-preview .sb-pill,
-body.workspace-preview .ow-chip { border-radius: 7px; }
+body.workspace-preview .ow-chip { border-radius: var(--badge-radius); }
 body.workspace-preview .indicator-dot { box-shadow: none; animation: none; }
 body.workspace-preview .ws-tool-search,
 body.workspace-preview .ws-report-entry {
@@ -3374,6 +3378,91 @@ body.workspace-preview .ws-report-entry {
 }
 body.dark.workspace-preview .ws-tool-search,
 body.dark.workspace-preview .ws-report-entry { border-color: var(--line); border-left-color: var(--graphic-coral); }
+
+/* Shared control primitives for feature views that predate the owner workspace.
+   The original IDs and markup relationships stay intact, so this is strictly a
+   visual/accessibility normalization rather than a behavior change. */
+body.workspace-preview .btn:not(.btn-primary):not(.btn-secondary) {
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--text-main);
+}
+body.workspace-preview .btn-secondary:hover,
+body.workspace-preview .btn:not(.btn-primary):not(.btn-secondary):hover {
+  border-color: var(--ink-3);
+  background: var(--surface);
+}
+body.workspace-preview .btn:focus-visible,
+body.workspace-preview .form-input:focus-visible {
+  outline: 2px solid var(--action);
+  outline-offset: 2px;
+}
+
+body.workspace-preview #performance-tab .pd-switch,
+body.workspace-preview #aio-tab .av-switch,
+body.workspace-preview #citations-tab .cit-switch,
+body.workspace-preview #local-tab .la-switch,
+body.workspace-preview #onsite-tab .oa-switch {
+  width: 42px;
+  height: 24px;
+}
+body.workspace-preview #performance-tab .pd-slider,
+body.workspace-preview #aio-tab .av-slider,
+body.workspace-preview #citations-tab .cit-slider,
+body.workspace-preview #local-tab .la-slider,
+body.workspace-preview #onsite-tab .oa-slider { background: var(--line); }
+body.workspace-preview #performance-tab .pd-switch input:checked + .pd-slider,
+body.workspace-preview #aio-tab .av-switch input:checked + .av-slider,
+body.workspace-preview #citations-tab .cit-switch input:checked + .cit-slider,
+body.workspace-preview #local-tab .la-switch input:checked + .la-slider,
+body.workspace-preview #onsite-tab .oa-switch input:checked + .oa-slider { background: var(--color-success); }
+body.workspace-preview #performance-tab .pd-slider::before,
+body.workspace-preview #aio-tab .av-slider::before,
+body.workspace-preview #citations-tab .cit-slider::before,
+body.workspace-preview #local-tab .la-slider::before,
+body.workspace-preview #onsite-tab .oa-slider::before {
+  width: 18px;
+  height: 18px;
+  top: 3px;
+  left: 3px;
+}
+body.workspace-preview #performance-tab .pd-switch input:checked + .pd-slider::before,
+body.workspace-preview #aio-tab .av-switch input:checked + .av-slider::before,
+body.workspace-preview #citations-tab .cit-switch input:checked + .cit-slider::before,
+body.workspace-preview #local-tab .la-switch input:checked + .la-slider::before,
+body.workspace-preview #onsite-tab .oa-switch input:checked + .oa-slider::before { transform: translateX(18px); }
+body.workspace-preview #performance-tab .pd-switch input:focus-visible + .pd-slider,
+body.workspace-preview #aio-tab .av-switch input:focus-visible + .av-slider,
+body.workspace-preview #citations-tab .cit-switch input:focus-visible + .cit-slider,
+body.workspace-preview #local-tab .la-switch input:focus-visible + .la-slider,
+body.workspace-preview #onsite-tab .oa-switch input:focus-visible + .oa-slider {
+  outline: 2px solid var(--action);
+  outline-offset: 3px;
+}
+
+body.workspace-preview .status-badge,
+body.workspace-preview .sum-badge,
+body.workspace-preview #performance-tab .perf-badge,
+body.workspace-preview #citations-tab .cit-badge,
+body.workspace-preview #citations-tab .cit-listed,
+body.workspace-preview #local-tab .la-badge,
+body.workspace-preview #onsite-tab .oa-badge,
+body.workspace-preview #aio-tab .rd-badge,
+body.workspace-preview .settings-health-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 4px 8px;
+  border-radius: var(--badge-radius);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+body.workspace-preview .schema-selector-tabs { display: flex; flex-wrap: wrap; gap: 8px; }
+body.workspace-preview .schema-code-box { overflow: hidden; border: 1px solid var(--line); border-radius: var(--control-radius); background: var(--surface-2); }
+body.workspace-preview .schema-code-box .code-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--line-2); color: var(--ink-2); font-size: 11px; font-weight: 600; }
+body.workspace-preview .schema-code-output { width: 100%; height: 280px; padding: 12px; resize: vertical; border: 0; outline: 0; background: transparent; color: var(--ink); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; line-height: 1.5; }
 
 .ws-advanced-label {
   display: inline-flex;

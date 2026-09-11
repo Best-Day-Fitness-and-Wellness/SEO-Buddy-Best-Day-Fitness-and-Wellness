@@ -659,7 +659,7 @@
         <div class="av-prompts" id="av-prompts-panel" style="display:none;">
           <h4>Tracked search prompts</h4>
           <p class="text-muted" style="font-size:12.5px;margin:0 0 10px;">One search per line &mdash; these are the questions run across every engine. Up to 25.</p>
-          <textarea id="av-prompts-text" placeholder="best senior fitness in St. Petersburg FL&#10;personal trainer for adults over 50 St. Petersburg"></textarea>
+          <textarea id="av-prompts-text" class="form-input" placeholder="best senior fitness in St. Petersburg FL&#10;personal trainer for adults over 50 St. Petersburg"></textarea>
           <div class="av-prompts-actions">
             <button class="btn btn-secondary btn-xs" id="av-prompts-save" type="button">Save prompts</button>
             <button class="btn btn-secondary btn-xs" id="av-prompts-cancel" type="button">Cancel</button>
@@ -810,20 +810,20 @@
             <h2>Business details for AI</h2>
             <p class="text-muted mb-4">Copy this into your website page settings. It tells Google and AI exactly who you are, where you are and what you do.</p>
 
-            <div class="schema-selector-tabs mb-3" style="display: flex; gap: 8px;">
-              <button class="btn btn-secondary btn-xs active" id="btn-schema-local" style="padding: 4px 10px; font-size: 11px;">LocalBusiness Graph</button>
-              <button class="btn btn-secondary btn-xs" id="btn-schema-faq" style="padding: 4px 10px; font-size: 11px;">FAQ Page Graph</button>
+            <div class="schema-selector-tabs mb-3">
+              <button class="btn btn-secondary btn-xs active" id="btn-schema-local">LocalBusiness Graph</button>
+              <button class="btn btn-secondary btn-xs" id="btn-schema-faq">FAQ Page Graph</button>
             </div>
 
             <!-- These were white-on-black alphas from the old dark-only build. Over a
                  light card they composited to a mid grey with a pale blue on top
                  (3.80:1). Now on surface tokens so both themes work. -->
-            <div class="schema-code-box" style="border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--surface-2);">
-              <div class="code-header" style="display: flex; justify-content: space-between; align-items: center; background: var(--line-2); border-bottom: 1px solid var(--line); padding: 8px 12px; font-size: 11px; color: var(--ink-2); font-weight: 500;">
+            <div class="schema-code-box">
+              <div class="code-header">
                 <span>Business details code</span>
-                <button class="btn btn-secondary btn-xs" id="btn-copy-schema" style="padding: 2px 8px; font-size: 10px;">Copy code</button>
+                <button class="btn btn-secondary btn-xs" id="btn-copy-schema">Copy code</button>
               </div>
-              <textarea id="schema-code-output" readonly aria-label="Generated structured data" style="width: 100%; height: 280px; background: transparent; border: none; padding: 12px; color: var(--ink); font-family: monospace; font-size: 11px; line-height: 1.5; resize: none; outline: none;"></textarea>
+              <textarea id="schema-code-output" class="schema-code-output" readonly aria-label="Generated structured data"></textarea>
             </div>
           </div>
         </div>
@@ -1197,57 +1197,57 @@
 
             <div class="bp-grp">
               <label for="bp-tagline">Tagline</label>
-              <input type="text" id="bp-tagline" placeholder="Move Better. Feel Stronger. Live Longer.">
+              <input type="text" id="bp-tagline" class="form-input" placeholder="Move Better. Feel Stronger. Live Longer.">
             </div>
             <div class="bp-grp">
               <label for="bp-audience">Who this is for</label>
-              <textarea id="bp-audience" rows="2"></textarea>
+              <textarea id="bp-audience" class="form-input" rows="2"></textarea>
             </div>
             <div class="bp-grp">
               <label for="bp-philosophy">Philosophy</label>
-              <textarea id="bp-philosophy" rows="3"></textarea>
+              <textarea id="bp-philosophy" class="form-input" rows="3"></textarea>
             </div>
             <div class="bp-grp">
               <label for="bp-tone">Tone</label>
-              <textarea id="bp-tone" rows="2"></textarea>
+              <textarea id="bp-tone" class="form-input" rows="2"></textarea>
             </div>
             <div class="bp-grp">
               <label for="bp-traits">Voice characteristics <span class="text-muted" style="font-weight:400;">(one per line)</span></label>
-              <textarea id="bp-traits" rows="5"></textarea>
+              <textarea id="bp-traits" class="form-input" rows="5"></textarea>
             </div>
             <div class="bp-grp">
               <label for="bp-style">Writing style rules <span class="text-muted" style="font-weight:400;">(one per line)</span></label>
-              <textarea id="bp-style" rows="6"></textarea>
+              <textarea id="bp-style" class="form-input" rows="6"></textarea>
             </div>
             <div class="bp-grp">
               <label for="bp-use">Phrases that are ours <span class="text-muted" style="font-weight:400;">(one per line)</span></label>
-              <textarea id="bp-use" rows="6"></textarea>
+              <textarea id="bp-use" class="form-input" rows="6"></textarea>
             </div>
             <div class="bp-grp">
               <label for="bp-never">Never use these <span class="text-muted" style="font-weight:400;">(one per line)</span></label>
-              <textarea id="bp-never" rows="5" class="bp-never"></textarea>
+              <textarea id="bp-never" rows="5" class="form-input bp-never"></textarea>
               <small>These are put in every prompt <b>and</b> checked in the generated copy afterwards &mdash; models ignore negative instructions often enough that asking isn't enough. Anything that slips through gets flagged before you publish.</small>
             </div>
             <div class="bp-grp">
               <label for="bp-not">We are NOT <span class="text-muted" style="font-weight:400;">(one per line)</span></label>
-              <textarea id="bp-not" rows="4"></textarea>
+              <textarea id="bp-not" class="form-input" rows="4"></textarea>
             </div>
             <div class="bp-grp">
               <label for="bp-keywords">Local SEO keywords <span class="text-muted" style="font-weight:400;">(one per line)</span></label>
-              <textarea id="bp-keywords" rows="6"></textarea>
+              <textarea id="bp-keywords" class="form-input" rows="6"></textarea>
             </div>
             <div class="bp-grp">
               <label for="bp-cta-label">Primary CTA</label>
-              <input type="text" id="bp-cta-label" placeholder="Book a Consultation">
+              <input type="text" id="bp-cta-label" class="form-input" placeholder="Book a Consultation">
             </div>
             <div class="bp-grp">
               <label for="bp-cta-url">Primary CTA link</label>
-              <input type="text" id="bp-cta-url" placeholder="https://bestdayfitness.com/consult">
+              <input type="text" id="bp-cta-url" class="form-input" placeholder="https://bestdayfitness.com/consult">
             </div>
 
             <div class="bp-actions">
               <button class="btn btn-primary" id="bp-save" type="button">Save brand voice</button>
-              <button class="btn" id="bp-reset" type="button">Reset to defaults</button>
+              <button class="btn btn-secondary" id="bp-reset" type="button">Reset to defaults</button>
               <span class="bp-msg" id="bp-msg"></span>
             </div>
           </div>
