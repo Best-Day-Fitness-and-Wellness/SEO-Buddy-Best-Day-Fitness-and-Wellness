@@ -107,6 +107,7 @@
     if (trust) {
       $('ws-trust-check').textContent = trust[0];
       $('ws-trust-next').textContent = trust[1];
+      $('ws-trust-summary').textContent = trust[0];
     }
     if ($('ws-advanced-label')) {
       $('ws-advanced-label').hidden = !meta.advanced;
@@ -662,7 +663,10 @@
     const bar = $('ws-orientation');
     bar.insertAdjacentHTML('afterbegin', '<button type="button" id="ws-back" class="btn btn-secondary">← Back</button><nav id="ws-location" aria-label="Your location"></nav><span id="ws-advanced-label" class="ws-advanced-label" hidden></span>');
     const journey = document.createElement('section'); journey.id = 'ws-journey'; journey.className = 'ws-journey'; journey.setAttribute('aria-label', 'Content workspace'); bar.after(journey);
-    journey.insertAdjacentHTML('afterend', `<section id="ws-page-trust" class="ws-page-trust" aria-label="How to read this page" hidden><div><span>What SEO Buddy checks</span><strong id="ws-trust-check"></strong></div><div><span>When it was checked</span><strong>Dates appear wherever a check or saved record exists.</strong></div><div><span>What it found</span><strong>The measured result, draft state, or unavailable status stays visible below.</strong></div><div><span>What to do next</span><strong id="ws-trust-next"></strong></div></section><nav id="ws-section-nav" class="ws-section-nav" aria-label="On this page" hidden></nav>`);
+    journey.insertAdjacentHTML('afterend', `<details id="ws-page-trust" class="ws-page-trust" aria-label="How to read this page" open hidden><summary><span>How to read this page</span><strong id="ws-trust-summary"></strong></summary><div class="ws-page-trust-grid"><div><span>What SEO Buddy checks</span><strong id="ws-trust-check"></strong></div><div><span>When it was checked</span><strong>Dates appear wherever a check or saved record exists.</strong></div><div><span>What it found</span><strong>The measured result, draft state, or unavailable status stays visible below.</strong></div><div><span>What to do next</span><strong id="ws-trust-next"></strong></div></div></details><nav id="ws-section-nav" class="ws-section-nav" aria-label="On this page" hidden></nav>`);
+    const compactTrust = global.matchMedia('(max-width: 620px)');
+    const positionTrust = () => { $('ws-page-trust').open = !compactTrust.matches; };
+    positionTrust(); compactTrust.addEventListener('change', positionTrust);
     document.querySelectorAll('.tab-content').forEach(tab => tab.classList.add('ws-normalized-page'));
     // Keep the same form and controls; tuck occasional technical settings
     // behind a native, keyboard-accessible disclosure without changing saves.

@@ -448,11 +448,19 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
     await load('results', '?trust-pattern=1');
     const trust = page.locator('#ws-page-trust');
     await trust.waitFor();
-    assert.equal(await trust.locator(':scope > div').count(), 4);
-    assert.match(await trust.innerText(), /What SEO Buddy checks/i);
-    assert.match(await trust.innerText(), /When it was checked/i);
-    assert.match(await trust.innerText(), /What it found/i);
-    assert.match(await trust.innerText(), /What to do next/i);
+    assert.equal(await trust.locator('.ws-page-trust-grid > div').count(), 4);
+    const trustText = await trust.textContent();
+    assert.match(trustText, /What SEO Buddy checks/i);
+    assert.match(trustText, /When it was checked/i);
+    assert.match(trustText, /What it found/i);
+    assert.match(trustText, /What to do next/i);
+    assert.equal(await trust.evaluate(node => node.open), prefix === 'desktop');
+    if (prefix === 'mobile') {
+      assert.match(await trust.locator('summary').innerText(), /How to read this page/i);
+      await trust.locator('summary').click();
+      assert.equal(await trust.evaluate(node => node.open), true);
+      await trust.locator('summary').click();
+    }
     await load('today', '?metric-source=1');
     const source = page.locator('.ws-score .ws-metric-source');
     await source.waitFor();
