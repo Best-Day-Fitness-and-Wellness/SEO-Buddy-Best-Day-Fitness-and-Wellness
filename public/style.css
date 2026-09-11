@@ -3416,11 +3416,16 @@ body.dark.workspace-preview .ws-report-entry { border-color: var(--line); border
 .ws-page-trust strong { color: var(--text-main); font-size: 11px; font-weight: 600; line-height: 1.45; }
 
 .ws-section-nav {
+  position: sticky;
+  top: 0;
+  z-index: 30;
   display: flex;
   align-items: center;
   gap: 14px;
   margin: -10px 0 24px;
-  padding: 10px 0 0;
+  padding: 10px 8px 8px;
+  border-bottom: 1px solid transparent;
+  background: var(--bg-main);
 }
 .ws-section-nav[hidden] { display: none; }
 .ws-section-nav > span {

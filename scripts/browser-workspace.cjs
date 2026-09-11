@@ -449,6 +449,13 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
     await page.waitForFunction(() => document.getElementById('ws-connections').open && document.activeElement?.id === 'settings-connections-heading');
     assert.equal(await page.locator('#settings-connections-heading').isVisible(), true);
     assert.equal(await nav.getByRole('button', { name: 'Credentials and APIs' }).getAttribute('aria-current'), 'location');
+
+    await load('tools/website', '?section-navigation=scroll');
+    assert.equal(await nav.getByRole('button', { name: 'Running on its own' }).getAttribute('aria-current'), 'location');
+    await page.evaluate(() => document.getElementById('oa-fixes').scrollIntoView());
+    await page.waitForFunction(() => document.querySelector('[data-ws-section-target="oa-fixes"]')?.getAttribute('aria-current') === 'location');
+    await nav.getByRole('button', { name: 'Find opportunities' }).click();
+    await page.waitForFunction(() => document.activeElement?.id === 'oa-opportunities');
     assert.deepEqual(writes.slice(before).filter(write => write.path !== '/api/performance-digest/seen'), []);
   });
 

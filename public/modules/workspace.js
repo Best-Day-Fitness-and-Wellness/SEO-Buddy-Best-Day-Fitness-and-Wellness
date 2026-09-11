@@ -76,7 +76,7 @@
   // Keep contextual setup links consistent in both the briefing and status rows.
   const needsConnections = feature => feature.status === 'needs-setup' && !['digest', 'monthly-report'].includes(feature.key);
   const featureNavigation = feature => needsConnections(feature) ? 'data-settings-section="connections"' : `data-ws-tab="${esc(feature.tab)}"`;
-  let renderTab, current = null, depth = 0, todayRequest = 0, approvalsRequest = 0, scrollRestoreToken = 0;
+  let renderTab, current = null, depth = 0, todayRequest = 0, approvalsRequest = 0, scrollRestoreToken = 0, sectionScrollFrame = 0;
   const $ = id => document.getElementById(id);
   const pendingDraft = () => { const draft = global.SeoBuddyContent?.getDraftSummary?.(); return draft?.title && draft.publicationStatus !== 'published' ? draft : null; };
   const date = value => value && Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleString() : 'Not recorded';
@@ -123,7 +123,40 @@
       .filter(section => section.id && section.dataset.wsSection)
       .slice(0, 6);
     host.hidden = sections.length < 2;
-    host.innerHTML = sections.length < 2 ? '' : `<span>On this page</span><div>${sections.map(section => `<button type="button" data-ws-section-target="${esc(section.id)}">${esc(section.dataset.wsSection)}</button>`).join('')}</div>`;
+    host.innerHTML = sections.length < 2 ? '' : `<span>On this page</span><div>${sections.map((section, index) => `<button type="button" data-ws-section-target="${esc(section.id)}"${index === 0 ? ' aria-current="location"' : ''}>${esc(section.dataset.wsSection)}</button>`).join('')}</div>`;
+    if (sections.length > 1) requestAnimationFrame(updateActiveSection);
+  }
+
+  function updateActiveSection() {
+    sectionScrollFrame = 0;
+    const host = $('ws-section-nav');
+    if (!host || host.hidden) return;
+    const buttons = [...host.querySelectorAll('[data-ws-section-target]')];
+    if (!buttons.length) return;
+    const threshold = Math.max(18, host.getBoundingClientRect().bottom + 18);
+    let active = buttons[0];
+    for (const button of buttons) {
+      const target = $(button.dataset.wsSectionTarget);
+      if (target && target.getBoundingClientRect().top <= threshold) active = button;
+      else break;
+    }
+    for (const button of buttons) {
+      if (button === active) button.setAttribute('aria-current', 'location');
+      else button.removeAttribute('aria-current');
+    }
+    // Keep the active chip visible inside the horizontal strip without asking
+    // scrollIntoView to move the document and fight history scroll restoration.
+    const strip = active.parentElement;
+    if (strip && strip.scrollWidth > strip.clientWidth) {
+      const left = active.offsetLeft;
+      const right = left + active.offsetWidth;
+      if (left < strip.scrollLeft) strip.scrollLeft = left;
+      else if (right > strip.scrollLeft + strip.clientWidth) strip.scrollLeft = right - strip.clientWidth;
+    }
+  }
+
+  function scheduleActiveSection() {
+    if (!sectionScrollFrame) sectionScrollFrame = requestAnimationFrame(updateActiveSection);
   }
 
   function goToSection(id, button) {
@@ -659,6 +692,8 @@
     });
     global.addEventListener('popstate', () => navigate(tabFromHash(), { replay: true }));
     global.addEventListener('hashchange', () => { const tab = tabFromHash(); if (tab !== current) navigate(tab, { replay: true }); });
+    global.addEventListener('scroll', scheduleActiveSection, { passive: true });
+    global.addEventListener('resize', scheduleActiveSection);
     document.addEventListener('seo:content-changed', updateJourney);
     document.addEventListener('seo:readiness-changed', () => {
       if (current === 'workspace-today-tab') loadToday();
