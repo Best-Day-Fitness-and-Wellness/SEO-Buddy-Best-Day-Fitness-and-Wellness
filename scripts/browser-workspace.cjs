@@ -459,6 +459,40 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
     assert.deepEqual(writes.slice(before).filter(write => write.path !== '/api/performance-digest/seen'), []);
   });
 
+  await journey(`${prefix}: Settings uses the shared page width without crowding smaller screens`, async () => {
+    const before = writes.length;
+    await load('settings', '?settings-layout=1');
+    const layout = await page.locator('#settings-tab').evaluate(tab => {
+      const rect = id => {
+        const box = document.getElementById(id).getBoundingClientRect();
+        return { left: box.left, top: box.top, width: box.width };
+      };
+      const account = document.getElementById('settings-form').closest('.content-card').getBoundingClientRect();
+      return {
+        viewport: innerWidth,
+        display: getComputedStyle(tab).display,
+        overview: rect('settings-connection-overview'),
+        storage: rect('storage-status-card'),
+        usage: rect('usage-card'),
+        account: { left: account.left, top: account.top, width: account.width },
+        tabWidth: tab.getBoundingClientRect().width,
+        overviewMaxWidth: getComputedStyle(document.getElementById('settings-connection-overview')).maxWidth,
+      };
+    });
+    assert.equal(layout.overviewMaxWidth, 'none');
+    if (layout.viewport >= 1180) {
+      assert.equal(layout.display, 'grid');
+      assert.ok(layout.storage.left > layout.overview.left + 100, 'Status panels should form a calm secondary column');
+      assert.ok(layout.usage.top > layout.storage.top, 'Secondary settings panels should retain their reading order');
+      assert.ok(Math.abs(layout.account.width - layout.tabWidth) < 2, 'Account controls should use the shared workspace width');
+    } else {
+      assert.equal(layout.display, 'block');
+      assert.ok(Math.abs(layout.overview.width - layout.tabWidth) < 2, 'Narrow settings panels should remain single-column');
+      assert.ok(layout.storage.top > layout.overview.top, 'Mobile source order should remain unchanged');
+    }
+    assert.deepEqual(writes.slice(before).filter(write => write.path !== '/api/performance-digest/seen'), []);
+  });
+
   await journey(`${prefix}: shared controls stay consistent across older feature pages`, async () => {
     const before = writes.length;
     await load('business/voice', '?shared-controls=brand');
