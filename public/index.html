@@ -1159,7 +1159,7 @@
 
       <section class="tab-content" id="reviews-tab">
 
-        <div class="rv-head">
+        <div class="rv-head" id="rv-current-section" data-ws-section="Overview">
           <div class="rv-head-left">
             <span>Live data from</span>
             <a id="rv-url" href="#" target="_blank" rel="noopener" class="live-link">bestdayfitnessreviews.com</a>
@@ -1171,12 +1171,12 @@
         <div class="rv-kpis" id="rv-kpis"></div>
 
         <div class="rv-panels">
-          <div class="content-card">
+          <div class="content-card" id="rv-growth-section" data-ws-section="Growth">
             <h3 class="rv-panel-title">Review growth</h3>
             <p class="rv-panel-hint">Published reviews over time, by the month each review was written.</p>
             <div id="rv-growth"></div>
           </div>
-          <div class="content-card">
+          <div class="content-card" id="rv-sources-section" data-ws-section="Sources">
             <h3 class="rv-panel-title">Where they come from</h3>
             <p class="rv-panel-hint">Published on the site, against the total each platform holds.</p>
             <ul class="rv-split" id="rv-split"></ul>
@@ -1186,7 +1186,7 @@
         <!-- Trustpilot performance. Stays empty unless Trustpilot is configured. -->
         <div id="rv-trustpilot"></div>
 
-        <div class="content-card">
+        <div class="content-card" id="rv-health-section" data-ws-section="SEO health">
           <h3 class="rv-panel-title">Structured data &amp; SEO health</h3>
           <p class="rv-panel-hint">The checks that catch what this page is actually prone to &mdash; visible cards drifting from the JSON-LD, an aggregate rating it hasn&rsquo;t earned, and a social preview image that quietly 404s.</p>
           <ul class="rv-checks" id="rv-checks"><li class="rv-empty">Loading&hellip;</li></ul>

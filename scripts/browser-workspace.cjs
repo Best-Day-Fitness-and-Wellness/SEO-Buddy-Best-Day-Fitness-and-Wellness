@@ -486,6 +486,18 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
     await nav.getByRole('button', { name: 'Reviews', exact: true }).click();
     await page.waitForFunction(() => document.activeElement?.id === 'ow-reviews-heading');
 
+    await load('tools/reviews', '?section-navigation=reviews');
+    nav = page.locator('#ws-section-nav');
+    await nav.waitFor();
+    assert.equal(await nav.isVisible(), true);
+    assert.equal(await nav.getByRole('button').count(), 4);
+    assert.match(await nav.innerText(), /Overview/);
+    assert.match(await nav.innerText(), /Growth/);
+    assert.match(await nav.innerText(), /Sources/);
+    assert.match(await nav.innerText(), /SEO health/);
+    await nav.getByRole('button', { name: 'SEO health', exact: true }).click();
+    await page.waitForFunction(() => document.activeElement?.textContent.includes('Structured data & SEO health'));
+
     await load('settings', '?section-navigation=1');
     nav = page.locator('#ws-section-nav');
     await nav.waitFor();
