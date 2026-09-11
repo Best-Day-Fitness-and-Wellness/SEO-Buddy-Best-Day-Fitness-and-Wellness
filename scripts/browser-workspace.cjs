@@ -474,8 +474,20 @@ module.exports = async function exerciseWorkspace({ page, base, prefix, journey,
 
   await journey(`${prefix}: long owner pages provide safe in-page navigation`, async () => {
     const before = writes.length;
+    await load('results', '?section-navigation=results');
+    let nav = page.locator('#ws-section-nav');
+    await nav.waitFor();
+    assert.equal(await nav.isVisible(), true);
+    assert.equal(await nav.getByRole('button').count(), 4);
+    assert.match(await nav.innerText(), /Reports and email/);
+    assert.match(await nav.innerText(), /Search visibility/);
+    assert.match(await nav.innerText(), /Reviews/);
+    assert.match(await nav.innerText(), /Value estimate/);
+    await nav.getByRole('button', { name: 'Reviews', exact: true }).click();
+    await page.waitForFunction(() => document.activeElement?.id === 'ow-reviews-heading');
+
     await load('settings', '?section-navigation=1');
-    const nav = page.locator('#ws-section-nav');
+    nav = page.locator('#ws-section-nav');
     await nav.waitFor();
     assert.equal(await nav.isVisible(), true);
     assert.equal(await nav.getByRole('button').count(), 5);

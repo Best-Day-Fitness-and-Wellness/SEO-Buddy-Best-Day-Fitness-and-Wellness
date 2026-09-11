@@ -721,7 +721,7 @@
       } catch (error) { showToast(error.message); target.disabled = false; }
     });
     // Summary-level destinations link to detail without changing the navigation.
-    $('owner-results-tab').insertAdjacentHTML('afterbegin', `<section class="ws-report-entry" id="ow-reports-entry" aria-label="Reports and email delivery"><div><h2>Reports &amp; email delivery</h2><p>Download your progress report or manage the monthly owner email.</p></div>${button('performance-tab', 'Open reports & email')}</section>`);
+    $('owner-results-tab').insertAdjacentHTML('afterbegin', `<section class="ws-report-entry" id="ow-reports-entry" data-ws-section="Reports and email" aria-label="Reports and email delivery"><div><h2>Reports &amp; email delivery</h2><p>Download your progress report or manage the monthly owner email.</p></div>${button('performance-tab', 'Open reports & email')}</section>`);
     $('owner-results-tab').insertAdjacentHTML('beforeend', `<div class="ws-result-links">${button('summary-tab', 'Advanced dashboard')}</div>`);
     $('owner-business-tab').insertAdjacentHTML('afterbegin', `<div class="ws-result-links"><button class="btn btn-secondary" type="button" id="ws-edit-business">Edit business details</button>${button('brand-tab', 'Edit brand voice')}<button class="btn btn-secondary" type="button" data-settings-section="connections">Manage connections</button></div>`);
     $('ws-edit-business').addEventListener('click', () => global.openSetupWizard());
